@@ -79,7 +79,7 @@ impl Session {
     ) -> Result<(), &'static str> {
         if peer.is_empty()
             || rider >= 6
-            || run.is_empty()
+            || (run.is_empty() && !authority.guest)
             || run.encode_utf16().count() > 12
             || authority.host_rider >= 6
             || (authority.guest && authority.host_peer.is_none())

@@ -66,3 +66,5 @@ pub fn dragon_scale(xp: f64, mighty: bool) -> f64 {
         _ => 0.62,
     }
 }
+
+pub mod party;

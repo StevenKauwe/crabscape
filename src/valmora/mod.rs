@@ -131,7 +131,7 @@ impl Valmora {
             return;
         }
         self.menu_frozen = None;
-        if completion.operation == Operation::Save {
+        if completion.operation == Operation::Save && self.adventure.is_some() {
             self.ui.notice = "Checkpoint saved. Original saves are unchanged.".into();
             return;
         }
@@ -142,18 +142,37 @@ impl Valmora {
         } else if let Some(loaded) = self.persistence.loaded() {
             let profile = loaded.profile().clone();
             let frozen = loaded.frozen().clone();
-            self.open(profile, self.rider, view, 42).and_then(|()| {
-                if let Some(until) = frozen["until"].as_f64()
-                    && until > now.now_ms as f64
-                    && let Some(adventure) = &mut self.adventure
+            if profile["build"].is_null() {
+                self.adventure = None;
+                if frozen["until"]
+                    .as_f64()
+                    .is_some_and(|until| until > now.now_ms as f64)
                 {
-                    adventure
-                        .gate
-                        .freeze(frozen, now.now_ms as f64)
-                        .map_err(|e| format!("{e:?}"))?;
+                    self.menu_frozen = Some(frozen);
+                    self.menu = true;
+                } else {
+                    self.new_rider_id = profile["rid"]
+                        .as_str()
+                        .unwrap_or("native-imported-rider")
+                        .to_owned();
+                    self.builder = Some(builder::Builder::new(profile, 42));
+                    self.menu = false;
                 }
                 Ok(())
-            })
+            } else {
+                self.open(profile, self.rider, view, 42).and_then(|()| {
+                    if let Some(until) = frozen["until"].as_f64()
+                        && until > now.now_ms as f64
+                        && let Some(adventure) = &mut self.adventure
+                    {
+                        adventure
+                            .gate
+                            .freeze(frozen, now.now_ms as f64)
+                            .map_err(|e| format!("{e:?}"))?;
+                    }
+                    Ok(())
+                })
+            }
         } else {
             Err("Checkpoint returned no rider".into())
         };
@@ -294,27 +313,27 @@ fn update(
     mut state: ResMut<Valmora>,
     mut network: NonSendMut<network::Connection>,
 ) {
+    let s = &mut *state;
     if let (Ok(window), Some(now)) = (windows.single(), clock()) {
-        state.poll_storage(viewport(window), now);
-        state.checkpoint(time.delta_secs_f64());
+        s.poll_storage(viewport(window), now);
+        s.checkpoint(time.delta_secs_f64());
     }
-    if let (Some(lobby), Some(adventure), Some(now)) =
-        (&mut network.0, &mut state.adventure, clock())
-    {
+    if let (Some(lobby), Some(adventure), Some(now)) = (&mut network.0, &mut s.adventure, clock()) {
         lobby.poll(adventure, now.now_ms as f64 / 1000.);
+        match lobby.tick_party(adventure, time.delta_secs_f64(), now.now_ms) {
+            Ok(events) => s.ui.events(events),
+            Err(error) => s.ui.notice = error,
+        }
         if let Err(error) = lobby.attach_flight(adventure, now.now_ms) {
             let events = adventure.pause();
-            state.ui.events(events);
-            state.ui.notice = error;
+            s.ui.events(events);
+            s.ui.notice = error;
         }
     }
-    if !state.active {
-        if let (Some(lobby), Some(adventure), Some(now), Ok(window)) = (
-            &mut network.0,
-            &mut state.adventure,
-            clock(),
-            windows.single(),
-        ) {
+    if !s.active {
+        if let (Some(lobby), Some(adventure), Some(now), Ok(window)) =
+            (&mut network.0, &mut s.adventure, clock(), windows.single())
+        {
             let _ = adventure.tick(
                 time.delta_secs_f64(),
                 Input::default(),
@@ -325,17 +344,16 @@ fn update(
         }
         return;
     }
-    if state.return_requested {
-        state.suspend();
+    if s.return_requested {
+        s.suspend();
         return;
     }
-    if state.builder.is_some() {
+    if s.builder.is_some() {
         return;
     }
     let Ok(window) = windows.single() else {
         return;
     };
-    let s = &mut *state;
     let keys = &s.keys;
     let Some(clock) = clock() else {
         s.ui.notice =
@@ -477,6 +495,20 @@ fn update(
     s.controls.special = false;
     s.controls.swap = false;
 }
+/// Explicit original night palette, scoped to this UI so CrabScape's theme is untouched.
+fn source_panel(ui: &mut egui::Ui, ctx: &egui::Context) {
+    ui.set_min_size(ctx.content_rect().size());
+    ui.painter()
+        .rect_filled(ctx.content_rect(), 0., egui::Color32::from_rgb(10, 21, 48));
+    let visuals = &mut ui.style_mut().visuals;
+    *visuals = egui::Visuals::dark();
+    visuals.override_text_color = Some(egui::Color32::from_rgb(255, 243, 214));
+    visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(9, 18, 44);
+    visuals.widgets.inactive.bg_stroke =
+        egui::Stroke::new(1., egui::Color32::from_rgb(155, 130, 66));
+    ui.spacing_mut().button_padding = egui::vec2(12., 8.);
+    ui.spacing_mut().interact_size.y = 36.;
+}
 fn draw(
     mut contexts: EguiContexts,
     windows: Query<&Window>,
@@ -502,43 +534,47 @@ fn draw(
     };
     if s.menu {
         let mut selected = None;
-        egui::Area::new("valmora_rider_menu".into()).show(ctx, |ui| {
-            ui.heading("Welcome to Valmora");
-            ui.label(
-                "Choose a rider slot. Native checkpoints stay separate from the original game.",
-            );
-            ui.label(&s.ui.notice);
-            if s.persistence.busy() {
-                ui.label("Opening checkpoint…");
-            }
-            let frozen = s
-                .menu_frozen
-                .as_ref()
-                .and_then(|f| f["until"].as_f64())
-                .is_some_and(|until| until > clock.now_ms as f64);
-            if frozen {
-                ui.label("Frozen solid! Wait for the ice to melt before choosing a rider.");
-                if let Some(f) = &s.menu_frozen {
-                    ui.label(f["answer"].as_str().unwrap_or(""));
+        egui::Area::new("valmora_rider_menu".into())
+            .order(egui::Order::Foreground)
+            .fixed_pos(egui::Pos2::ZERO)
+            .show(ctx, |ui| {
+                source_panel(ui, ctx);
+                ui.heading("Welcome to Valmora");
+                ui.label(
+                    "Choose a rider slot. Native checkpoints stay separate from the original game.",
+                );
+                ui.label(&s.ui.notice);
+                if s.persistence.busy() {
+                    ui.label("Opening checkpoint…");
                 }
-            }
-            for (index, name) in [
-                "Alexa", "Tavian", "Rider 3", "Rider 4", "Rider 5", "Rider 6",
-            ]
-            .iter()
-            .enumerate()
-            {
-                if ui
-                    .add_enabled(!s.persistence.busy() && !frozen, egui::Button::new(*name))
-                    .clicked()
+                let frozen = s
+                    .menu_frozen
+                    .as_ref()
+                    .and_then(|f| f["until"].as_f64())
+                    .is_some_and(|until| until > clock.now_ms as f64);
+                if frozen {
+                    ui.label("Frozen solid! Wait for the ice to melt before choosing a rider.");
+                    if let Some(f) = &s.menu_frozen {
+                        ui.label(f["answer"].as_str().unwrap_or(""));
+                    }
+                }
+                for (index, name) in [
+                    "Alexa", "Tavian", "Rider 3", "Rider 4", "Rider 5", "Rider 6",
+                ]
+                .iter()
+                .enumerate()
                 {
-                    selected = Some(index);
+                    if ui
+                        .add_enabled(!s.persistence.busy() && !frozen, egui::Button::new(*name))
+                        .clicked()
+                    {
+                        selected = Some(index);
+                    }
                 }
-            }
-            if ui.button("Return to the castle").clicked() {
-                s.return_requested = true;
-            }
-        });
+                if ui.button("Return to the castle").clicked() {
+                    s.return_requested = true;
+                }
+            });
         if let Some(index) = selected {
             match s.persistence.select(slot(index), clock.now_ms as f64) {
                 Ok(()) => s.persistent = true,
@@ -551,9 +587,10 @@ fn draw(
         let mut built = None;
         if let Some(builder) = &mut s.builder {
             egui::Area::new("valmora_builder".into())
+                .order(egui::Order::Foreground)
                 .fixed_pos(egui::Pos2::ZERO)
                 .show(ctx, |ui| {
-                    ui.set_min_size(ctx.content_rect().size());
+                    source_panel(ui,ctx);
                     ui.small("Native port preview. Original saves are never overwritten.");
                     ui.label(&s.ui.notice);
                     if s.persistent && s.adventure.is_none() {
@@ -590,7 +627,13 @@ fn draw(
                     Err(error) => s.ui.notice = format!("{error:?}"),
                 }
             } else if s.persistent {
-                if let Err(error) = s.persistence.create(slot(s.rider), profile) {
+                let result = if let Some(loaded) = s.persistence.loaded() {
+                    let frozen = loaded.frozen().clone();
+                    s.persistence.save_state(profile, frozen)
+                } else {
+                    s.persistence.create(slot(s.rider), profile)
+                };
+                if let Err(error) = result {
                     s.ui.notice = error;
                 }
             } else if let Err(error) = s.open(profile, s.rider, viewport(window), 42) {
@@ -603,9 +646,10 @@ fn draw(
         return;
     };
     egui::Area::new("valmora_adventure".into())
+        .order(egui::Order::Foreground)
         .fixed_pos(egui::Pos2::ZERO)
         .show(ctx, |ui| {
-            ui.set_min_size(ctx.content_rect().size());
+            source_panel(ui, ctx);
             if let Some(game) = adventure.game() {
                 let p = ui.painter();
                 art::paint_game(
@@ -695,7 +739,42 @@ fn draw(
                     }
                 }
             });
+            if let Some(lobby) = &mut network.0
+                && adventure.state() == "party"
+            {
+                if let Some(mission) = lobby.party.mission.clone() {
+                    ui.label(format!("Party mission: {mission}"));
+                    if let Some(brief) = dragon_game::content::briefing(&mission) {
+                        ui.label(brief);
+                    }
+                    if ui
+                        .button(if lobby.party.ready == lobby.party.mission {
+                            "Not ready"
+                        } else {
+                            "Ready"
+                        })
+                        .clicked()
+                    {
+                        lobby.party.toggle_ready();
+                    }
+                    if ui.button("Start now / join this mission").clicked() {
+                        match lobby.launch_party(adventure, &mission) {
+                            Ok(events) => s.ui.events(events),
+                            Err(error) => s.ui.notice = error,
+                        }
+                    }
+                    if lobby.party.countdown > 0. {
+                        ui.heading(format!("{}", lobby.party.countdown.ceil() as u32));
+                    }
+                } else {
+                    ui.label("Pick a mission below, then everyone taps Ready.");
+                }
+            }
+            s.ui.networked = network.0.is_some();
             s.controls = s.ui.draw(ui, adventure, clock);
+            if let (Some(lobby), Some(mission)) = (&mut network.0, s.controls.mission_pick.take()) {
+                lobby.party.pick(&mission, clock.now_ms as f64);
+            }
             s.return_requested |= s.controls.return_home;
             if s.controls.edit_rider {
                 s.builder = Some(builder::Builder::new(adventure.profile().clone(), 42));
@@ -894,6 +973,40 @@ mod checkpoint_tests {
             store.load(slot(2)).unwrap().unwrap().profile()["rid"],
             "fixture"
         );
+        std::fs::remove_dir_all(path).unwrap();
+    }
+    #[test]
+    fn stored_unbuilt_rider_opens_builder_without_replacing_identity() {
+        let path = std::env::temp_dir().join(format!(
+            "valmora-unbuilt-ui-{}-{}",
+            std::process::id(),
+            time::OffsetDateTime::now_utc().unix_timestamp_nanos()
+        ));
+        let store = storage::Store::in_directory(&path);
+        let profile = dragon_game::profile::normalize_profile(
+            &json!({"rid":"existing-unbuilt"}),
+            "rider3",
+            2,
+            || "extra".into(),
+        )
+        .unwrap();
+        store.create(slot(2), profile).unwrap();
+        let mut state = Valmora {
+            persistence: persistence::Persistence::new(store),
+            persistent: true,
+            ..Default::default()
+        };
+        state.enter();
+        let now = clock().unwrap();
+        state
+            .persistence
+            .select(slot(2), now.now_ms as f64)
+            .unwrap();
+        wait(&mut state, now);
+        assert!(state.builder.is_some());
+        assert!(state.adventure.is_none());
+        assert!(!state.menu);
+        assert_eq!(state.new_rider_id, "existing-unbuilt");
         std::fs::remove_dir_all(path).unwrap();
     }
     #[test]

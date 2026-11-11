@@ -13,6 +13,10 @@ pub struct Lobby {
     peers: BTreeMap<String, Peer>,
     hello_at: f64,
     blocked: bool,
+    pub party: dragon_game::party::Party,
+    last_state: String,
+    party_sent: f64,
+    launch_hint: Option<(String, usize)>,
 }
 struct Peer {
     rider: Option<usize>,
@@ -120,6 +124,10 @@ impl Lobby {
             peers: BTreeMap::new(),
             hello_at: f64::NEG_INFINITY,
             blocked: false,
+            party: Default::default(),
+            last_state: String::new(),
+            party_sent: f64::NEG_INFINITY,
+            launch_hint: None,
         })
     }
     pub fn connected_count(&self) -> usize {
@@ -200,6 +208,13 @@ impl Lobby {
                             if topic == "presence"
                                 && data["r"].as_u64() == binding.rider.map(|r| r as u64)
                             {
+                                if let (Some(mission), Some(at), Some(state)) = (
+                                    data["pt"]["m"].as_str(),
+                                    data["pt"]["at"].as_f64(),
+                                    data["s"].as_str(),
+                                ) {
+                                    self.party.receive_pick(mission, at, state);
+                                }
                                 binding.presence = Some(data.clone());
                                 binding.seen = now;
                             }
@@ -217,7 +232,7 @@ impl Lobby {
                 "hello",
                 json!({"r":self.rider,"build":adventure.profile()["build"]}),
             );
-            if adventure.game().is_none() {
+            if adventure.game().is_none() && adventure.state() != "party" {
                 self.transport.send("presence", json!({"r":self.rider,"s":adventure.state(),"x":0.,"y":0.,"ms":null,"cs":[0,""]}));
             }
             self.hello_at = now;
@@ -270,6 +285,16 @@ impl Lobby {
                     host_peer: Some(host),
                     host_rider: rider,
                     epoch,
+                },
+            )
+        } else if let Some((host, rider)) = self.launch_hint.take() {
+            (
+                String::new(),
+                Authority {
+                    guest: true,
+                    host_peer: Some(host),
+                    host_rider: rider,
+                    epoch: 0,
                 },
             )
         } else {
@@ -363,6 +388,10 @@ mod tests {
             peers: BTreeMap::new(),
             hello_at: f64::NEG_INFINITY,
             blocked: false,
+            party: Default::default(),
+            last_state: String::new(),
+            party_sent: f64::NEG_INFINITY,
+            launch_hint: None,
         }
     }
     #[test]
@@ -426,42 +455,47 @@ mod tests {
             now += 20;
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
-        ga.choose_mission("m1", false).unwrap();
-        a.attach_flight(&mut ga, now).unwrap();
+        ga.to_party().unwrap();
+        gb.to_party().unwrap();
+        a.tick_party(&mut ga, 0., now).unwrap();
+        b.tick_party(&mut gb, 0., now).unwrap();
+        a.party.pick("m1", now as f64);
         loop {
             now += 20;
             a.poll(&mut ga, now as f64 / 1000.);
-            ga.tick(
-                0.02,
-                Input::default(),
-                view(),
-                Clock {
-                    now_ms: now,
-                    day: 0,
-                },
-            )
-            .unwrap();
-            a.flush(&mut ga);
             b.poll(&mut gb, now as f64 / 1000.);
-            if b.peers
-                .values()
-                .any(|p| p.presence.as_ref().is_some_and(|v| v["ms"][0] == "m1"))
-            {
+            if b.party.mission.as_deref() == Some("m1") && b.party.ready.is_none() {
+                b.party.toggle_ready();
+            }
+            a.tick_party(&mut ga, 0.02, now).unwrap();
+            b.tick_party(&mut gb, 0.02, now).unwrap();
+            a.attach_flight(&mut ga, now).unwrap();
+            b.attach_flight(&mut gb, now).unwrap();
+            for (lobby, game) in [(&mut a, &mut ga), (&mut b, &mut gb)] {
+                game.tick(
+                    0.02,
+                    Input::default(),
+                    view(),
+                    Clock {
+                        now_ms: now,
+                        day: 0,
+                    },
+                )
+                .unwrap();
+                lobby.flush(game);
+            }
+            if ga.shared.is_some() && gb.shared.is_some() {
                 break;
             }
             assert!(
                 std::time::Instant::now() < deadline,
-                "host presence timed out"
+                "party launch timed out: {:?} / {:?}",
+                a.party,
+                b.party
             );
-            std::thread::sleep(std::time::Duration::from_millis(10));
+            std::thread::sleep(std::time::Duration::from_millis(5));
         }
-        gb.choose_mission("m1", false).unwrap();
-        b.attach_flight(&mut gb, now).unwrap();
         assert!(gb.shared.as_ref().unwrap().authority().guest);
-        assert_eq!(
-            ga.shared.as_ref().unwrap().run(),
-            gb.shared.as_ref().unwrap().run()
-        );
         for _ in 0..100 {
             now += 20;
             a.poll(&mut ga, now as f64 / 1000.);
@@ -490,6 +524,10 @@ mod tests {
             b.flush(&mut gb);
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
+        assert_eq!(
+            ga.shared.as_ref().unwrap().run(),
+            gb.shared.as_ref().unwrap().run()
+        );
         assert!(!ga.shared.as_ref().unwrap().authority().guest);
         assert!(gb.shared.as_ref().unwrap().authority().guest);
         assert_eq!(ga.profile()["rid"], "fixture-0");
@@ -618,5 +656,73 @@ impl Lobby {
             );
         }
         super::art::paint(painter, &canvas);
+    }
+}
+
+impl Lobby {
+    pub fn launch_party(
+        &mut self,
+        adventure: &mut Adventure,
+        mission: &str,
+    ) -> Result<Vec<dragon_game::adventure::Event>, String> {
+        self.party.enter();
+        self.launch_hint = self
+            .peers
+            .iter()
+            .filter_map(|(peer, p)| {
+                let presence = p.presence.as_ref()?;
+                (presence["s"] == "party" && presence["pt"]["rdy"] == mission)
+                    .then_some((peer.clone(), p.rider?))
+            })
+            .filter(|(_, rider)| *rider < self.rider)
+            .min_by_key(|(_, rider)| *rider);
+        adventure
+            .choose_mission(mission, true)
+            .map_err(|e| format!("{e:?}"))
+    }
+    pub fn tick_party(
+        &mut self,
+        adventure: &mut Adventure,
+        dt: f64,
+        now_ms: u64,
+    ) -> Result<Vec<dragon_game::adventure::Event>, String> {
+        if adventure.state() != self.last_state {
+            if adventure.state() == "party" {
+                self.party.enter();
+            }
+            self.last_state = adventure.state().into();
+        }
+        if self.blocked || adventure.state() != "party" {
+            return Ok(vec![]);
+        }
+        let peers: Vec<_> = self
+            .peers
+            .values()
+            .filter_map(|p| {
+                let presence = p.presence.as_ref()?;
+                let state = presence["s"].as_str()?;
+                if matches!(state, "menu" | "loading") {
+                    return None;
+                }
+                Some(dragon_game::party::Peer {
+                    state,
+                    mission: presence["ms"][0].as_str(),
+                    ready: presence["pt"]["rdy"].as_str(),
+                })
+            })
+            .collect();
+        let ready = self.party.all_ready(&peers);
+        let launch = self
+            .party
+            .tick(dt.clamp(0., 0.05), adventure.state(), ready);
+        if let Some(mission) = launch {
+            return self.launch_party(adventure, &mission);
+        }
+        let now = now_ms as f64 / 1000.;
+        if now - self.party_sent >= 0.08 {
+            self.transport.send("presence",json!({"r":self.rider,"s":"party","x":0.,"y":0.,"ms":null,"cs":[0,""],"pt":{"m":self.party.mission,"at":self.party.picked_at,"rdy":self.party.ready}}));
+            self.party_sent = now;
+        }
+        Ok(vec![])
     }
 }

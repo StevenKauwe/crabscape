@@ -11,6 +11,7 @@ use serde_json::Value;
 pub struct AdventureUi {
     pub notice: String,
     pub checkpoint_requested: bool,
+    pub networked: bool,
     story: Option<Value>,
     hatch_name: String,
     release: Option<String>,
@@ -24,6 +25,7 @@ pub struct Controls {
     pub spell: Option<dragon_game::abilities::Spell>,
     pub select: Option<usize>,
     pub edit_rider: bool,
+    pub mission_pick: Option<String>,
     pub fire: bool,
     pub direction: [bool; 4],
 }
@@ -139,6 +141,9 @@ impl AdventureUi {
             }
             "party" | "map" => {
                 ui.horizontal(|ui| {
+                    if self.networked && ui.button("Party").clicked() {
+                        self.result(adventure.to_party());
+                    }
                     if ui.button("Mission map").clicked() {
                         self.result(adventure.to_map());
                     }
@@ -154,13 +159,21 @@ impl AdventureUi {
                                 .add_enabled(open, egui::Button::new(&mission.name))
                                 .clicked()
                             {
-                                self.result(adventure.choose_mission(&mission.id, false));
+                                if self.networked && adventure.state() == "party" {
+                                    controls.mission_pick = Some(mission.id.clone());
+                                } else {
+                                    self.result(adventure.choose_mission(&mission.id, false));
+                                }
                             }
                             let champion = format!("{}c", mission.id);
                             if adventure.mission_unlocked(&champion)
                                 && ui.button("Champion").clicked()
                             {
-                                self.result(adventure.choose_mission(&champion, false));
+                                if self.networked && adventure.state() == "party" {
+                                    controls.mission_pick = Some(champion);
+                                } else {
+                                    self.result(adventure.choose_mission(&champion, false));
+                                }
                             }
                         });
                     }
@@ -169,6 +182,9 @@ impl AdventureUi {
             "roost" | "skills" => {
                 ui.horizontal(|ui| {
                     controls.edit_rider = ui.button("Change my look").clicked();
+                    if self.networked && ui.button("Party").clicked() {
+                        self.result(adventure.to_party());
+                    }
                     if ui.button("Mission map").clicked() {
                         self.result(adventure.to_map());
                     }
