@@ -16,6 +16,8 @@
 pub mod cell_session;
 #[path = "cues.rs"]
 pub mod cues;
+#[path = "economy/sim.rs"]
+mod econ;
 pub mod regions;
 
 #[path = "watcher.rs"]
@@ -24,7 +26,8 @@ use bevy_math::{Rect, Vec2};
 use serde::Serialize;
 
 use crate::combat::{self, Fighter, Hit, Outcome, Source};
-use crate::craft::{Material, Stash};
+use crate::craft::Stash;
+use crate::economy::Item;
 use crate::enemy::{self, Enemy, Kind};
 use crate::feel::Feel;
 use crate::hash::fnv1a;
@@ -133,6 +136,12 @@ pub struct SimCrab {
     /// What it keeps at its workbench at home to make things from (see
     /// [`crate::craft`]); it stays there through death, like the larder.
     pub stash: Stash,
+    /// Its skills, tools, gear, stations and beds (see [`crate::economy`]).
+    #[serde(default)]
+    pub econ: crate::economy::Economy,
+    /// The gather in progress (see [`crate::economy::gather`]).
+    #[serde(default)]
+    pub gather: crate::economy::gather::GatherProgress,
     /// Events from between ticks (a hit from outside, a moult, something
     /// made), added to the next tick's.
     pub(crate) pending: StepEvents,
@@ -229,6 +238,9 @@ pub struct Sim {
     /// What lies in the world for everyone: clams, shell grit, bodies (see
     /// [`crate::shared`]). Ghost nets and brittle rock are in the level.
     pub shared: Shared,
+    /// The gathering nodes in the level (`shared.nodes[i]` is the state of
+    /// `placed_nodes[i]`), placed when the world is made.
+    placed_nodes: Vec<crate::economy::PlacedNode>,
     /// Bounded authored shellwash site, present in cellular worlds.
     pub salvage: Option<crate::salvage::Shellwash>,
     /// Fixed-capacity renewable Canyon Drift anchor.
@@ -375,6 +387,7 @@ impl Sim {
             sound_cues: cues::Cues::default(),
             watchers: watcher::Watchers::default(),
             shared: Shared::new(&level),
+            placed_nodes: crate::economy::place::nodes(&level),
             salvage: None,
             canyon: None,
             level,
@@ -998,6 +1011,8 @@ impl Sim {
             cast_offs: Vec::new(),
             pickup: PickupPreferences::default(),
             stash: Stash::default(),
+            econ: crate::economy::Economy::default(),
+            gather: crate::economy::gather::GatherProgress::default(),
             pending: StepEvents::default(),
             resting: 0,
             wakes_at: None,
@@ -1248,9 +1263,14 @@ impl Sim {
                 grit_taken,
                 midden_taken,
                 bodies_eaten,
+                nodes,
             } => {
                 if host {
                     return;
+                }
+                for (n, (charges, regrow)) in self.shared.nodes.iter_mut().zip(nodes) {
+                    n.charges = charges.min(n.kind.def().charges);
+                    n.regrow = regrow;
                 }
                 for (n, cut) in self.level.nets.iter_mut().zip(nets_cut) {
                     n.cut = cut;
@@ -1304,11 +1324,33 @@ impl Sim {
                 if host {
                     return;
                 }
-                self.shared.take(thing, &self.tuning);
+                match (thing, by) {
+                    // Refused: the host's node has no charge left.
+                    (Thing::Node(i), None) => {
+                        if let Some(n) = self.shared.nodes.get_mut(i) {
+                            n.charges = 0;
+                        }
+                    }
+                    _ => self.shared.take(thing, &self.tuning),
+                }
                 let ours = by.filter(|id| net.asked.contains(&(*id, thing)));
-                net.asked.retain(|a| a.1 != thing);
+                if matches!(thing, Thing::Node(_)) {
+                    // A node has several charges: only the ask this word
+                    // answers is done (a friend's gather isn't ours).
+                    let answered = net
+                        .asked
+                        .iter()
+                        .position(|a| a.1 == thing && by.is_none_or(|id| a.0 == id));
+                    if let Some(at) = answered {
+                        net.asked.remove(at);
+                    }
+                } else {
+                    net.asked.retain(|a| a.1 != thing);
+                }
                 let t = &self.tuning;
-                if let Some(id) = ours
+                if let (Some(id), Thing::Node(i)) = (ours, thing) {
+                    self.finish_node(id, i, false);
+                } else if let Some(id) = ours
                     && let Some(c) = self.crabs.iter_mut().find(|c| c.id == id && !c.remote)
                 {
                     let slot = c.mover.clinging.len();
@@ -1326,9 +1368,9 @@ impl Sim {
                     }
                 }
             }
-            Msg::Regrown(i) => {
-                if !host && let Some(c) = self.shared.clams.get_mut(i) {
-                    *c = 0;
+            Msg::Regrown(thing) => {
+                if !host {
+                    self.shared.regrown(thing);
                 }
             }
             // Names are the game's to show (`src/names.rs`), not a rule.
@@ -1359,6 +1401,7 @@ impl Sim {
             grit_taken: s.grit_taken.clone(),
             midden_taken: s.midden_taken.clone(),
             bodies_eaten: s.bodies_eaten.clone(),
+            nodes: s.nodes.iter().map(|n| (n.charges, n.regrow)).collect(),
         }
     }
 
@@ -1471,6 +1514,7 @@ impl Sim {
             let c = &mut crab.controls;
             c.walk = new.walk;
             c.eat_held = new.eat_held;
+            c.gather_held = new.gather_held;
             c.jump_held = new.jump_held;
             c.dodge_held = new.dodge_held;
             c.dig_held = new.dig_held;
@@ -2286,14 +2330,16 @@ impl Sim {
         // in solo play or on the host (which tells everyone); a guest's own
         // world, waiting aside, grows its own meanwhile.
         if self.is_host() {
-            let grown = self.shared.grow();
+            let mut grown: Vec<Thing> = self.shared.grow().into_iter().map(Thing::Clam).collect();
+            grown.extend(self.shared.grow_nodes().into_iter().map(Thing::Node));
             if let Some(n) = &mut self.net {
-                for i in grown {
-                    n.send(To::Everyone, Msg::Regrown(i));
+                for thing in grown {
+                    n.send(To::Everyone, Msg::Regrown(thing));
                 }
             }
         } else if let Some(own) = self.net.as_mut().and_then(|n| n.own.as_mut()) {
             own.shared.grow();
+            own.shared.grow_nodes();
         }
         self.shared
             .forget_bodies(|id| self.enemies.iter().find(|e| e.id == id).map(|e| e.deaths));
@@ -2308,6 +2354,8 @@ impl Sim {
             strain::step(crab, &self.tuning.strain);
             // Time passes for food whatever the crab is doing.
             food_timers(crab, &self.tuning, &mut ev);
+            crab.econ.tick(self.tick + 1);
+            crab.sync_econ();
             crate::moult::harden(crab, &self.tuning, &mut ev);
             // Hit-stop: frozen for a moment as a blow lands. Presses wait.
             let f = &mut crab.fighter;
@@ -2651,17 +2699,17 @@ impl Sim {
                 let load = m.carrying.take().into_iter();
                 for thing in load.chain(std::mem::take(&mut m.clinging)) {
                     match thing {
-                        Carry::Clam if crab.larder < larder => {
+                        Carry::Clam | Carry::Item(Item::Clam) if crab.larder < larder => {
                             crab.larder += 1;
                             crab.events.stored = true;
                         }
                         // No room: it stays on the shell.
-                        Carry::Clam => {
-                            m.clinging.push(Carry::Clam);
+                        Carry::Clam | Carry::Item(Item::Clam) => {
+                            m.clinging.push(thing);
                             crab.events.larder_full |= crab.events.tucked_in;
                         }
                         thing => {
-                            if let Some(kept) = Material::kept(thing) {
+                            if let Some(kept) = Item::kept(thing) {
                                 crab.stash.add(kept, 1);
                                 crab.events.put_away = true;
                             }
@@ -2699,7 +2747,7 @@ impl Sim {
                     crab.events.ate_clam = true;
                     // Its two empty valves go to the workbench.
                     let valves = self.tuning.craft.valves_per_clam;
-                    crab.stash.add(Material::Valve, valves);
+                    crab.stash.add(Item::Valve, valves);
                     if deep_meal {
                         crab.adapt_deeper(1500.0);
                     }
@@ -2987,6 +3035,7 @@ impl Sim {
                 && e.state == enemy::State::Gone
                 && e.state_tick >= crate::codes::MONKEY_LINGER)
         });
+        self.gather_step();
         // Each crab's memory: what it sees now is seen.
         if self
             .tick

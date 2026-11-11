@@ -1,0 +1,351 @@
+//! The economy's rules on the world: earning experience and the hooks the
+//! other rules read. A child of `world` so it can reach the world's own
+//! state; the gather and crafting runtimes build on these.
+
+use crate::SimCrab;
+use crate::economy::gather::{self, GatherBlocked, GatherProgress, GatherState};
+use crate::economy::{Food, Item, LevelUp, NodeKind, PlacedNode};
+use crate::home::Shelter;
+use crate::net::{Msg, Net, To};
+use crate::physics::{Carry, STEP};
+use crate::shared::{Shared, Thing};
+use crate::skills::Skill;
+use crate::tuning::Tuning;
+use crate::world::cues::Cue;
+use crate::world::{PlayerId, Sim};
+
+/// What a crab's hold did this tick, for the world to finish.
+enum Act {
+    /// A work stroke in this skill.
+    Stroke(Skill),
+    /// A gather finished here (the host or solo took the charge): node.
+    Done(usize),
+    /// The vent pot cooked this food.
+    Cooked(Food),
+}
+
+impl Sim {
+    /// Crab `id` earns `xp` experience in `skill`. Returns the last level
+    /// it reached, if it went up (one [`Cue::LevelUp`] is sounded for every
+    /// level crossed, and the crab's next events say the last one). Only a
+    /// crab of this device earns: a remote crab, an unknown one or a bad
+    /// amount changes nothing.
+    pub fn earn(&mut self, id: PlayerId, skill: Skill, xp: f32) -> Option<LevelUp> {
+        if !xp.is_finite() || xp <= 0.0 {
+            return None;
+        }
+        let tuning = self.tuning.clone();
+        let tick = self.tick + 1;
+        let crab = self.crabs.iter_mut().find(|c| c.id == id && !c.remote)?;
+        let (before, after) = if skill.economy_index().is_some() {
+            crab.econ.skills.add(skill, xp)
+        } else {
+            let before = crab.mover.level(skill, &tuning);
+            crab.mover.earn(skill, xp, &tuning);
+            (before, crab.mover.level(skill, &tuning))
+        };
+        let mut last = None;
+        for level in before + 1..=after {
+            let up = LevelUp { skill, level };
+            self.sound_cues.emit(
+                tick,
+                Cue::LevelUp {
+                    crab: id,
+                    skill,
+                    level,
+                },
+            );
+            last = Some(up);
+        }
+        if last.is_some() {
+            crab.pending.level_up = last;
+        }
+        last
+    }
+
+    /// The nodes in the level, in the order the shared node state and
+    /// co-op messages name them.
+    pub fn placed_nodes(&self) -> &[PlacedNode] {
+        &self.placed_nodes
+    }
+
+    /// Percent faster gathering for crab `id` (from food).
+    pub fn gather_speed_bonus(&self, id: PlayerId) -> u32 {
+        self.crab(id).map_or(0, |c| c.econ.gather_speed_bonus())
+    }
+
+    /// What blows on crab `id` are multiplied by (plating).
+    pub fn damage_taken_factor(&self, id: PlayerId) -> f32 {
+        self.crab(id).map_or(1.0, |c| c.econ.damage_taken_factor())
+    }
+
+    /// What crab `id`'s claw blows are multiplied by (claw tips, food).
+    pub fn claw_bonus(&self, id: PlayerId) -> f32 {
+        self.crab(id).map_or(1.0, |c| c.econ.claw_bonus())
+    }
+}
+
+impl Sim {
+    /// The gather crab `id` is working, for the ring around the node.
+    pub fn gather_state(&self, id: PlayerId) -> Option<GatherState> {
+        let g = &self.crab(id)?.gather;
+        let node = g.node?;
+        (g.need > 0).then(|| GatherState {
+            node,
+            progress: (g.ticks as f32 / g.need as f32).clamp(0.0, 1.0),
+        })
+    }
+
+    /// One tick of every local crab's gathering and of Survival.
+    pub(crate) fn gather_step(&mut self) {
+        let tick = self.tick + 1;
+        let mut acts = Vec::new();
+        {
+            let Self {
+                crabs,
+                shared,
+                placed_nodes,
+                net,
+                tuning,
+                ..
+            } = self;
+            for c in crabs.iter_mut().filter(|c| !c.remote) {
+                if let Some(act) = gather_crab(c, shared, placed_nodes, net, tuning) {
+                    acts.push((c.id, act));
+                }
+            }
+        }
+        for (id, act) in acts {
+            match act {
+                Act::Stroke(skill) => {
+                    self.sound_cues.emit(tick, Cue::Gather { crab: id, skill });
+                }
+                Act::Done(node) => self.finish_node(id, node, true),
+                Act::Cooked(food) => {
+                    let xp = gather::cook_xp(food);
+                    if let Some(c) = self.crabs.iter_mut().find(|c| c.id == id && !c.remote) {
+                        c.gather.reset();
+                        c.gather.blocked_shown = false;
+                        let item = match food {
+                            Food::VentClamFeast => Item::VentClam,
+                            _ => Item::SeepMussel,
+                        };
+                        c.events.gathered = Some((item, xp));
+                    }
+                    self.earn(id, Skill::Cooking, xp as f32);
+                    self.sound_cues.emit(tick, Cue::Gathered { crab: id });
+                }
+            }
+        }
+        self.survival_step();
+    }
+
+    /// Survival: per second in a band of twilight or deeper, band index
+    /// minus one experience, twice that while the shell strains hard.
+    fn survival_step(&mut self) {
+        let mut earned = Vec::new();
+        for c in self.crabs.iter().filter(|c| !c.remote) {
+            if c.fighter.dead.is_some() {
+                continue;
+            }
+            let band = crate::economy::place::band_index(&self.level, c.mover.pos);
+            if band >= 2 {
+                let hard = if c.strain > 0.5 { 2.0 } else { 1.0 };
+                earned.push((c.id, (band - 1) as f32 * hard * STEP));
+            }
+        }
+        for (id, xp) in earned {
+            self.earn(id, Skill::Survival, xp);
+        }
+    }
+
+    /// Crab `id`'s gather of node `node` is done and the charge is its
+    /// own (`in_tick`: it finished in this tick; otherwise the host's word
+    /// came between ticks): the item, the experience, the wear of the tool,
+    /// a rare find.
+    pub(crate) fn finish_node(&mut self, id: PlayerId, node: usize, in_tick: bool) {
+        let Some(def) = self.placed_nodes.get(node).map(|n| n.kind.def()) else {
+            return;
+        };
+        let tuning = &self.tuning;
+        let Some(crab) = self.crabs.iter_mut().find(|c| c.id == id && !c.remote) else {
+            return;
+        };
+        crab.gather.reset();
+        crab.gather.blocked_shown = false;
+        let cracked = gather::wear_tool(crab, def);
+        let identity = crab.salvage_identity.wrapping_add(u64::from(crab.id.0));
+        let done = crab.econ.gathers_done;
+        crab.econ.gathers_done = done.saturating_add(1);
+        let rare = gather::rare_find(def, identity, node, done);
+        let ev = if in_tick {
+            &mut crab.events
+        } else {
+            &mut crab.pending
+        };
+        if let Some(item) = def.yields {
+            let carry = Carry::Item(item);
+            if crab.mover.take_up(carry, tuning) {
+                ev.picked_up = ev.picked_up.or(Some(carry));
+            } else {
+                ev.shell_full |= carry.small();
+            }
+            ev.gathered = Some((item, def.xp));
+        }
+        if let Some(item) = rare {
+            let carry = Carry::Item(item);
+            if crab.mover.take_up(carry, tuning) {
+                ev.picked_up = ev.picked_up.or(Some(carry));
+            }
+        }
+        ev.tool_cracked = ev.tool_cracked.or(cracked);
+        let tick = self.tick + 1;
+        if cracked.is_some() {
+            self.sound_cues.emit(tick, Cue::ToolCracked { crab: id });
+        }
+        self.earn(id, def.skill, def.xp as f32);
+        self.sound_cues.emit(tick, Cue::Gathered { crab: id });
+    }
+}
+
+/// One local crab's hold, one tick.
+fn gather_crab(
+    c: &mut SimCrab,
+    shared: &mut Shared,
+    placed: &[PlacedNode],
+    net: &mut Option<Net>,
+    t: &Tuning,
+) -> Option<Act> {
+    let health = c.fighter.vitals.health;
+    let hurt = c.gather.last_health > 0.0 && health < c.gather.last_health - 1.0e-4;
+    c.gather.last_health = health;
+    let ctl = c.controls;
+    if !ctl.gather_held || c.fighter.dead.is_some() {
+        c.gather.reset();
+        c.gather.blocked_shown = false;
+        return None;
+    }
+    let m = &c.mover;
+    let ev = c.events;
+    let standing = (m.grounded || m.climbing)
+        && !m.is_soft()
+        && m.shelter == Shelter::Out
+        && c.fighter.vitals.hitstop == 0;
+    let cancel = !standing
+        || hurt
+        || ev.hurt
+        || ev.staggered
+        || ev.jumped
+        || ev.dodged
+        || ctl.jump_held
+        || ctl.dodge_held
+        || m.dodge_left > 0.0
+        || ctl.walk.abs() > 0.2;
+    if cancel {
+        c.gather.reset();
+        return None;
+    }
+    // The nearest ready node within reach of its feet.
+    let mut best: Option<(usize, f32)> = None;
+    let mut spent_near = false;
+    for (i, p) in placed.iter().enumerate() {
+        let d = p.pos.distance(m.pos);
+        if d > gather::REACH {
+            continue;
+        }
+        match shared.nodes.get(i) {
+            Some(n) if n.charges > 0 => {
+                if best.is_none_or(|b| d < b.1) {
+                    best = Some((i, d));
+                }
+            }
+            Some(_) => spent_near = true,
+            None => {}
+        }
+    }
+    let Some((i, _)) = best else {
+        c.gather.reset();
+        if spent_near && !c.gather.blocked_shown {
+            c.gather.blocked_shown = true;
+            c.events.gather_blocked = Some(GatherBlocked::Spent);
+        }
+        return None;
+    };
+    let kind = placed[i].kind;
+    let thing = Thing::Node(i);
+    if net
+        .as_ref()
+        .is_some_and(|n| !n.host && n.asked.contains(&(c.id, thing)))
+    {
+        // Asked the host; the bar waits full for its word.
+        return None;
+    }
+    if c.gather.node != Some(i) {
+        match gather::check(c, kind, t) {
+            Err(why) => {
+                c.gather.reset();
+                if !c.gather.blocked_shown {
+                    c.gather.blocked_shown = true;
+                    c.events.gather_blocked = Some(why);
+                }
+            }
+            Ok(plan) => {
+                c.gather = GatherProgress {
+                    node: Some(i),
+                    ticks: 0,
+                    need: plan.need,
+                    cook: plan.cook,
+                    ..c.gather
+                };
+            }
+        }
+        return None;
+    }
+    c.gather.ticks += 1;
+    if c.gather.ticks < c.gather.need {
+        return c
+            .gather
+            .ticks
+            .is_multiple_of(gather::STROKE_TICKS)
+            .then(|| Act::Stroke(kind.def().skill));
+    }
+    // Done. Is it still as it was when the hold started?
+    let plan = match gather::check(c, kind, t) {
+        Ok(plan) => plan,
+        Err(why) => {
+            c.gather.reset();
+            c.gather.blocked_shown = true;
+            c.events.gather_blocked = Some(why);
+            return None;
+        }
+    };
+    if kind == NodeKind::VentPot {
+        // The station never runs dry: cook what the shell holds.
+        let food = plan.cook.filter(|&food| gather::cook(c, food))?;
+        return Some(Act::Cooked(food));
+    }
+    if !shared.there(thing, t) {
+        c.gather.reset();
+        return None;
+    }
+    match net {
+        Some(n) if !n.host => {
+            n.asked.push((c.id, thing));
+            n.send(To::Host, Msg::Take { by: c.id, thing });
+            None
+        }
+        _ => {
+            shared.take(thing, t);
+            if let Some(n) = net {
+                n.send(
+                    To::Everyone,
+                    Msg::Taken {
+                        by: Some(c.id),
+                        thing,
+                    },
+                );
+            }
+            Some(Act::Done(i))
+        }
+    }
+}

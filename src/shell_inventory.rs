@@ -197,6 +197,7 @@ fn interact(
 
 fn name(item: Carry) -> &'static str {
     match item {
+        Carry::Item(item) => item.names().0,
         Carry::Clam => "clam",
         Carry::Grit => "grit",
         Carry::Valve => "valve",

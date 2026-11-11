@@ -20,7 +20,7 @@
 
 use bevy::prelude::*;
 use crabsim::level::Place;
-use crabsim::{CantMake, Feat, Material, Mover, RECIPES, Recipe, Shelter, Sim, Stash};
+use crabsim::{CantMake, Feat, Item, Material, Mover, RECIPES, Recipe, Shelter, Sim, Stash};
 
 use crate::effects::SoftTextures;
 use crate::home::OUT_OF_SIGHT;
@@ -314,7 +314,8 @@ fn show_scene(inside: Res<Inside>, mut scene: Query<&mut Visibility, With<Scene>
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct Shown {
     larder: u32,
-    stash: Stash,
+    /// Teeth, grit, glass, valves and cultures at the workbench.
+    stash: [u32; 5],
     stage: u32,
     keepsakes: usize,
     style: crate::style::ArtStyle,
@@ -345,7 +346,14 @@ fn fill_scene(
     };
     let now = Shown {
         larder: crab.larder,
-        stash: crab.stash,
+        stash: [
+            Item::Tooth,
+            Item::Grit,
+            Item::Glass,
+            Item::Valve,
+            Item::Culture,
+        ]
+        .map(|item| crab.stash.count(item)),
         stage: crab.home_stage(&sim.tuning),
         // One per moult, the one still growing too (its husk was shed),
         // except a husk still on its way to the shelf.
@@ -424,9 +432,9 @@ fn fill_scene(
             parts.push((mesh, colour, Vec2::new(x, y) + off.truncate(), z, turn));
         }
     }
-    let s = now.stash;
+    let [teeth, grit, glass, valves, cultures] = now.stash;
     // On the workbench: a shed tooth, glowing cultures.
-    for i in 0..s.teeth.min(2) {
+    for i in 0..teeth.min(2) {
         let x = 80.0 + i as f32 * 8.0;
         let blade = Triangle2d::new(
             Vec2::new(-18.0, 0.0),
@@ -436,7 +444,7 @@ fn fill_scene(
         parts.push((Mesh::from(blade), TOOTH, Vec2::new(x, 30.0), 1.1, 0.0));
     }
     // Beside it on the floor: grit waiting to be built in, and clam valves.
-    for i in 0..s.grit.min(4) {
+    for i in 0..grit.min(4) {
         heap(
             &mut parts,
             Vec2::new(54.0 + i as f32 * 4.0, 1.0 + i as f32 * 5.0),
@@ -445,13 +453,13 @@ fn fill_scene(
         );
     }
     // A glass sponge standing on the floor by the bench.
-    for i in 0..s.glass.min(2) {
+    for i in 0..glass.min(2) {
         for (mesh, colour, off, turn) in crate::canyon::glass_parts(0.45) {
             let at = Vec2::new(36.0 - i as f32 * 14.0, 20.0) + off.truncate();
             parts.push((mesh, colour, at, 1.15 + off.z * 0.01, turn));
         }
     }
-    for i in 0..s.valves.min(6) {
+    for i in 0..valves.min(6) {
         let at = Vec2::new(172.0 + (i % 3) as f32 * 13.0, 3.0 + (i / 3) as f32 * 6.0);
         let half = Mesh::from(CircularSector::new(7.0, std::f32::consts::FRAC_PI_2));
         parts.push((half, VALVE, at, 1.2 + i as f32 * 0.01, 0.0));
@@ -488,7 +496,7 @@ fn fill_scene(
                         .with_rotation(Quat::from_rotation_z(tilt)),
                 ));
             }
-            for i in 0..s.cultures.min(3) {
+            for i in 0..cultures.min(3) {
                 let at = Vec2::new(116.0 + i as f32 * 14.0, 34.0);
                 for (size, alpha) in [(34.0, 0.35), (13.0, 0.95)] {
                     p.spawn((
@@ -1182,7 +1190,7 @@ mod tests {
         // Nothing ready: no offer to grow anything.
         assert_eq!(moult_offer(&sim, id, 0), None);
         let t = sim.tuning.clone();
-        let feat_xp = |s: Skill| crabsim::skills::xp_for(t.moult.feat_level, s.step(&t));
+        let feat_xp = |s: Skill| s.xp_at(t.moult.feat_level, &t);
         let m = &mut sim.crab_mut(id).unwrap().mover;
         m.climb_xp = feat_xp(Skill::Climbing);
         m.swim_xp = feat_xp(Skill::Swimming);

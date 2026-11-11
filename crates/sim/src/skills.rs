@@ -23,6 +23,26 @@ pub enum Skill {
     Swimming,
     /// Claw blows on creatures: the claws hit harder.
     Fighting,
+    /// Picking up loose food: snails, worms, fish falls, carcasses.
+    Foraging,
+    /// Prying shellfish off rock and out of mud.
+    Prying,
+    /// Digging buried finds out of sediment.
+    Excavating,
+    /// Cutting kelp, sea pens, sponges and deep coral.
+    Harvesting,
+    /// Taking wild bacteria; planting and harvesting home culture beds.
+    Culturing,
+    /// Preparing food without fire: shucking, curing, fermenting.
+    Cooking,
+    /// Shaping shell, quill, glass, bone and nodule into tools and plating.
+    Shellcraft,
+    /// Kelp into cord, braids, sacks and packs.
+    Weaving,
+    /// Building into the home: stations, culture beds, the shell.
+    Building,
+    /// Time spent cold, deep and under pressure.
+    Survival,
     /// Real workbook analysis and decisions in the royal observatory.
     DataDriven,
 }
@@ -30,30 +50,94 @@ pub enum Skill {
 impl Skill {
     /// Every skill, in the order the readout lists them.
     pub const PHYSICAL: [Skill; 3] = [Skill::Climbing, Skill::Swimming, Skill::Fighting];
-    pub const ALL: [Skill; 4] = [
+    /// The ten economy skills, whose experience lives in
+    /// [`crate::economy::SkillBook`] (in this order).
+    pub const ECONOMY: [Skill; 10] = [
+        Skill::Foraging,
+        Skill::Prying,
+        Skill::Excavating,
+        Skill::Harvesting,
+        Skill::Culturing,
+        Skill::Cooking,
+        Skill::Shellcraft,
+        Skill::Weaving,
+        Skill::Building,
+        Skill::Survival,
+    ];
+    /// Every skill, in the order of the skills panel (the spec's table),
+    /// Data-Driven last.
+    pub const ALL: [Skill; 14] = [
         Skill::Climbing,
         Skill::Swimming,
         Skill::Fighting,
+        Skill::Foraging,
+        Skill::Prying,
+        Skill::Excavating,
+        Skill::Harvesting,
+        Skill::Culturing,
+        Skill::Cooking,
+        Skill::Shellcraft,
+        Skill::Weaving,
+        Skill::Building,
+        Skill::Survival,
         Skill::DataDriven,
     ];
+
+    /// Its slot in the economy's skill book, if it is an economy skill.
+    pub fn economy_index(self) -> Option<usize> {
+        Skill::ECONOMY.iter().position(|&s| s == self)
+    }
+
+    /// The experience at which `level` begins.
+    pub fn xp_at(self, level: u32, t: &Tuning) -> f32 {
+        if self.uses_table() {
+            crate::economy::xp::xp_for_level(level) as f32
+        } else {
+            xp_for(level, self.step(t))
+        }
+    }
+
+    /// The skill a code or replay names (lower case).
+    pub fn parse(word: &str) -> Option<Skill> {
+        let word = word.trim();
+        Skill::ALL
+            .iter()
+            .copied()
+            .find(|s| s.name().eq_ignore_ascii_case(word))
+    }
 
     pub fn name(self) -> &'static str {
         match self {
             Skill::Climbing => "Climbing",
             Skill::Swimming => "Swimming",
             Skill::Fighting => "Fighting",
+            Skill::Foraging => "Foraging",
+            Skill::Prying => "Prying",
+            Skill::Excavating => "Excavating",
+            Skill::Harvesting => "Harvesting",
+            Skill::Culturing => "Culturing",
+            Skill::Cooking => "Cooking",
+            Skill::Shellcraft => "Shellcraft",
+            Skill::Weaving => "Weaving",
+            Skill::Building => "Building",
+            Skill::Survival => "Survival",
             Skill::DataDriven => "Data-Driven",
         }
     }
 
-    /// The experience one level's step is made of (see [`level`]).
-    pub fn step(self, t: &Tuning) -> f32 {
+    /// The experience one level's step is made of (see [`level`]). Only
+    /// Data-Driven keeps this quadratic curve; every other skill uses the
+    /// RuneScape table (`crate::economy::xp`).
+    pub fn step(self, _t: &Tuning) -> f32 {
         match self {
-            Skill::Climbing => t.climb_level_xp,
-            Skill::Swimming => t.swim_level_xp,
-            Skill::Fighting => t.fight_level_xp,
             Skill::DataDriven => crate::royal::DATA_LEVEL_STEP,
+            _ => 1.0,
         }
+    }
+
+    /// Does it level by the RuneScape table (every skill but Data-Driven)?
+    pub fn uses_table(self) -> bool {
+        self != Skill::DataDriven
     }
 }
 
@@ -90,17 +174,27 @@ impl Mover {
             Skill::Swimming => self.swim_xp,
             Skill::Fighting => self.fight_xp,
             Skill::DataDriven => self.data_xp,
+            // The economy skills live in `SimCrab::econ`.
+            _ => 0.0,
         }
     }
 
     /// A skill's level, from its experience.
     pub fn level(&self, skill: Skill, t: &Tuning) -> u32 {
-        level(self.xp(skill), skill.step(t))
+        if skill.uses_table() {
+            crate::economy::xp::level_for(self.xp(skill) as u32)
+        } else {
+            level(self.xp(skill), skill.step(t))
+        }
     }
 
     /// How far through its current level a skill is, 0 to 1.
     pub fn progress(&self, skill: Skill, t: &Tuning) -> f32 {
-        progress(self.xp(skill), skill.step(t))
+        if skill.uses_table() {
+            crate::economy::xp::progress_f(self.xp(skill))
+        } else {
+            progress(self.xp(skill), skill.step(t))
+        }
     }
 
     /// Earn `xp` experience in a skill. Returns the skill if it went up a
@@ -114,6 +208,8 @@ impl Mover {
             Skill::DataDriven => {
                 self.data_xp = (self.data_xp + xp).min(xp_for(MAX_LEVEL, skill.step(t)))
             }
+            // The economy skills are earned through `Sim::earn`.
+            _ => {}
         }
         (self.level(skill, t) > was).then_some(skill)
     }
@@ -147,6 +243,7 @@ impl Mover {
     /// see [`Mover::grown`]), and weaker while soft after a moult.
     pub fn claw_strength(&self, t: &Tuning) -> f32 {
         (1.0 + t.fight_damage_per_level * self.levels_gained(Skill::Fighting, t))
+            * self.econ.claw_factor
             * self.grown(t)
             * self.softness(t)
     }

@@ -31,7 +31,10 @@ fn preparation_is_saved_and_cannot_spend_the_same_clam_twice() {
     sim.make(P, Recipe::ShellPortions).unwrap();
     assert!(sim.make(P, Recipe::ReservePortions).is_err());
     let crab = sim.crab(P).unwrap();
-    assert_eq!((crab.larder, crab.stash.valves), (0, 2));
+    assert_eq!(
+        (crab.larder, crab.stash.count(crabsim::Item::Valve)),
+        (0, 2)
+    );
     let progress = sim.progress(P).unwrap();
     let mut restored = Sim::with_one_crab(Vec2::new(180.0, 0.0));
     restored.restore_progress(P, &progress);
@@ -49,7 +52,7 @@ fn eating_at_rest_heals_only_after_two_seconds_and_cancels_on_movement() {
     assert!(crab.mover.prepared_food.prepare(
         crabsim::prepared_food::PortionKind::Shell,
         &mut crab.larder,
-        &mut crab.stash.valves
+        &mut crab.stash
     ));
     crab.fighter.vitals.health = 20.0;
     for _ in 0..120 {
@@ -97,7 +100,7 @@ fn reserve_portions_are_capped_and_soft_crabs_cannot_eat() {
     assert!(crab.mover.prepared_food.prepare(
         crabsim::prepared_food::PortionKind::Reserve,
         &mut crab.larder,
-        &mut crab.stash.valves
+        &mut crab.stash
     ));
     crab.mover.soft = 1000;
     crab.mover.reserve = 0.99;
@@ -137,7 +140,7 @@ fn damage_interrupts_an_eating_action() {
     assert!(crab.mover.prepared_food.prepare(
         crabsim::prepared_food::PortionKind::Shell,
         &mut crab.larder,
-        &mut crab.stash.valves
+        &mut crab.stash
     ));
     let eat = Controls {
         eat_held: true,
@@ -178,7 +181,7 @@ fn a_recording_replays_the_held_eating_action() {
     assert!(crab.mover.prepared_food.prepare(
         crabsim::prepared_food::PortionKind::Shell,
         &mut crab.larder,
-        &mut crab.stash.valves
+        &mut crab.stash
     ));
     live.start_recording();
     live.set_controls(
@@ -210,8 +213,14 @@ fn each_local_crab_spends_only_its_own_clam_and_owns_its_portions() {
     sim.crab_mut(P).unwrap().larder = 1;
     assert!(sim.make(PlayerId(1), Recipe::ShellPortions).is_err());
     sim.make(P, Recipe::ShellPortions).unwrap();
-    assert_eq!(sim.crab(P).unwrap().stash.valves, 2);
-    assert_eq!(sim.crab(PlayerId(1)).unwrap().stash.valves, 0);
+    assert_eq!(sim.crab(P).unwrap().stash.count(crabsim::Item::Valve), 2);
+    assert_eq!(
+        sim.crab(PlayerId(1))
+            .unwrap()
+            .stash
+            .count(crabsim::Item::Valve),
+        0
+    );
     assert!(
         sim.crab(PlayerId(1))
             .unwrap()
@@ -231,7 +240,7 @@ fn dead_crabs_cannot_eat() {
     assert!(crab.mover.prepared_food.prepare(
         crabsim::prepared_food::PortionKind::Shell,
         &mut crab.larder,
-        &mut crab.stash.valves
+        &mut crab.stash
     ));
     crab.fighter.dead = Some(0);
     sim.set_controls(
@@ -279,7 +288,7 @@ fn one_long_hold_consumes_only_one_portion() {
     assert!(crab.mover.prepared_food.prepare(
         crabsim::prepared_food::PortionKind::Shell,
         &mut crab.larder,
-        &mut crab.stash.valves
+        &mut crab.stash
     ));
     sim.set_controls(
         P,
@@ -308,7 +317,7 @@ fn one_long_hold_consumes_only_one_portion() {
 fn duplicate_portions_are_rejected_before_restoring_a_saved_player() {
     let sim = Sim::with_one_crab(Vec2::new(180.0, 0.0));
     let mut progress = sim.progress(P).unwrap();
-    let (mut clams, mut valves) = (1, 0);
+    let (mut clams, mut valves) = (1, crabsim::Stash::default());
     assert!(progress.prepared_food.prepare(
         crabsim::prepared_food::PortionKind::Shell,
         &mut clams,

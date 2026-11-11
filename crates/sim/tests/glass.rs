@@ -52,6 +52,9 @@ fn run_with(tuning: Tuning, script: &str, seconds: f64, kit: Kit) -> Run {
     m.glass_grips = kit.glass;
     m.carrying = kit.carrying;
     m.moults = MOULTS.get();
+    // A steady Climbing level 5, so the climb's speed does not change with
+    // the experience it earns on the way (the RuneScape table).
+    m.climb_xp = 388.0;
     let mut run = Run {
         highest: replay.start.y,
         sim: sim.clone(),
@@ -156,11 +159,11 @@ fn a_glass_sponge_lies_on_the_canyon_floor_and_makes_glass_grips_at_home() {
     assert_eq!(home.count("put away"), 1);
     assert_eq!(home.crab().carrying, None);
     assert!(!home.crab().glass_grips, "not by itself");
-    assert_eq!(home.sim.crabs()[0].stash.glass, 1);
+    assert_eq!(home.sim.crabs()[0].stash.count(crabsim::Item::Glass), 1);
     let me = PlayerId(0);
     assert_eq!(home.sim.make(me, crabsim::Recipe::GlassGrips), Ok(()));
     assert!(home.crab().glass_grips);
-    assert_eq!(home.sim.crabs()[0].stash.glass, 0);
+    assert_eq!(home.sim.crabs()[0].stash.count(crabsim::Item::Glass), 0);
     home.sim.tick();
     assert!(home.sim.crabs()[0].events.fitted_grips);
     assert_eq!(
@@ -179,7 +182,7 @@ fn bare_rock_is_gripped_only_with_glass_grips() {
     assert!(bare.stood.iter().all(|p| p.y == -9400.0));
     // Release after clearing the wall to land on its shelf. Keeping jump
     // held now intentionally catches the next coral while steering left.
-    let glass = run_with(still_water(), &format!("{up}; t=18 release"), 30.0, GLASS);
+    let glass = run_with(still_water(), &format!("{up}; t=14.4 release"), 30.0, GLASS);
     assert_eq!(glass.count("gripped"), 1);
     assert!(
         glass.stood_on(SHELF.0, SHELF.1, SHELF.2),

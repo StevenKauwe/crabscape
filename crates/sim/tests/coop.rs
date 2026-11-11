@@ -1509,7 +1509,7 @@ fn a_guests_prepared_portions_survive_reload_and_converge_after_packet_loss() {
     assert!(crab.mover.prepared_food.prepare(
         PortionKind::Shell,
         &mut crab.larder,
-        &mut crab.stash.valves
+        &mut crab.stash
     ));
     play(&mut g, "", "t=0 eat; t=2.1 stop-eating", ticks(4.0), |_| {});
     let own = g.guest.crab(GUEST).unwrap().mover.prepared_food.clone();
@@ -1520,7 +1520,14 @@ fn a_guests_prepared_portions_survive_reload_and_converge_after_packet_loss() {
     let mut reloaded = solo(NEAR, |_| {});
     reloaded.restore_progress(GUEST, &progress);
     assert_eq!(reloaded.crab(GUEST).unwrap().mover.prepared_food, own);
-    assert_eq!(reloaded.crab(GUEST).unwrap().stash.valves, 2);
+    assert_eq!(
+        reloaded
+            .crab(GUEST)
+            .unwrap()
+            .stash
+            .count(crabsim::Item::Valve),
+        2
+    );
     reloaded.add_remote_crab(HOST, FAR);
     reloaded.go_online(false);
     g.guest = reloaded;
@@ -1528,7 +1535,14 @@ fn a_guests_prepared_portions_survive_reload_and_converge_after_packet_loss() {
     play(&mut g, "", "", ticks(2.0), |_| {});
     assert_eq!(g.guest.crab(GUEST).unwrap().mover.prepared_food, own);
     assert_eq!(g.host.crab(GUEST).unwrap().mover.prepared_food, own);
-    assert_eq!(g.guest.crab(GUEST).unwrap().stash.valves, 2);
+    assert_eq!(
+        g.guest
+            .crab(GUEST)
+            .unwrap()
+            .stash
+            .count(crabsim::Item::Valve),
+        2
+    );
 }
 
 #[test]

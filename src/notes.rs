@@ -140,15 +140,16 @@ fn note_events(
     if let Some(thing) = ev.picked_up
         && !ev.recovered
     {
-        let what = match thing {
-            Carry::Tooth => ("Take the tooth home!", PALE),
-            Carry::Clam => ("A clam: meal or field portions.", YOLK),
-            Carry::Grit => ("Shell grit for the home", PALE),
-            Carry::Valve => ("An empty valve for the workbench", PALE),
-            Carry::Glass => ("Glass! Take it home.", PALE),
-            Carry::Culture => ("Take it home!", WILD_GLOW),
+        let what: (String, _) = match thing {
+            Carry::Tooth => ("Take the tooth home!".into(), PALE),
+            Carry::Clam => ("A clam: meal or field portions.".into(), YOLK),
+            Carry::Grit => ("Shell grit for the home".into(), PALE),
+            Carry::Valve => ("An empty valve for the workbench".into(), PALE),
+            Carry::Glass => ("Glass! Take it home.".into(), PALE),
+            Carry::Culture => ("Take it home!".into(), WILD_GLOW),
+            Carry::Item(item) => (format!("Took a {}", item.names().0), PALE),
         };
-        notes.push((what.0.into(), what.1));
+        notes.push((what.0, what.1));
     }
     // Walking over a small thing with no room on its shell says so now and
     // then, not every frame.

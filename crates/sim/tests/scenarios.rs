@@ -892,7 +892,7 @@ fn the_crab_backs_into_its_home_shell_rests_there_and_walks_out() {
     assert_eq!((inside.count("rested"), inside.count("put away")), (1, 1));
     assert_eq!((inside.crab().reserve, inside.crab().stamina), (1.0, 2.0));
     assert_eq!(inside.crab().carrying, None);
-    assert_eq!(inside.sim.crabs()[0].stash.cultures, 1);
+    assert_eq!(inside.sim.crabs()[0].stash.count(crabsim::Item::Culture), 1);
     // Walking right, it comes back out through the doorway quickly, still
     // moving, and walks on (it doesn't go back in).
     let out = play("t=0 walk=left; t=1 walk=right", 2.0);
@@ -953,15 +953,16 @@ fn a_culture_from_the_pit_bottom_goes_home_into_the_lantern() {
     assert_eq!(home.count("put away"), 1);
     assert_eq!(home.crab().carrying, None);
     assert_eq!(home.crab().lantern, 0, "not by itself");
-    assert_eq!(home.sim.crabs()[0].stash.cultures, 1);
+    assert_eq!(home.sim.crabs()[0].stash.count(crabsim::Item::Culture), 1);
     assert_eq!(home.sim.make(PlayerId(0), crabsim::Recipe::Lantern), Ok(()));
     assert_eq!(home.sim.crab(PlayerId(0)).unwrap().mover.lantern, 1);
 }
 
 #[test]
 fn climbing_is_a_skill_that_levels_up() {
-    // One climb out of the pit from the bottom: Climbing level 3 (level 5,
-    // a feat, takes about that again and the shaft or the canyon's coral).
+    // One climb out of the pit from the bottom: Climbing level 2 (the
+    // RuneScape table: 83 for level 2, 174 for 3; level 5, a feat, is 388,
+    // about that again and the shaft or the canyon's coral).
     let level = crabsim::Level::test_level();
     let (_, _, bottom) = level.pit();
     let climb = run(
@@ -975,8 +976,8 @@ fn climbing_is_a_skill_that_levels_up() {
         crab.climb_xp,
         crab.climb_level(&t)
     );
-    assert_eq!(climb.count("levelled"), 2);
-    assert_eq!(crab.climb_level(&t), 3);
+    assert_eq!(climb.count("levelled"), 1);
+    assert_eq!(crab.climb_level(&t), 2);
     // ...and each level climbs faster.
     assert!(crab.climb_speed(&t) > t.climb_speed);
 }
@@ -1539,7 +1540,7 @@ fn dying_leaves_what_it_carried_in_its_cast_off_shell_to_dive_back_for() {
         );
         sim.tick();
     }
-    assert_eq!(sim.crab(P0).unwrap().stash.cultures, 1);
+    assert_eq!(sim.crab(P0).unwrap().stash.count(crabsim::Item::Culture), 1);
 }
 
 /// The status of the crab on each tick of a script, as `--dump` shows it.

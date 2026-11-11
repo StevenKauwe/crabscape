@@ -122,14 +122,17 @@ pub enum Msg {
         grit_taken: Vec<bool>,
         midden_taken: Vec<bool>,
         bodies_eaten: Vec<(u32, u32)>,
+        /// Each gathering node's charges left and ticks to regrow.
+        nodes: Vec<(u8, u32)>,
     },
     /// A guest's crab `by` reached a shared thing and asks the host for it.
     Take { by: PlayerId, thing: Thing },
     /// The host's word on a shared thing: gone, and crab `by` has it (to
     /// everyone), or it was gone already (`None`, to the crab that asked).
     Taken { by: Option<PlayerId>, thing: Thing },
-    /// A clam bed (its index in the level) grew a new clam, on the host.
-    Regrown(usize),
+    /// A clam bed ([`Thing::Clam`]) grew a new clam, or a spent gathering node
+    /// ([`Thing::Node`]) grew its charges back, on the host.
+    Regrown(Thing),
     /// The name a player goes by, from its own device, shown over `crab`
     /// (sent when friends meet and when it changes; the game keeps it, the
     /// simulation doesn't). Always a [`clean_name`]. A game from before

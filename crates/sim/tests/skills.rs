@@ -4,7 +4,6 @@
 //! getting stronger at the cap.
 
 use bevy_math::Vec2;
-use crabsim::skills::xp_for;
 use crabsim::{Kind, PlayerId, Replay, SPAWN, STEP, Sim, Skill, Tuning, play};
 
 const P0: PlayerId = PlayerId(0);
@@ -14,15 +13,15 @@ const P0: PlayerId = PlayerId(0);
 fn crab_with(skill: Skill, level: u32) -> Sim {
     let mut sim = Sim::with_one_crab(SPAWN);
     let t = sim.tuning.clone();
-    let step = skill.step(&t);
     let m = &mut sim.crab_mut(P0).unwrap().mover;
     m.upgrades = 4;
     m.stamina = 4.0;
     match skill {
-        Skill::Climbing => m.climb_xp = xp_for(level, step),
-        Skill::Swimming => m.swim_xp = xp_for(level, step),
-        Skill::Fighting => m.fight_xp = xp_for(level, step),
-        Skill::DataDriven => m.data_xp = xp_for(level, step),
+        Skill::Climbing => m.climb_xp = skill.xp_at(level, &t),
+        Skill::Swimming => m.swim_xp = skill.xp_at(level, &t),
+        Skill::Fighting => m.fight_xp = skill.xp_at(level, &t),
+        Skill::DataDriven => m.data_xp = skill.xp_at(level, &t),
+        _ => unreachable!("only the skills with effects are set here"),
     }
     assert_eq!(m.level(skill, &t), level);
     sim
@@ -83,7 +82,7 @@ fn each_swimming_level_quickens_the_stroke_rhythm_and_the_rest_by_five_percent()
 #[test]
 fn a_level_up_says_which_skill() {
     let mut sim = crab_with(Skill::Swimming, 1);
-    sim.crab_mut(P0).unwrap().mover.swim_xp = xp_for(2, sim.tuning.swim_level_xp) - 1.0;
+    sim.crab_mut(P0).unwrap().mover.swim_xp = Skill::Swimming.xp_at(2, &sim.tuning) - 1.0;
     let replay = Replay::parse("t=0 jump; t=0.5 jump").unwrap();
     let mut levelled = Vec::new();
     play(&mut sim, &replay, 120, |s| {
@@ -130,16 +129,19 @@ fn each_fighting_level_hits_five_percent_harder() {
 }
 
 #[test]
-fn beating_two_or_three_creatures_reaches_fighting_level_2() {
+fn beating_three_to_five_creatures_reaches_fighting_level_2() {
+    // The RuneScape table asks 83 for level 2 (the old curve asked 40), so a
+    // few more creatures than before; level 5 is where it was.
     let t = Tuning::default();
     let worth = |k: &crabsim::tuning::EnemyTuning| {
         k.vitals.health * t.fight_xp_per_damage + t.fight_xp_per_win
     };
-    let level = |xp: f32| crabsim::skills::level(xp, t.fight_level_xp);
+    let level = |xp: f32| crabsim::economy::xp::level_for(xp as u32);
     let (weakest, strongest) = (worth(&t.snapper), worth(&t.moray));
-    assert_eq!(level(strongest), 1, "never from one creature");
-    assert_eq!(level(2.0 * strongest), 2, "two big ones do it");
-    assert_eq!(level(3.0 * weakest), 2, "three small ones always do");
+    println!("weakest {weakest}, strongest {strongest}");
+    assert_eq!(level(2.0 * strongest), 1, "never from two creatures");
+    assert_eq!(level(3.0 * strongest), 2, "three big ones do it");
+    assert_eq!(level(5.0 * weakest), 2, "five small ones always do");
 }
 
 #[test]
@@ -147,6 +149,6 @@ fn climbing_shares_the_curve() {
     let t = Tuning::default();
     let sim = crab_with(Skill::Climbing, 2);
     let m = &sim.crabs()[0].mover;
-    assert_eq!(m.climb_xp, 2.0 * t.climb_level_xp);
+    assert_eq!(m.climb_xp, 83.0, "level 2 is 83 on the RuneScape table");
     assert_eq!(m.climb_level(&t), 2);
 }

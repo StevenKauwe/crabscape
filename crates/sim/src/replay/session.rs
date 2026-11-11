@@ -523,7 +523,7 @@ mod tests {
         assert!(crab.mover.prepared_food.prepare(
             crate::prepared_food::PortionKind::Shell,
             &mut crab.larder,
-            &mut crab.stash.valves
+            &mut crab.stash
         ));
         let packed = sim.session_checkpoint().unwrap();
         let mut recording = CellSessionRecording::new(&packed, PlayerId(0), PlayerId(91)).unwrap();
@@ -557,7 +557,14 @@ mod tests {
                 .count(),
             1
         );
-        assert_eq!(restored.crab(PlayerId(91)).unwrap().stash.valves, 2);
+        assert_eq!(
+            restored
+                .crab(PlayerId(91))
+                .unwrap()
+                .stash
+                .count(crate::Item::Valve),
+            2
+        );
     }
     #[test]
     fn bounded_recording_rejects_bad_order_and_malformed_data() {

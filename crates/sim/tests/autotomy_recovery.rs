@@ -4,7 +4,7 @@ const P: PlayerId = PlayerId(0);
 fn prepare_moult(s: &mut Sim, id: PlayerId) {
     let den = s.level.home_den;
     let fed = s.tuning.food.well_fed_ticks;
-    let xp = crabsim::skills::xp_for(s.tuning.moult.feat_level, Skill::Climbing.step(&s.tuning));
+    let xp = Skill::Climbing.xp_at(s.tuning.moult.feat_level, &s.tuning);
     let m = &mut s.crab_mut(id).unwrap().mover;
     m.pos = den;
     m.shelter = Shelter::In;

@@ -165,11 +165,10 @@ pub struct Tuning {
     /// Upward speed of a kick off a stalk (jump + a direction while
     /// climbing). Weaker than a jump off the floor.
     pub climb_leap: f32,
-    /// Climbing experience per unit climbed (up or down).
+    /// Climbing experience per unit climbed (up or down). All skills use the
+    /// RuneScape table (`crate::economy::xp`); the three older skills' rates
+    /// are scaled so level 5 (the moult feat level) lands where it did.
     pub climb_xp_per_unit: f32,
-    /// Climbing levels: level n+1 needs n x (n+1) times this much experience
-    /// (with 10: 20 for level 2, 60 for 3, 120 for 4, 200 for 5).
-    pub climb_level_xp: f32,
     /// Extra climbing speed per Climbing level above 1 (a share of
     /// `climb_speed`).
     pub climb_speed_per_level: f32,
@@ -177,9 +176,6 @@ pub struct Tuning {
     // --- Skills (`crate::skills`): grow by use ----------------------------
     /// Swimming experience per paddle stroke.
     pub swim_xp_per_stroke: f32,
-    /// Swimming levels: level n+1 needs n x (n+1) times this much experience
-    /// (with 5: 10 strokes for level 2, 30 for 3, 60 for 4, 100 for 5).
-    pub swim_level_xp: f32,
     /// Per Swimming level above 1, the stroke rhythm and the paddle legs'
     /// rest on solid ground are this share shorter.
     pub swim_quicker_per_level: f32,
@@ -187,9 +183,6 @@ pub struct Tuning {
     pub fight_xp_per_damage: f32,
     /// Fighting experience for beating a creature.
     pub fight_xp_per_win: f32,
-    /// Fighting levels: level n+1 needs n x (n+1) times this much experience
-    /// (with 20: 40 for level 2, 120 for 3, 240 for 4, 400 for 5).
-    pub fight_level_xp: f32,
     /// Extra claw damage per Fighting level above 1 (a share of the blow).
     pub fight_damage_per_level: f32,
     /// Swimming and Fighting stop getting stronger past this level.
@@ -1000,17 +993,14 @@ impl Tuning {
             climb_reach: 48.0,
             climb_shuffle: 110.0, // about half a second from the middle to the edge
             climb_pull_up: 700.0,
-            climb_leap: 1300.0,      // about two-thirds of a floor jump's height
-            climb_xp_per_unit: 0.01, // the whole pit is worth 80
-            climb_level_xp: 10.0,    // level 2 at 20, 3 at 60, 4 at 120, 5 at 200
+            climb_leap: 1300.0,        // about two-thirds of a floor jump's height
+            climb_xp_per_unit: 0.0194, // 0.01 x 1.94: the whole pit is worth 155; level 5 is 388
             climb_speed_per_level: 0.08,
 
-            swim_xp_per_stroke: 1.0,
-            swim_level_xp: 5.0, // level 5 at 100 strokes: about the middle of a demo run
+            swim_xp_per_stroke: 3.88, // 1.0 x 3.88: level 5 still at 100 strokes
             swim_quicker_per_level: 0.05,
-            fight_xp_per_damage: 0.25,
-            fight_xp_per_win: 15.0, // a snapper is worth 18, the mantis 30
-            fight_level_xp: 20.0,   // level 2 after beating two, 5 at 400
+            fight_xp_per_damage: 0.2425, // 0.25 x 0.97
+            fight_xp_per_win: 14.55,     // 15 x 0.97: level 5 still where 400 was
             fight_damage_per_level: 0.05,
             skill_cap: 10,
 

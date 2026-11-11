@@ -41,6 +41,25 @@ pub enum Cue {
     Claw {
         crab: PlayerId,
     },
+    /// One work stroke of a gather (about every 0.6 s of a hold) in `skill`.
+    Gather {
+        crab: PlayerId,
+        skill: crate::skills::Skill,
+    },
+    /// A gather (or a cooking at the vent pot) finished.
+    Gathered {
+        crab: PlayerId,
+    },
+    /// A fitted tool wore its last use: it cracked.
+    ToolCracked {
+        crab: PlayerId,
+    },
+    /// A skill went up to `level`: a rising chime.
+    LevelUp {
+        crab: PlayerId,
+        skill: crate::skills::Skill,
+        level: u32,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -161,6 +180,18 @@ impl Sim {
             }
             if c.events.smashed || c.events.jabbed {
                 cues.emit(tick, Cue::Claw { crab: c.id });
+            }
+            // Climbing, Swimming and Fighting level up inside the physics.
+            if let Some(skill) = c.events.levelled {
+                let level = c.mover.level(skill, &self.tuning);
+                cues.emit(
+                    tick,
+                    Cue::LevelUp {
+                        crab: c.id,
+                        skill,
+                        level,
+                    },
+                );
             }
         }
         for (i, band) in crate::level::bands::BANDS.iter().enumerate() {
