@@ -319,7 +319,7 @@ impl Sim {
             }
             Recipe::BuildHome => (Skill::Building, 20.0),
             Recipe::ShellPortions | Recipe::ReservePortions => (Skill::Cooking, 12.0),
-            Recipe::Lantern | Recipe::ToggleAutoEat => return Ok(()),
+            Recipe::Lantern | Recipe::ToggleAutoEat | Recipe::BlueLantern => return Ok(()),
         };
         self.earn(id, skill, xp);
         Ok(())

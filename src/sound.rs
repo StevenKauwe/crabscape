@@ -1466,7 +1466,10 @@ mod tests {
         for sfx in ALL {
             let s = synth(sfx, 44100.0);
             let secs = s.len() as f32 / 44100.0;
-            let longest = if matches!(sfx, Sfx::Bone | Sfx::Rock | Sfx::Moan | Sfx::Throb | Sfx::Chord) {
+            let longest = if matches!(
+                sfx,
+                Sfx::Bone | Sfx::Rock | Sfx::Moan | Sfx::Throb | Sfx::Chord
+            ) {
                 2.0
             } else {
                 0.7
