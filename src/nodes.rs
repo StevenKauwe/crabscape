@@ -10,8 +10,11 @@
 //! mud with a few short stubs, until it grows back.
 //!
 //! Like the clam beds (`food.rs`) they are drawn through the crab's memory,
-//! so a node shows where the crab has seen it. All shapes are built once at
-//! start; each frame only flips which of the two looks is showing.
+//! so a node shows where the crab has seen it. Only the nodes near the local
+//! crab have shapes at all (a node's look is built when the crab comes within
+//! [`NEAR`] and taken down past [`FAR`]), so a far place never pays for the
+//! rest of the world's nodes; each frame only flips which of a near node's two
+//! looks is showing.
 
 use std::collections::HashMap;
 
@@ -31,13 +34,18 @@ const INK_GROW: f32 = 1.22;
 const INK: Color = Color::srgb(0.04, 0.07, 0.08);
 /// A spent node: bare mud.
 const MUD: Color = Color::srgb(0.13, 0.16, 0.15);
+/// A node's look is built when the local crab comes this near (a wide
+/// screen and a half)...
+const NEAR: f32 = 2400.0;
+/// ...and taken down again past this.
+const FAR: f32 = 3000.0;
 
 pub struct NodesPlugin;
 
 impl Plugin for NodesPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn.after(crate::memory::setup_memory_texture))
-            .add_systems(Update, show.in_set(GameSet::Present));
+        app.init_resource::<Built>()
+            .add_systems(Update, (stream, show).chain().in_set(GameSet::Present));
     }
 }
 
@@ -48,6 +56,10 @@ struct Fresh(usize);
 
 #[derive(Component)]
 struct Spent(usize);
+
+/// The nodes whose looks exist now: node index -> its two look entities.
+#[derive(Resource, Default)]
+struct Built(HashMap<usize, [Entity; 2]>);
 
 /// One shape: (mesh, colour, offset from the node's foot, turn).
 type Part = (Mesh, Color, Vec3, f32);
@@ -331,28 +343,51 @@ fn spent_parts(tint: Color) -> Vec<Part> {
     ]
 }
 
-fn spawn(
+/// Build the looks of the nodes near the local crab and take down the far ones.
+#[allow(clippy::too_many_arguments)]
+fn stream(
     mut commands: Commands,
     sim: Res<Sim>,
-    tex: Res<MemoryTexture>,
+    tex: Option<Res<MemoryTexture>>,
+    mut built: ResMut<Built>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut remembered: ResMut<Assets<MemoryMaterial>>,
     mut palette: Local<HashMap<[u8; 4], Handle<MemoryMaterial>>>,
 ) {
+    let Some(tex) = tex else {
+        return;
+    };
+    let Some(at) = sim.crabs().iter().find(|c| !c.remote).map(|c| c.mover.pos) else {
+        return;
+    };
+    let nodes = sim.placed_nodes();
+    built.0.retain(|&i, looks| {
+        let keep = nodes.get(i).is_some_and(|n| n.pos.distance(at) <= FAR);
+        if !keep {
+            for e in looks.iter() {
+                commands.entity(*e).despawn();
+            }
+        }
+        keep
+    });
     let mut paint = |colour: Color| {
         palette
             .entry(colour.to_srgba().to_u8_array())
             .or_insert_with(|| remembered.add(tex.material(colour)))
             .clone()
     };
-    for (i, node) in sim.placed_nodes().iter().enumerate() {
+    for (i, node) in nodes.iter().enumerate() {
+        if built.0.contains_key(&i) || node.pos.distance(at) > NEAR {
+            continue;
+        }
         let tint = tier_tint(node.kind.def().tier);
         let foot = node.pos - Vec2::Y * SIT;
         let looks: [(bool, Vec<Part>); 2] = [
             (true, fresh_parts(node.kind, tint)),
             (false, spent_parts(tint)),
         ];
-        for (fresh, parts) in looks {
+        let mut made = [Entity::PLACEHOLDER; 2];
+        for (slot, (fresh, parts)) in looks.into_iter().enumerate() {
             let group = Transform::from_translation(foot.extend(Z));
             let mut look = if fresh {
                 commands.spawn((Fresh(i), group, Visibility::Hidden))
@@ -379,7 +414,9 @@ fn spawn(
                     ));
                 }
             });
+            made[slot] = look.id();
         }
+        built.0.insert(i, made);
     }
 }
 
