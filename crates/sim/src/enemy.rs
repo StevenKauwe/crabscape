@@ -732,6 +732,12 @@ pub(crate) fn swimmer_blocked(level: &Level, p: Vec2, half: f32, height: f32) ->
     if level.tunnel_interiors().any(|r| r.contains(p)) {
         return true;
     }
+    swimmer_blocked_by_terrain(level, p, half, height)
+}
+
+/// [`swimmer_blocked`] without the tunnel-interior scan, for callers that
+/// keep their own cached list of the interiors near them.
+pub(crate) fn swimmer_blocked_by_terrain(level: &Level, p: Vec2, half: f32, height: f32) -> bool {
     let (left, right, bottom, top) = (
         p.x - half * 0.65,
         p.x + half * 0.65,

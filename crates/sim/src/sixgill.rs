@@ -48,6 +48,10 @@ const CROSSING_WIDTH: f32 = 1500.0;
 const NEAR: f32 = 1700.0;
 /// Its centre keeps this far in from the water's edge.
 const INSET: Vec2 = Vec2::new(200.0, 120.0);
+/// A resting shark sleeps while every crab is further than this outside its
+/// water (a swimming crab covers it in about 20 s, far more than the
+/// shark needs to wake and set up a pass).
+const WAKE_RANGE: f32 = 4000.0;
 /// It will not shelter or hunt a crab this far outside its water.
 const SLACK: f32 = 300.0;
 /// A pass the shark could not set up rests this long (5 s).
@@ -129,6 +133,10 @@ pub struct State {
     /// Places that shelter a crab, and chambers: both off limits to it.
     shelter: Vec<[f32; 4]>,
     chambers: Vec<[f32; 4]>,
+    /// Tunnel interiors (shafts included) near its water, read once so the
+    /// per-tick checks never scan the whole level.
+    #[serde(default)]
+    interiors: Vec<[f32; 4]>,
     /// Where it drifts to.
     waypoint: [f32; 2],
     /// The way its head points (unit length).
@@ -247,6 +255,11 @@ fn read_level(s: &mut State, e: &Enemy, level: &Level) {
             _ => {}
         }
     }
+    s.interiors = level
+        .tunnel_interiors()
+        .filter(|r| !near.intersect(*r).is_empty())
+        .map(arr)
+        .collect();
     let facing = if e.facing < 0.0 { -1.0 } else { 1.0 };
     s.aim = [facing, 0.0];
 }
@@ -336,27 +349,34 @@ fn overlap(s: &State, level: &Level, p: Vec2, aim: Vec2) -> Option<usize> {
         && p.x <= swim.max.x - INSET.x
         && p.y >= swim.min.y + INSET.y
         && p.y <= swim.max.y - INSET.y;
-    if !inside || enemy::swimmer_blocked(level, p, 120.0, 120.0) {
+    if !inside || blocked(s, level, p, 120.0, 120.0) {
         return None;
     }
     Some(
         [-1.0_f32, -0.5, 0.0, 0.5, 1.0]
             .into_iter()
-            .filter(|f| keeps_out(s, level, p + aim * BODY.0 * 0.5 * f))
+            .filter(|f| keeps_out(s, p + aim * BODY.0 * 0.5 * f))
             .count(),
     )
 }
 
 /// Is this point in a place the shark never enters: a refuge, a mouth, a
 /// tunnel or a chamber?
-fn keeps_out(s: &State, level: &Level, q: Vec2) -> bool {
+fn keeps_out(s: &State, q: Vec2) -> bool {
     s.shelter
         .iter()
         .chain(&s.chambers)
         .any(|&r| rect(r).inflate(40.0).contains(q))
-        || level
-            .tunnel_interiors()
-            .any(|r| r.inflate(40.0).contains(q))
+        || s.interiors
+            .iter()
+            .any(|&r| rect(r).inflate(40.0).contains(q))
+}
+
+/// Is `p` blocked for a swimmer of this size: rock, sediment, the seabed or
+/// a tunnel interior (from its cached list)?
+fn blocked(s: &State, level: &Level, p: Vec2, half: f32, height: f32) -> bool {
+    s.interiors.iter().any(|&r| rect(r).contains(p))
+        || enemy::swimmer_blocked_by_terrain(level, p, half, height)
 }
 
 /// Swim along `dir` for one tick, steering round what is in the way.
@@ -450,6 +470,18 @@ fn run(
     let mut blows = Vec::new();
     if !s.ready {
         read_level(s, e, level);
+    }
+    // Asleep (cheap) while no crab, local or remote, is anywhere near its
+    // water: nothing it does could reach one, and every device sees the same
+    // crabs, so every device sleeps it the same ticks.
+    if e.state == Phase::Idle {
+        let wake = rect(s.area).inflate(WAKE_RANGE);
+        if !crabs
+            .iter()
+            .any(|c| c.fighter.dead.is_none() && wake.contains(centre(c, t)))
+        {
+            return blows;
+        }
     }
     e.state_tick += 1;
     s.rest = s.rest.saturating_sub(1);
@@ -688,7 +720,7 @@ fn attack(
     while length < s.reach * out {
         let next = (length + 12.0).min(s.reach * out);
         let q = from + dir * next;
-        if keeps_out(s, level, q) || enemy::swimmer_blocked(level, q, 1.0, 1.0) {
+        if keeps_out(s, q) || blocked(s, level, q, 1.0, 1.0) {
             break;
         }
         length = next;

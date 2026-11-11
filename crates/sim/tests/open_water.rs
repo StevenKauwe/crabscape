@@ -444,3 +444,78 @@ fn co_op_two_sims_agree_and_only_the_defenders_device_decides_the_blow() {
     let state = |s: &Sim| shark(s).state;
     assert_eq!(state(&host), state(&guest));
 }
+
+/// Every shark of the level, with the crab at `at`.
+fn all_sharks(at: Vec2) -> Sim {
+    let mut level = Level::test_level();
+    level.foes.retain(|(k, _)| *k == Kind::Sixgill);
+    let mut sim = Sim::new(crabsim::Tuning::default(), level);
+    sim.add_crab(P, at);
+    sim.populate();
+    pin(&mut sim, at);
+    sim
+}
+
+fn mean_tick_micros(sim: &mut Sim, at: Vec2, ticks: u32) -> f64 {
+    let start = std::time::Instant::now();
+    for _ in 0..ticks {
+        pin(sim, at);
+        sim.tick();
+    }
+    start.elapsed().as_secs_f64() * 1e6 / f64::from(ticks)
+}
+
+#[test]
+fn all_the_sharks_together_stay_cheap_to_tick() {
+    let level = Level::test_level();
+    let sharks = level
+        .foes
+        .iter()
+        .filter(|(k, _)| *k == Kind::Sixgill)
+        .count();
+    assert!(sharks >= 3, "{sharks} sharks");
+    let water = crossing(&level);
+    let near = water.center();
+    let far = Vec2::new(300.0, 0.0);
+    let mut awake = all_sharks(near);
+    let mut asleep = all_sharks(far);
+    let mut none = Sim::with_one_crab(near);
+    let (a, b, c) = (
+        mean_tick_micros(&mut awake, near, 2400),
+        mean_tick_micros(&mut asleep, far, 2400),
+        mean_tick_micros(&mut none, near, 2400),
+    );
+    println!("{sharks} sharks: {a:.1} us/tick awake, {b:.1} asleep, {c:.1} with none");
+    // Before the cache and the sleep, four sharks cost about 120 us a tick
+    // in release; the bound leaves room for a slow debug machine.
+    assert!(a - c < 400.0, "awake sharks cost {:.1} us/tick", a - c);
+    assert!(b - c < 100.0, "sleeping sharks cost {:.1} us/tick", b - c);
+}
+
+#[test]
+fn a_shark_sleeps_while_no_crab_is_near_and_wakes_when_one_comes() {
+    let level = Level::test_level();
+    let water = crossing(&level);
+    let far = Vec2::new(300.0, 0.0);
+    let mut sim = all_sharks(far);
+    let before: Vec<Vec2> = sim.enemies().iter().map(|e| e.pos).collect();
+    for _ in 0..(10 * SECOND) {
+        pin(&mut sim, far);
+        sim.tick();
+    }
+    let after: Vec<Vec2> = sim.enemies().iter().map(|e| e.pos).collect();
+    assert_eq!(before, after, "no crab near: they do not move");
+    // A crab into the water: the one that owns it swims again.
+    let near = water.center();
+    let mut moved = false;
+    for _ in 0..(20 * SECOND) {
+        pin(&mut sim, near);
+        sim.tick();
+        moved |= sim
+            .enemies()
+            .iter()
+            .zip(&before)
+            .any(|(e, b)| e.pos.distance(*b) > 5.0);
+    }
+    assert!(moved, "a crab in the water wakes its shark");
+}
