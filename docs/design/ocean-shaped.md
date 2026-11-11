@@ -113,3 +113,10 @@ The watcher represents a giant squid (*Architeuthis dux*), with a provisional
 watching behaviour are **not verified**. This is a faint partial animal, never
 an enlarged enemy. Wound scent attraction is also **not verified**: the 1.5×
 range and 20-second window are game design, not a biological measurement.
+
+### The Plunge's creatures (#470, #471)
+All sizes are **not verified** (no source opened yet): the whale carcass falling past is drawn 13 m long (a gray whale's
+scale; whale-fall stages are row 9, lengths are not in that source); the anglerfish at the stage is 0.6 m long with a
+glowing lure on its own shape, its pale prey 0.15 m; the wild blue-green light is a bioluminescent culture (colour
+chosen for the game, not measured); a hydrothermal updraft carries the crab home (mechanism of an updraft is row 11's
+vents; carrying a crab is a game abstraction). The angler is presentation only: unreachable, unattackable.

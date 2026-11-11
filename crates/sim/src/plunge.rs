@@ -31,14 +31,14 @@
 //! one way, harmless) but a path in time, not a lane in space: the fall goes
 //! through bedrock between sealed frames and must end exactly at its landing
 //! whatever the controls, whatever the world has become.
+use crate::STEP;
 use crate::level::Level;
 use crate::level::bands::Smell;
 use crate::level::landmarks::Landmark;
 use crate::physics::Carry;
 use crate::tuning::Tuning;
-use crate::world::{PlayerId, SimCrab};
-use crate::STEP;
 use crate::world::strain;
+use crate::world::{PlayerId, SimCrab};
 use bevy_math::{Rect, Vec2};
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
@@ -167,9 +167,7 @@ impl Plunge {
     /// Ticks into the scene beyond the slit, while it plays.
     pub fn scene(&self) -> Option<u32> {
         match self.phase {
-            Phase::Crack {
-                scene: Some(t), ..
-            } if t < SCENE_TICKS => Some(t),
+            Phase::Crack { scene: Some(t), .. } if t < SCENE_TICKS => Some(t),
             _ => None,
         }
     }
@@ -456,7 +454,10 @@ pub(crate) fn step_all(
                 let h = p.hole();
                 let near_floor = m.pos.y <= h.y + 40.0 && m.pos.y >= h.y - 40.0;
                 let dx = h.x - m.pos.x;
-                if !near_floor || dx.abs() > LIP_REACH.min(p.tunnel.width() * 0.5) || !p.tunnel.contains(m.pos + Vec2::Y) {
+                if !near_floor
+                    || dx.abs() > LIP_REACH.min(p.tunnel.width() * 0.5)
+                    || !p.tunnel.contains(m.pos + Vec2::Y)
+                {
                     continue;
                 }
                 if dx.abs() <= HOLE_HALF {
@@ -578,7 +579,8 @@ fn crack(crab: &mut SimCrab, p: &Places, t: &Tuning, moments: &mut Vec<(PlayerId
     };
     // The vent opens when the show is over: step into it.
     let v = p.vent();
-    if !crab.plunge.busy() && (crab.mover.pos.x - v.x).abs() <= crab.mover.half_width(t) + VENT_REACH
+    if !crab.plunge.busy()
+        && (crab.mover.pos.x - v.x).abs() <= crab.mover.half_width(t) + VENT_REACH
     {
         crab.plunge.phase = Phase::Vent {
             t: 0,

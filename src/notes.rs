@@ -141,6 +141,8 @@ fn note_events(
         && !ev.recovered
     {
         let what = match thing {
+            // Found, not announced: no text over the Plunge.
+            Carry::WildLight => ("", PALE),
             Carry::Tooth => ("Take the tooth home!", PALE),
             Carry::Clam => ("A clam: meal or field portions.", YOLK),
             Carry::Grit => ("Shell grit for the home", PALE),
@@ -148,7 +150,9 @@ fn note_events(
             Carry::Glass => ("Glass! Take it home.", PALE),
             Carry::Culture => ("Take it home!", WILD_GLOW),
         };
-        notes.push((what.0.into(), what.1));
+        if !what.0.is_empty() {
+            notes.push((what.0.into(), what.1));
+        }
     }
     // Walking over a small thing with no room on its shell says so now and
     // then, not every frame.

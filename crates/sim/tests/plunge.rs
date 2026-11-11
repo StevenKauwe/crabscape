@@ -3,8 +3,8 @@
 //! proved whatever shape the world's geometry gives the frames.
 use bevy_math::{Rect, Vec2};
 use crabsim::combat::Hit;
-use crabsim::world::cues::Cue;
 use crabsim::plunge::{self, Phase, Places};
+use crabsim::world::cues::Cue;
 use crabsim::{Carry, Controls, Kind, Level, PlayerId, STEP, Sim, Tuning};
 
 const A: PlayerId = PlayerId(0);
@@ -140,7 +140,9 @@ fn digging_breaks_in_between_20_and_40_s() {
         dig_held: true,
         ..Controls::default()
     };
-    let n = until(&mut s, A, dig, 60 * HZ, |s| s.plunge(A).expect("crab").broken());
+    let n = until(&mut s, A, dig, 60 * HZ, |s| {
+        s.plunge(A).expect("crab").broken()
+    });
     let secs = n as f32 * STEP;
     println!("the way breaks after {secs:.1} s of digging");
     assert!((20.0..=40.0).contains(&secs), "{secs}");
@@ -489,12 +491,9 @@ fn the_vent_always_lands_in_the_start_tunnel() {
         if shored {
             // The tunnel dug away or shored: rock over the landing.
             let l = p.home_landing();
-            s.level.rocks.push(Rect::new(
-                l.x - 30.0,
-                l.y - 5.0,
-                l.x + 30.0,
-                l.y + 100.0,
-            ));
+            s.level
+                .rocks
+                .push(Rect::new(l.x - 30.0, l.y - 5.0, l.x + 30.0, l.y + 100.0));
         }
         fall(&mut s, Controls::default());
         watch(&mut s);
@@ -507,7 +506,11 @@ fn the_vent_always_lands_in_the_start_tunnel() {
         let secs = n as f32 * STEP;
         println!("vent ride {secs:.1} s (shored: {shored})");
         assert!((15.0..=25.0).contains(&secs));
-        assert!(pos(&s, A).distance(p.home_landing()) < 1.0, "{}", pos(&s, A));
+        assert!(
+            pos(&s, A).distance(p.home_landing()) < 1.0,
+            "{}",
+            pos(&s, A)
+        );
         assert!(p.tunnel.contains(pos(&s, A) + Vec2::Y));
         let c = s.crab(A).expect("crab");
         assert_eq!(c.fighter.vitals.health, c.mover.max_shell(&s.tuning));

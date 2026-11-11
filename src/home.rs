@@ -471,6 +471,6 @@ fn big_on_cast_off(
             }
         }
         // Small things cling to it instead (above).
-        Carry::Grit | Carry::Clam | Carry::Valve => {}
+        Carry::Grit | Carry::Clam | Carry::Valve | Carry::WildLight => {}
     }
 }

@@ -64,6 +64,7 @@ fn plenty() -> Stash {
         grit: 3,
         valves: 6,
         glass: 2,
+        wild_lights: 1,
     }
 }
 
@@ -165,6 +166,9 @@ fn each_recipe_takes_what_it_needs_and_gives_what_it_says() {
                 assert!(after.events.fitted_grips);
             }
             Recipe::ClamGuards => assert!(!b.clam_guards && a.clam_guards),
+            Recipe::BlueLantern => {
+                assert!(!before.plunge.blue_lantern && after.plunge.blue_lantern)
+            }
             Recipe::ShellPortions | Recipe::ReservePortions | Recipe::ToggleAutoEat => {
                 unreachable!()
             }

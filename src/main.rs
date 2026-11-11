@@ -110,6 +110,7 @@ mod names;
 mod notes;
 mod octopus;
 mod player;
+mod plunge;
 mod power;
 mod puppet;
 mod replay;
@@ -239,6 +240,7 @@ fn run_app() {
                 moult::MoultPlugin,
                 brittle::BrittlePlugin,
                 chimney::ChimneyPlugin,
+                plunge::PlungePlugin,
                 creature_art::CreatureArtPlugin,
                 go_home::GoHomePlugin,
                 keys::KeysPlugin,

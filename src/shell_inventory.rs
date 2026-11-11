@@ -203,6 +203,7 @@ fn name(item: Carry) -> &'static str {
         Carry::Culture => "culture",
         Carry::Tooth => "tooth",
         Carry::Glass => "glass",
+        Carry::WildLight => "light",
     }
 }
 
