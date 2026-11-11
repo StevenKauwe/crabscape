@@ -467,6 +467,7 @@ fn ghost_colour(kind: Kind) -> Color {
         Kind::GiantIsopod => Color::srgb(0.72, 0.70, 0.62),
         Kind::Hagfish => Color::srgb(0.66, 0.58, 0.60),
         Kind::AmphipodSwarm => Color::srgb(0.80, 0.62, 0.52),
+        Kind::Sixgill => Color::srgb(0.22, 0.34, 0.38),
     }
 }
 

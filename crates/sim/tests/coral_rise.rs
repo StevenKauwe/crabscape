@@ -261,7 +261,7 @@ fn bank_encloses_the_find_and_separates_sediment_from_bedrock() {
     let jellies = level
         .foes
         .iter()
-        .filter(|(k, _)| crabsim::creatures::tuning(*k).is_none())
+        .filter(|(k, _)| *k == crabsim::Kind::AlarmJelly)
         .count();
     assert!(jellies >= 2, "{jellies} alarm jellies");
     assert_eq!(cell(17130.0, -4300.0), Cell::Rock);

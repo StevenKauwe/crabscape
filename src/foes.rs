@@ -142,7 +142,8 @@ fn spawn_foes(
             | Kind::BobbitWorm
             | Kind::GiantIsopod
             | Kind::Hagfish
-            | Kind::AmphipodSwarm => {}
+            | Kind::AmphipodSwarm
+            | Kind::Sixgill => {}
         }
     }
 }

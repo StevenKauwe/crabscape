@@ -85,6 +85,7 @@ impl Plugin for DeepPlugin {
                     show_depth,
                     show_tide,
                     pass_visitor,
+                    show_sim_sharks,
                     pass_shoal,
                     show_watched_eyes,
                 )
@@ -250,42 +251,7 @@ fn spawn_visitor(
 ) {
     let shadow = materials.add(SHADOW);
     let eye = materials.add(EYE);
-    // A long, slow body facing left: a blunt head, a tall tail, one fin.
-    // A sixgill's long, slow body facing left: a blunt head, a tail with a
-    // long upper lobe, its one dorsal fin far back near the tail, a
-    // pectoral fin behind the head.
-    let parts: [(Mesh, &Handle<ColorMaterial>, Vec2, f32); 5] = [
-        (Ellipse::new(650.0, 120.0).into(), &shadow, Vec2::ZERO, 0.0),
-        (
-            Triangle2d::new(
-                Vec2::new(0.0, 0.0),
-                Vec2::new(260.0, 170.0),
-                Vec2::new(230.0, -110.0),
-            )
-            .into(),
-            &shadow,
-            Vec2::new(600.0, 10.0),
-            0.0,
-        ),
-        (
-            Triangle2d::new(
-                Vec2::new(-80.0, 0.0),
-                Vec2::new(80.0, 0.0),
-                Vec2::new(50.0, 105.0),
-            )
-            .into(),
-            &shadow,
-            Vec2::new(380.0, 80.0),
-            0.0,
-        ),
-        (
-            Ellipse::new(110.0, 30.0).into(),
-            &shadow,
-            Vec2::new(-260.0, -105.0),
-            -0.4,
-        ),
-        (Circle::new(7.0).into(), &eye, Vec2::new(-520.0, 25.0), 0.0),
-    ];
+    let parts = shark_parts();
     commands
         .spawn((
             Visitor,
@@ -293,7 +259,8 @@ fn spawn_visitor(
             Visibility::Hidden,
         ))
         .with_children(|body| {
-            for (mesh, material, at, angle) in parts {
+            for (mesh, is_eye, at, angle) in parts {
+                let material = if is_eye { &eye } else { &shadow };
                 body.spawn((
                     Mesh2d(meshes.add(mesh)),
                     MeshMaterial2d(material.clone()),
@@ -319,6 +286,15 @@ fn pass_visitor(
     else {
         return;
     };
+    // The real shark (`crabsim::sixgill`) is in the water: this shadow stands down.
+    if sim
+        .enemies()
+        .iter()
+        .any(|e| e.kind == crabsim::Kind::Sixgill)
+    {
+        *shown = Visibility::Hidden;
+        return;
+    }
     let depth = below_lip(&sim, crab.translation.truncate());
     dive.begin(depth, camera.translation.truncate(), time.elapsed_secs());
     let Some(t) = dive.pass else {
@@ -624,5 +600,115 @@ fn show_watched_eyes(
                 _ => Color::srgba(0.01, 0.025, 0.03, 0.85 * w.opacity()),
             };
         }
+    }
+}
+
+/// A sixgill's long, slow body facing left, as its parts: a blunt head, a
+/// tail with a long upper lobe, its one dorsal fin far back near the tail, a
+/// pectoral fin behind the head, and the eye (`true`). 1,300 units long: the
+/// sim shark's true size (`crabsim::sixgill::BODY`).
+fn shark_parts() -> Vec<(Mesh, bool, Vec2, f32)> {
+    vec![
+        (Ellipse::new(650.0, 120.0).into(), false, Vec2::ZERO, 0.0),
+        (
+            Triangle2d::new(
+                Vec2::new(0.0, 0.0),
+                Vec2::new(260.0, 170.0),
+                Vec2::new(230.0, -110.0),
+            )
+            .into(),
+            false,
+            Vec2::new(600.0, 10.0),
+            0.0,
+        ),
+        (
+            Triangle2d::new(
+                Vec2::new(-80.0, 0.0),
+                Vec2::new(80.0, 0.0),
+                Vec2::new(50.0, 105.0),
+            )
+            .into(),
+            false,
+            Vec2::new(380.0, 80.0),
+            0.0,
+        ),
+        (
+            Ellipse::new(110.0, 30.0).into(),
+            false,
+            Vec2::new(-260.0, -105.0),
+            -0.4,
+        ),
+        (Circle::new(7.0).into(), true, Vec2::new(-520.0, 25.0), 0.0),
+    ]
+}
+
+/// A shark of the sim (one per open-water crossing), drawn from its state.
+#[derive(Component)]
+struct SimShark {
+    id: u32,
+    eye: Handle<ColorMaterial>,
+}
+
+/// The sixgills: each sim shark drawn at its true size, where the sim has it,
+/// turned the way it points and darting out on its strike. Behind the canyon
+/// (like all that passes in the deep): a shape, never an overlay. Its eye
+/// glints as it turns on a crab.
+fn show_sim_sharks(
+    mut commands: Commands,
+    sim: Res<Sim>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut drawn: Query<(&SimShark, &mut Transform)>,
+) {
+    for e in sim
+        .enemies()
+        .iter()
+        .filter(|e| e.kind == crabsim::Kind::Sixgill)
+    {
+        let aim = crabsim::sixgill::state(e).map_or(Vec2::NEG_X, |s| s.aim());
+        let lunge = crabsim::sixgill::lunge_tip(e) - crabsim::sixgill::head(e);
+        let at = (e.pos + lunge).extend(VISITOR_Z + 0.5);
+        // Faces left in its own space: flip it to face right.
+        let (flip, angle) = if aim.x < 0.0 {
+            (1.0, aim.to_angle() - std::f32::consts::PI)
+        } else {
+            (-1.0, aim.to_angle())
+        };
+        let pose = Transform::from_translation(at)
+            .with_rotation(Quat::from_rotation_z(angle))
+            .with_scale(Vec3::new(flip, 1.0, 1.0));
+        if let Some((shark, mut transform)) = drawn.iter_mut().find(|(s, _)| s.id == e.id) {
+            *transform = pose;
+            if let Some(mut mat) = materials.get_mut(&shark.eye) {
+                let watching = matches!(
+                    e.state,
+                    crabsim::enemy::State::Tell | crabsim::enemy::State::Attack
+                );
+                mat.color = Color::srgba(0.80, 0.90, 0.80, if watching { 0.95 } else { 0.5 });
+            }
+            continue;
+        }
+        let shadow = materials.add(SHADOW);
+        let eye = materials.add(EYE);
+        commands
+            .spawn((
+                SimShark {
+                    id: e.id,
+                    eye: eye.clone(),
+                },
+                pose,
+                Visibility::Inherited,
+            ))
+            .with_children(|body| {
+                for (mesh, is_eye, at, angle) in shark_parts() {
+                    let material = if is_eye { &eye } else { &shadow };
+                    body.spawn((
+                        Mesh2d(meshes.add(mesh)),
+                        MeshMaterial2d(material.clone()),
+                        Transform::from_translation(at.extend(if is_eye { 0.1 } else { 0.0 }))
+                            .with_rotation(Quat::from_rotation_z(angle)),
+                    ));
+                }
+            });
     }
 }
