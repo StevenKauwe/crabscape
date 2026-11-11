@@ -32,7 +32,7 @@ That decision, every trip, deeper each time, is the game.
 | Common resources stay useful (repair, cord, food, building) | A tier that is dead once you pass it | "Things get used up" |
 | Every trip ends with a decision (full shell, go deeper or home?) | Unlimited carrying | Inventory pressure is the loop |
 
-Good example: `Prying 30 → glass scallops on the canyon shelf (x 5,900 to 6,150, y about -3,400)`: 50 XP each, needs a
+Good example: `Prying 30 → glass scallops on the canyon shelf (x 5,900 to 6,150, y about -3,400)`: 200 XP each, needs a
 quill pry tip, 4 per shell; the shelf crevice is a refuge, open water around it is frightening. Bad example: a "rune
 ore" glowing rock in the shallows worth 500 XP (made up, no risk, no distance).
 
@@ -79,10 +79,10 @@ Five tiers, one per depth band (`level/bands.rs`). A node's tier sets everything
 | Tier | Band (y) | Places on today's map | Level req | Tool tier | XP per gather | Gather s (base) | Charges | Respawn s | Nodes per kind |
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | Shallows (> -260) | home side x 0–1,300; far ledge x 1,820–2,716 | 1 | 0 (bare claw) | 10 | 2.5 | 5 | 45 | 4 |
-| 2 | Basin and mudbanks (-260 to -700) | basin x 2,800–3,300; far basin hub x 4,490–5,370 | 15 | 1 shell | 25 | 3.0 | 5 | 60 | 3 |
-| 3 | Canyon walls / twilight (-700 to -3,400) | doorstep x 5,371–5,900; canyon shelf x 5,900–6,150; far rim x 7,900–8,800; pit walls | 30 | 2 quill | 50 | 3.5 | 4 | 90 | 3 |
-| 4 | Canyon floor / midnight (-3,400 to -9,500) | canyon floor x 6,150–7,900 (y ≈ -9,400); far-wall cave; east of the rim | 45 | 3 glass | 100 | 4.0 | 4 | 150 | 3 |
-| 5 | Deep (< -9,500) | lower canyon vent field (`level::lower_canyon::VENTS`, x > 17,400) | 60 | 4 bone | 175 | 4.5 | 4 | 240 | 3 |
+| 2 | Basin and mudbanks (-260 to -700) | basin x 2,800–3,300; far basin hub x 4,490–5,370 | 15 | 1 shell | 110 | 3.0 | 5 | 60 | 3 |
+| 3 | Canyon walls / twilight (-700 to -3,400) | doorstep x 5,371–5,900; canyon shelf x 5,900–6,150; far rim x 7,900–8,800; pit walls | 30 | 2 quill | 200 | 3.5 | 4 | 90 | 3 |
+| 4 | Canyon floor / midnight (-3,400 to -9,500) | canyon floor x 6,150–7,900 (y ≈ -9,400); far-wall cave; east of the rim | 45 | 3 glass | 260 | 4.0 | 4 | 150 | 3 |
+| 5 | Deep (< -9,500) | lower canyon vent field (`level::lower_canyon::VENTS`, x > 17,400) | 60 | 4 bone | 750 | 4.5 | 4 | 240 | 3 |
 
 Placement rule: a tier-k node lies in band k or deeper, and its **route time from home** (route solver, the kit the world
 expects at that stage) is longer than every tier-(k−1) node's median. The pit floor is deep but close: put only tier 2–3
@@ -111,7 +111,7 @@ Five gathering skills × five tiers = 25 node kinds, plus culture sites (Culturi
 | Culturing (none) | Shore glow → Shore strain | Pit glow site → Culture | Twilight glow → Twilight strain | Sulfur mat → Sulfur mat | Vent mat → Vent mat |
 | Station | | | | | **Vent pot** (cook at the vent: see Cooking) |
 
-Culturing wild sites give 8 / 20 / 40 / 80 / 140 XP (less than gathering; beds pay the rest). Big items ride on the back
+Culturing wild sites give 8 / 88 / 160 / 208 / 600 XP (80% of gathering; beds pay the rest). Big items ride on the back
 one at a time (like today's culture and tooth); everything else clings to the shell.
 
 Biology (each row "not verified" until a source is opened and added to this page's Sources): mussels on shallow rock;
@@ -271,10 +271,10 @@ home; deeper tiers combine measured gather times with route-solver travel times)
 Reported (printed, not asserted): estimated hours to 30, 45, 60, 99.
 
 ## Interface (all in `src/`, phone first, follow `src/input.rs`)
-- **Gather:** keyboard `E` (hold), controller face button, touch: a contextual **Gather** button appears beside the
+- **Gather:** keyboard `C` (hold; E and F are smash and guard), controller left-stick click, touch: a contextual **Gather** button appears beside the
   action stick when a ready node is in reach (hold). `Controls::gather_held`. A ring fills around the node while held.
 - **Node look:** each kind a small clear placeholder sprite (kelp fronds, mussel clump, grit heap...), tinted by band;
-  a spent node draws bare (stubs, empty mud). Prompt text near the crab: "Hold E: pry mussels", or the reason it can't
+  a spent node draws bare (stubs, empty mud). Prompt text near the crab: "Hold C: pry mussels", or the reason it can't
   ("Prying 15", "Needs a shell pry tip", "No room on your shell").
 - **Skills panel:** key `K`, touch: a "Skills" button on the pause/home sheet. A 3-column grid of 13 skills (icon,
   level, a thin progress bar); tap a skill for its RuneScape-style guide: every unlock by level, done ones ticked,
@@ -329,7 +329,39 @@ and P3 never edits `world.rs`; P2 never edits `craft.rs`.
 - CI flake: `cell_save::native` on Linux (#482): rerun the failed job.
 
 ## Where things stand
-(Updated as packages land.) 2026-11-10: spec written (P0, #564). Umbrella #563; packages P1 #565, P2 #566, P3 #567, P4 #568, P5 #569, P6 #570, P7 #571, P8 #572.
+2026-11-11 (lead designer). Read this first if you are continuing without the lead.
+- **Merged:** P0 spec (#573), P1 core + P2 gathering (#596).
+- **In the big PR (branch `issue-567-economy-loop`):** P3 crafting chains, P4 presentation (skills panel `K`, level-up juice, XP drops,
+  node sprites, gear looks, gather key `C` / left-stick click / touch GATHER button, fill ring, prompts and why-not text,
+  crafting tabs Make/Cook/Shell/Weave/Build/Culture/Repair with a pager), P5 pacing sims, P6 node memory, P7 docs. It
+  closes #567 to #571.
+- **Measured pacing** (`crates/sim/tests/economy_pacing.rs`, a bot on real ticks, sim seconds): Prying L2 27 s, L5 209 s,
+  L10 679 s, L15 1,401 s (all five gathering skills within the targets; Culturing slowest at L15 1,793 s). XP per minute
+  on round trips by tier at unlock / at level 60: T1 188 / 446, T2 351 / 506, T3 500 / 540, T4 570 / 603, T5 624 / 629
+  (strictly rising). Items per minute fall with distance: 18.8, 3.2, 2.5, 2.2, 0.8. T1 power-gathering 104 to 120 XP/min.
+  Estimated hours to 30 / 45 / 60 / 99: 0.7 / 2.3 / 8.3 / 340. Trips (route solver, full kit, seconds round trip): T2 95,
+  T3 164, T4 187; **T5 is extrapolated (541 s)** because the solver cannot reach the vent field today (the slump dam is
+  one-way and the narrows need the heavy crusher).
+- **Tuning that moved from the first draft:** XP per gather by tier is now 10 / 110 / 200 / 260 / 750 (was 10 / 25 / 50 /
+  100 / 175; the old numbers made the basin worse than the shallows). Tier-1 nodes on the home side sit in a cluster at
+  x 175 to 535 that a crab reaches on foot (past x about 600 the plateau needs a jump).
+- **Next, in order:**
+  1. P8 (#572): re-place nodes on the world build's new map once its geometry lands (home burrow clam beds → T2 Prying,
+     bone hall → T4 whale bones, seep chimneys/garden → T4 seep mussels, the vent and chimney hall → T5). Then re-measure
+     T5 with `cargo test -p crabsim --test economy_pacing -- --ignored --nocapture measure_routes` (~18 min) and lower
+     T5 XP if the trip shortens.
+  2. P9 (new issue): the creature build's drops (`crates/sim/src/creatures/<name>.rs` `DROPS`): squid beak, viperfish
+     fang, lobster crusher fragment, bobbit jaw → Shellcraft claw-tip materials; isopod plate → plating between bone and
+     nodule; slime thread → Weaving cord stronger than braided; photophore → a lantern ingredient (Culturing); whelk
+     shell → Building; anemone → claw-guard decoration; amphipods → deep food. Fighting XP per kill scaled by
+     `vitals.health`. The creatures lane owns `creatures/*`; the economy owns `economy/*` and `craft.rs`.
+  3. Excavating XP from real digging (cellular digging has no clean per-unit amount; needs an engine-package hook).
+  4. Look at the gather ring, prompt, touch button and crafting tabs in a browser at phone size (never seen running).
+- **Hidden rules found:** node indexes come from `placed_nodes` (spots outside a small level are dropped), so never index
+  `place::SPOTS` directly; nodes sit about 60 units apart with a 70-unit reach, so a spent node hands the gather to its
+  neighbour; legacy clam beds fill the larder, and a full larder now banks clams as items; `StepEvents` must stay `Copy`
+  (one `level_up` per tick, the last level crossed); the wall-clock test `headless_runs_far_faster_than_real_time` fails
+  under heavy machine load (run it alone); a node's charges reach guests in `Msg::World`.
 
 ## Sources (this page)
 None opened yet beyond those cited in `universe.md` and `world.md`; every biology claim above not in those is
