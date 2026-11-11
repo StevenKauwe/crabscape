@@ -1348,6 +1348,12 @@ impl Sim {
                     net.asked.retain(|a| a.1 != thing);
                 }
                 let t = &self.tuning;
+                let body_kind = match thing {
+                    Thing::Body { enemy, .. } => {
+                        self.enemies.iter().find(|e| e.id == enemy).map(|e| e.kind)
+                    }
+                    _ => None,
+                };
                 if let (Some(id), Thing::Node(i)) = (ours, thing) {
                     self.finish_node(id, i, false);
                 } else if let Some(id) = ours
@@ -1365,6 +1371,9 @@ impl Sim {
                         && matches!(thing, Thing::Clam(i) if self.level.clams.get(i).copied() == self.level.deep_food())
                     {
                         c.deep_food = DeepFood::Carried(slot);
+                    }
+                    if given && let Some(kind) = body_kind {
+                        crate::economy::give_drops(c, kind, t, false);
                     }
                 }
             }
@@ -2596,12 +2605,15 @@ impl Sim {
                         && e.kind != Kind::AlarmJelly
                         && self.shared.there(it, &self.tuning)
                         && !e.hurtbox(&self.tuning).intersect(body).is_empty())
-                    .then_some(it)
+                    .then_some((it, e.kind))
                 });
                 if meal.is_some() && soft {
                     crab.events.too_soft = true;
-                } else if let Some(it) = meal {
-                    reach(crab, it, &mut self.shared, &mut self.net, &self.tuning);
+                } else if let Some((it, kind)) = meal
+                    && reach(crab, it, &mut self.shared, &mut self.net, &self.tuning)
+                {
+                    // Eaten on the spot: the creature's drops come with it.
+                    crate::economy::give_drops(crab, kind, &self.tuning, true);
                 }
             }
             // A ghost net it presses against: cut, with scissor claws (gone
@@ -3210,7 +3222,8 @@ impl Sim {
                 let health = e.health_left();
                 let countered = swing.counter;
                 if let Some(took) = e.takes_at(part, &hit, crab.mover.pos.x, t) {
-                    let levelled = fought(&mut crab.mover, health - e.health_left(), took, t);
+                    let levelled =
+                        fought(&mut crab.mover, health - e.health_left(), took, e.kind, t);
                     crab.events.levelled = crab.events.levelled.or(levelled);
                     if countered && took.died {
                         let proven = crab.mover.prove(Skill::Fighting);
@@ -3683,7 +3696,7 @@ fn crush(crab: &mut SimCrab, enemies: &mut [Enemy], t: &Tuning, ev: &mut StepEve
         };
         let health = e.vitals.health;
         if let Some(took) = e.takes(&squeeze, crab.mover.pos.x, t) {
-            let levelled = fought(&mut crab.mover, health - e.vitals.health, took, t);
+            let levelled = fought(&mut crab.mover, health - e.vitals.health, took, e.kind, t);
             ev.levelled = ev.levelled.or(levelled);
         }
         f.vitals.hitstop = f.vitals.hitstop.max(ct.crack_hitstop);
@@ -3712,7 +3725,7 @@ fn crush(crab: &mut SimCrab, enemies: &mut [Enemy], t: &Tuning, ev: &mut StepEve
         };
         let health = e.vitals.health;
         if let Some(took) = e.takes(&blow, crab.mover.pos.x, t) {
-            let levelled = fought(&mut crab.mover, health - e.vitals.health, took, t);
+            let levelled = fought(&mut crab.mover, health - e.vitals.health, took, e.kind, t);
             ev.levelled = ev.levelled.or(levelled);
             // The crush is a counter's: beating a creature with it proves
             // the fighter.
@@ -3729,8 +3742,12 @@ fn crush(crab: &mut SimCrab, enemies: &mut [Enemy], t: &Tuning, ev: &mut StepEve
 
 /// The Fighting skill grows with a blow that took `dealt` health off a
 /// creature, and more if it beat it. Returns the skill if it went up a level.
-fn fought(m: &mut Mover, dealt: f32, took: combat::Took, t: &Tuning) -> Option<Skill> {
-    let win = if took.died { t.fight_xp_per_win } else { 0.0 };
+fn fought(m: &mut Mover, dealt: f32, took: combat::Took, kind: Kind, t: &Tuning) -> Option<Skill> {
+    let win = if took.died {
+        crate::economy::win_xp(kind, t)
+    } else {
+        0.0
+    };
     m.earn(Skill::Fighting, dealt * t.fight_xp_per_damage + win, t)
 }
 

@@ -75,6 +75,18 @@ items! {
     Pearl, "pearl", "pearl", "pearls", 0, false;
     Scale, "scale", "scale", "scales", 0, false;
     Spoiled, "spoiled", "spoiled batch", "spoiled batches", 0, false;
+    // Creature drops (the tier is the zone the creature lives in: basin 2,
+    // twilight 3, midnight 4).
+    SquidBeak, "squid-beak", "squid beak", "squid beaks", 3, false;
+    ViperfishFang, "viperfish-fang", "viperfish fang", "viperfish fangs", 4, false;
+    Photophore, "photophore", "photophore", "photophores", 4, false;
+    WhelkShell, "whelk-shell", "whelk shell", "whelk shells", 2, false;
+    Anemone, "anemone", "anemone", "anemones", 2, false;
+    IsopodPlate, "isopod-plate", "isopod plate", "isopod plates", 4, false;
+    BobbitJaw, "bobbit-jaw", "bobbit jaw", "bobbit jaws", 2, false;
+    LobsterFragment, "lobster-fragment", "crusher fragment", "crusher fragments", 3, false;
+    SlimeThread, "slime-thread", "slime thread", "slime threads", 4, false;
+    Amphipods, "amphipods", "amphipod", "amphipods", 4, false;
     // Processed.
     KelpCord, "kelp-cord", "kelp cord", "kelp cord", 0, false;
     BraidedCord, "braided-cord", "braided cord", "braided cord", 0, false;
@@ -84,6 +96,23 @@ items! {
     BoneSplint, "bone-splint", "bone splint", "bone splints", 0, false;
     NodulePlate, "nodule-plate", "nodule plate", "nodule plates", 0, false;
     ScalePlate, "scale-plate", "scale plate", "scale plates", 0, false;
+}
+
+/// The item a creature's drop name (`creatures::drops`) stands for.
+pub fn from_drop(name: &str) -> Option<Item> {
+    Some(match name {
+        "squid beak" => Item::SquidBeak,
+        "viperfish fang" => Item::ViperfishFang,
+        "photophore" => Item::Photophore,
+        "whelk shell" => Item::WhelkShell,
+        "anemone" => Item::Anemone,
+        "isopod plate" => Item::IsopodPlate,
+        "bobbit jaw" => Item::BobbitJaw,
+        "lobster crusher fragment" => Item::LobsterFragment,
+        "slime thread" => Item::SlimeThread,
+        "amphipods" => Item::Amphipods,
+        _ => return None,
+    })
 }
 
 impl Item {

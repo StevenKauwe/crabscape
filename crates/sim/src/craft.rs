@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::economy::beds::BedAction;
-use crate::economy::recipes::{Bench, Output};
+use crate::economy::recipes::{Bench, Effect, Output};
 use crate::economy::{ECON_RECIPES, EconRecipe, Item, Slot, Station, Tool, gear, roll};
 use crate::level::Place;
 use crate::prepared_food::PortionKind;
@@ -500,6 +500,16 @@ impl Sim {
                     return Err(CantMakeEcon::NothingToMend);
                 }
             }
+            Output::Effect(Effect::ClamGuards) if crab.mover.clam_guards => {
+                return Err(CantMakeEcon::Made);
+            }
+            Output::Effect(Effect::GrowHome)
+                if self.tuning.build.stage(crab.home_grit)
+                    >= self.tuning.build.stages.len() as u32 =>
+            {
+                return Err(CantMakeEcon::Made);
+            }
+            Output::Effect(_) => {}
             Output::Portions(_, n) => {
                 let m = &crab.mover;
                 if m.prepared_food.free_slots() < usize::from(n)
@@ -537,6 +547,7 @@ impl Sim {
             .unwrap_or(0);
         let tick = self.tick_count();
         let level = self.crab(id).map_or(1, |c| c.level(r.skill, &self.tuning));
+        let stages = self.tuning.build.stages;
         let Some(crab) = self.crab_mut(id) else {
             return Err(CantMakeEcon::NotAtHome);
         };
@@ -569,6 +580,20 @@ impl Sim {
             Output::Repair(rep) => {
                 if let Some(target) = crab.econ.repair_target(rep) {
                     crab.econ.mend(target);
+                }
+            }
+            Output::Effect(Effect::Lantern) => {
+                crab.mover.lantern += 1;
+                crab.pending.delivered = true;
+            }
+            Output::Effect(Effect::ClamGuards) => crab.mover.clam_guards = true,
+            Output::Effect(Effect::GrowHome) => {
+                // Build in just enough to reach the next stage.
+                let have = crab.home_grit;
+                if let Some(&next) = stages.iter().find(|&&n| n > have) {
+                    crab.home_grit = next;
+                    crab.pending.built = true;
+                    crab.pending.home_grew = true;
                 }
             }
             Output::Portions(food, n) => {

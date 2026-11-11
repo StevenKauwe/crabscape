@@ -27,6 +27,18 @@ pub enum Repairs {
     Plating(u8),
 }
 
+/// A home effect an economy recipe has instead of an item (the older
+/// workbench recipes' own results, reached by a new material).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Effect {
+    /// One more step of lantern light.
+    Lantern,
+    /// The home grows one stage.
+    GrowHome,
+    /// Clam-shell guards on the claws.
+    ClamGuards,
+}
+
 /// What a recipe makes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Output {
@@ -42,6 +54,7 @@ pub enum Output {
     /// A strain planted in a free culture bed.
     Bed(Item),
     Repair(Repairs),
+    Effect(Effect),
 }
 
 /// One row of the economy recipe list.
@@ -848,5 +861,106 @@ pub const ECON_RECIPES: &[EconRecipe] = &[
         &[(I::VentMat, 1)],
         Output::Bed(I::VentMat),
         80,
+    ),
+    // Creature drops (the spec's "Creature drops").
+    r(
+        "beak-tips",
+        "Beak claw tips",
+        Shellcraft,
+        35,
+        At(Station::Grindstone),
+        &[(I::SquidBeak, 2), (I::BraidedCord, 1)],
+        Output::Gear(Gear::BeakTips),
+        150,
+    ),
+    r(
+        "fang-tips",
+        "Fang claw tips",
+        Shellcraft,
+        50,
+        At(Station::Grindstone),
+        &[(I::ViperfishFang, 2), (I::BoneSplint, 1)],
+        Output::Gear(Gear::FangTips),
+        300,
+    ),
+    r(
+        "crusher-guards",
+        "Crusher-fragment guards",
+        Shellcraft,
+        25,
+        Workbench,
+        &[(I::LobsterFragment, 2), (I::KelpCord, 1)],
+        Output::Gear(Gear::CrusherGuards),
+        80,
+    ),
+    r(
+        "jaw-tips",
+        "Jaw claw tips",
+        Shellcraft,
+        40,
+        At(Station::Grindstone),
+        &[(I::BobbitJaw, 2), (I::BraidedCord, 1)],
+        Output::Gear(Gear::JawTips),
+        200,
+    ),
+    r(
+        "isopod-plating",
+        "Isopod plating",
+        Shellcraft,
+        57,
+        At(Station::Grindstone),
+        &[(I::IsopodPlate, 3), (I::BraidedCord, 1)],
+        Output::Gear(Gear::IsopodPlating),
+        260,
+    ),
+    r(
+        "slime-cord",
+        "Slime cord",
+        Weaving,
+        45,
+        At(Station::Loom),
+        &[(I::SlimeThread, 2), (I::KelpCord, 1)],
+        Output::Items(&[(I::BraidedCord, 3)]),
+        90,
+    ),
+    r(
+        "photophore-lantern",
+        "Photophore lantern",
+        Culturing,
+        40,
+        Workbench,
+        &[(I::Photophore, 1), (I::TwilightStrain, 1)],
+        Output::Effect(Effect::Lantern),
+        120,
+    ),
+    r(
+        "whelk-room",
+        "Whelk room",
+        Building,
+        30,
+        Workbench,
+        &[(I::WhelkShell, 1), (I::Clay, 4)],
+        Output::Effect(Effect::GrowHome),
+        240,
+    ),
+    r(
+        "anemone-guards",
+        "Anemone guards",
+        Shellcraft,
+        20,
+        Workbench,
+        &[(I::Anemone, 1), (I::Valve, 2)],
+        Output::Effect(Effect::ClamGuards),
+        70,
+    ),
+    r(
+        "amphipod-broth",
+        "Amphipod broth",
+        Cooking,
+        40,
+        At(Station::BrinePot),
+        &[(I::Amphipods, 3), (I::Kelp, 1)],
+        Output::Portions(Food::AmphipodBroth, 2),
+        140,
     ),
 ];

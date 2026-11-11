@@ -30,7 +30,7 @@ pub use gear::{Gear, Slot, Station, Tool, ToolKind, Worn};
 pub use items::Item;
 pub use nodes::{NODES, NodeDef, NodeKind};
 pub use place::{NodeSpot, PlacedNode};
-pub use recipes::{ECON_RECIPES, EconRecipe, Output};
+pub use recipes::{ECON_RECIPES, EconRecipe, Effect, Output};
 
 use crate::skills::Skill;
 
@@ -255,6 +255,43 @@ impl Economy {
             damage_factor: self.damage_taken_factor(),
             claw_factor: self.claw_bonus(),
             reserve_factor: self.reserve_refill_factor(),
+        }
+    }
+}
+
+/// The Fighting experience for beating a creature of `kind`: the older
+/// creatures give the flat win bonus; the bestiary's ten give half their
+/// health (at least 15), so a squid is worth more than a hermit crab.
+pub fn win_xp(kind: crate::enemy::Kind, t: &crate::Tuning) -> f32 {
+    match crate::creatures::tuning(kind) {
+        Some(tuning) => (tuning.vitals.health * 0.5).max(15.0),
+        None => t.fight_xp_per_win,
+    }
+}
+
+/// A beaten creature's body was eaten by this local crab: its drops land on
+/// the shell, room permitting (otherwise they are left behind and the shell
+/// says it is full). `in_tick`: in this tick's events, else the pending ones.
+pub(crate) fn give_drops(
+    crab: &mut crate::SimCrab,
+    kind: crate::enemy::Kind,
+    t: &crate::Tuning,
+    in_tick: bool,
+) {
+    for item in crate::creatures::drops(kind)
+        .iter()
+        .filter_map(|name| items::from_drop(name))
+    {
+        let carry = crate::physics::Carry::Item(item);
+        let ev = if in_tick {
+            &mut crab.events
+        } else {
+            &mut crab.pending
+        };
+        if crab.mover.take_up(carry, t) {
+            ev.picked_up = ev.picked_up.or(Some(carry));
+        } else {
+            ev.shell_full = true;
         }
     }
 }

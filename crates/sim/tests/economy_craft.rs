@@ -14,7 +14,7 @@ use crabsim::economy::{
     Buff, ECON_RECIPES, Economy, Food, Gear, Item, NODES, Output, Station, ToolKind, xp,
 };
 use crabsim::prepared_food::PortionKind;
-use crabsim::{Controls, PlayerId, Sim, Skill, Stash};
+use crabsim::{Controls, Kind, PlayerId, Sim, Skill, Stash};
 
 const P0: PlayerId = PlayerId(0);
 
@@ -624,6 +624,23 @@ fn no_soft_lock_fixed_point() {
         if items.contains(&Item::ScalyFoot) {
             items.insert(Item::Scale);
         }
+        // Creature drops: reached by beating the creatures (Fighting).
+        for kind in [
+            Kind::HumboldtSquid,
+            Kind::Viperfish,
+            Kind::Lobster,
+            Kind::HermitCrab,
+            Kind::BobbitWorm,
+            Kind::GiantIsopod,
+            Kind::Hagfish,
+            Kind::AmphipodSwarm,
+        ] {
+            items.extend(
+                crabsim::creatures::drops(kind)
+                    .iter()
+                    .filter_map(|name| crabsim::economy::items::from_drop(name)),
+            );
+        }
         for r in ECON_RECIPES {
             let bench_ok = match r.at {
                 Bench::Workbench => true,
@@ -644,7 +661,7 @@ fn no_soft_lock_fixed_point() {
                     stations.insert(st);
                 }
                 Output::Portions(f, _) => items.extend(f.extra().iter().map(|(i, _)| *i)),
-                Output::Gear(_) | Output::Bed(_) | Output::Repair(_) => {}
+                Output::Gear(_) | Output::Bed(_) | Output::Repair(_) | Output::Effect(_) => {}
             }
         }
         if before == (items.len(), tools.len(), stations.len(), made.len()) {

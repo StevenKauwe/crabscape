@@ -93,6 +93,22 @@ fn every_recipe_is_valid_and_has_no_orphan_input() {
     // finds or failures).
     let mut made: Vec<Item> = NODES.iter().filter_map(|n| n.yields).collect();
     made.extend([Item::Valve, Item::Pearl, Item::Scale, Item::Spoiled]);
+    // Creature drops come from beating creatures.
+    made.extend(Item::ALL.iter().copied().filter(|i| {
+        [
+            "squid-beak",
+            "viperfish-fang",
+            "photophore",
+            "whelk-shell",
+            "anemone",
+            "isopod-plate",
+            "bobbit-jaw",
+            "lobster-fragment",
+            "slime-thread",
+            "amphipods",
+        ]
+        .contains(&i.word())
+    }));
     for r in ECON_RECIPES {
         if let Output::Items(items) = r.makes {
             made.extend(items.iter().map(|&(i, _)| i));

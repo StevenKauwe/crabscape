@@ -17,6 +17,7 @@ pub enum Food {
     GrenadierFerment,
     VentPoachedSeepMussels,
     VentClamFeast,
+    AmphipodBroth,
 }
 
 /// A timed buff from eating (one at a time; a new one replaces it).
@@ -32,6 +33,8 @@ pub enum Buff {
     Pressure30,
     /// Claws 15% harder (grenadier ferment).
     Claws15,
+    /// Pressure strain 20% less (amphipod broth).
+    Pressure20,
     /// All of the above (vent clam feast).
     Feast,
 }
@@ -63,6 +66,7 @@ impl Buff {
     pub fn pressure_percent(self) -> u32 {
         match self {
             Buff::Pressure30 | Buff::Feast => 30,
+            Buff::Pressure20 => 20,
             _ => 0,
         }
     }
@@ -77,7 +81,7 @@ impl Buff {
 }
 
 impl Food {
-    pub const ALL: [Food; 10] = [
+    pub const ALL: [Food; 11] = [
         Food::ShellFood,
         Food::ReserveFood,
         Food::ShuckedMussels,
@@ -88,6 +92,7 @@ impl Food {
         Food::GrenadierFerment,
         Food::VentPoachedSeepMussels,
         Food::VentClamFeast,
+        Food::AmphipodBroth,
     ];
 
     pub fn name(self) -> &'static str {
@@ -102,6 +107,7 @@ impl Food {
             Food::GrenadierFerment => "Grenadier ferment",
             Food::VentPoachedSeepMussels => "Vent-poached seep mussels",
             Food::VentClamFeast => "Vent clam feast",
+            Food::AmphipodBroth => "Amphipod broth",
         }
     }
 
@@ -114,6 +120,7 @@ impl Food {
             Food::FermentedLanternfish => Some((Buff::Pressure30, BUFF_TICKS)),
             Food::GrenadierFerment => Some((Buff::Claws15, BUFF_TICKS)),
             Food::VentClamFeast => Some((Buff::Feast, FEAST_TICKS)),
+            Food::AmphipodBroth => Some((Buff::Pressure20, BUFF_TICKS)),
             _ => None,
         }
     }
@@ -134,7 +141,7 @@ impl Food {
     pub fn reserve_strokes(self) -> u8 {
         match self {
             Food::ReserveFood => 3,
-            Food::SnailWrap => 1,
+            Food::SnailWrap | Food::AmphipodBroth => 1,
             Food::VentPoachedSeepMussels | Food::VentClamFeast => u8::MAX,
             _ => 0,
         }

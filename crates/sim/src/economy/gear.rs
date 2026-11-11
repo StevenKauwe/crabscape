@@ -124,10 +124,15 @@ pub enum Gear {
     NodulePlating,
     ScaleMail,
     BlackCoralTips,
+    BeakTips,
+    FangTips,
+    CrusherGuards,
+    JawTips,
+    IsopodPlating,
 }
 
 impl Gear {
-    pub const ALL: [Gear; 9] = [
+    pub const ALL: [Gear; 14] = [
         Gear::KelpSack,
         Gear::WovenPack,
         Gear::CoralPack,
@@ -137,12 +142,21 @@ impl Gear {
         Gear::NodulePlating,
         Gear::ScaleMail,
         Gear::BlackCoralTips,
+        Gear::BeakTips,
+        Gear::FangTips,
+        Gear::CrusherGuards,
+        Gear::JawTips,
+        Gear::IsopodPlating,
     ];
 
     pub fn slot(self) -> Slot {
         match self {
             Gear::KelpSack | Gear::WovenPack | Gear::CoralPack => Slot::Bag,
-            Gear::BlackCoralTips => Slot::Claws,
+            Gear::BlackCoralTips
+            | Gear::BeakTips
+            | Gear::FangTips
+            | Gear::CrusherGuards
+            | Gear::JawTips => Slot::Claws,
             _ => Slot::Body,
         }
     }
@@ -158,6 +172,11 @@ impl Gear {
             Gear::NodulePlating => "Nodule plating",
             Gear::ScaleMail => "Scale mail",
             Gear::BlackCoralTips => "Black-coral claw tips",
+            Gear::BeakTips => "Beak claw tips",
+            Gear::FangTips => "Fang claw tips",
+            Gear::CrusherGuards => "Crusher-fragment guards",
+            Gear::JawTips => "Jaw claw tips",
+            Gear::IsopodPlating => "Isopod plating",
         }
     }
 
@@ -173,6 +192,11 @@ impl Gear {
             Gear::NodulePlating => "nodule-plating",
             Gear::ScaleMail => "scale-mail",
             Gear::BlackCoralTips => "coral-tips",
+            Gear::BeakTips => "beak-tips",
+            Gear::FangTips => "fang-tips",
+            Gear::CrusherGuards => "crusher-guards",
+            Gear::JawTips => "jaw-tips",
+            Gear::IsopodPlating => "isopod-plating",
         }
     }
 
@@ -194,6 +218,7 @@ impl Gear {
             Gear::BonePlating => 22,
             Gear::NodulePlating => 28,
             Gear::ScaleMail => 35,
+            Gear::IsopodPlating => 25,
             _ => 0,
         }
     }
@@ -202,6 +227,10 @@ impl Gear {
     pub fn claw_percent(self) -> u32 {
         match self {
             Gear::BlackCoralTips => 15,
+            Gear::BeakTips => 10,
+            Gear::FangTips => 18,
+            Gear::CrusherGuards => 8,
+            Gear::JawTips => 12,
             _ => 0,
         }
     }
@@ -214,6 +243,7 @@ impl Gear {
             Gear::BonePlating => 90,
             Gear::NodulePlating => 120,
             Gear::ScaleMail => 160,
+            Gear::IsopodPlating => 140,
             _ => 0,
         }
     }
@@ -226,6 +256,7 @@ impl Gear {
             Gear::BonePlating => 3,
             Gear::NodulePlating => 4,
             Gear::ScaleMail => 5,
+            Gear::IsopodPlating => 4,
             _ => 0,
         }
     }
