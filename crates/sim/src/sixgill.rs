@@ -74,8 +74,11 @@ pub fn base_tuning() -> EnemyTuning {
         burrows: false,
         notice_range: 1500.0,
         notice_ticks: 1,
-        give_up_range: 4000.0,
-        approach_speed: 450.0,
+        // Unused: its water is its box (`State::swim`), its speeds are in
+        // `SixgillTuning`. Small, so the static "no hunter roams a tunnel"
+        // leash check reads its home rather than a made-up chase radius.
+        give_up_range: 1.0,
+        approach_speed: 0.0,
         strike_range: 400.0,
         pause_ticks: (0, 0),
         tell_ticks: 360,
