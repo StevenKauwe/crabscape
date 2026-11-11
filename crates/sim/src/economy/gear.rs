@@ -294,3 +294,44 @@ impl Station {
 
 /// Culture beds: Building level and materials for beds 1 to 4.
 pub const BED_LEVELS: [u32; 4] = [5, 20, 40, 60];
+
+/// What a repair mends.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MendTarget {
+    /// The fitted tool of this kind.
+    Tool(ToolKind),
+    /// The body plating.
+    Plating,
+}
+
+impl super::Economy {
+    /// What a repair of this kind would mend now: the first fitted tool of
+    /// the tier that has worn, or the plating of the tier if it has worn.
+    pub fn repair_target(&self, repair: super::recipes::Repairs) -> Option<MendTarget> {
+        use super::recipes::Repairs;
+        match repair {
+            Repairs::Tool(tier) => ToolKind::ALL.into_iter().find(|&k| {
+                let t = self.tool(k);
+                t.tier == tier && tier > 0 && t.uses_left < TOOL_USES[usize::from(tier)]
+            }).map(MendTarget::Tool),
+            Repairs::Plating(tier) => match self.gear.body {
+                Some((g, uses)) if g.plating_tier() == tier && uses < g.plating_uses() => {
+                    Some(MendTarget::Plating)
+                }
+                _ => None,
+            },
+        }
+    }
+
+    /// Restore all the uses of what `target` names.
+    pub fn mend(&mut self, target: MendTarget) {
+        match target {
+            MendTarget::Tool(kind) => self.tools[kind.index()].repair(),
+            MendTarget::Plating => {
+                if let Some((g, uses)) = &mut self.gear.body {
+                    *uses = g.plating_uses();
+                }
+            }
+        }
+    }
+}

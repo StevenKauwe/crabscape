@@ -15,6 +15,7 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
+pub mod beds;
 pub mod food;
 pub mod gather;
 pub mod gear;
@@ -102,6 +103,9 @@ pub struct Bed {
     pub strain: Item,
     /// The tick at which it is ready to harvest.
     pub ready_at_tick: u64,
+    /// Has it been fed spoiled batches (once only: it halves the time left)?
+    #[serde(default)]
+    pub fed: bool,
 }
 
 /// What the crab's economy gives its body, copied onto its `Mover` each tick
@@ -198,11 +202,47 @@ impl Economy {
         }
     }
 
-    /// What claw blows are multiplied by: claw tips and food.
+    /// What claw blows are multiplied by: claw tips and food, one on the
+    /// other.
     pub fn claw_bonus(&self) -> f32 {
         let tips = self.gear.claws.map_or(0, Gear::claw_percent);
         let food = self.buff.map_or(0, |(b, _)| b.claw_percent());
-        1.0 + (tips + food) as f32 / 100.0
+        (1.0 + tips as f32 / 100.0) * (1.0 + food as f32 / 100.0)
+    }
+
+    /// What pressure strain is multiplied by (fermented lanternfish, the
+    /// feast). The pressure rules read this.
+    pub fn pressure_factor(&self) -> f32 {
+        let cut = self.buff.map_or(0, |(b, _)| b.pressure_percent());
+        1.0 - cut as f32 / 100.0
+    }
+
+    /// What the reserve's refill speed is multiplied by (snail wrap, the
+    /// feast). The swimming rules read this.
+    pub fn reserve_refill_factor(&self) -> f32 {
+        let more = self.buff.map_or(0, |(b, _)| b.reserve_percent());
+        1.0 + more as f32 / 100.0
+    }
+
+    /// A blow landed: the body plating wears by one (it gives nothing once
+    /// it has no blows left, until it is mended). Returns true if this blow
+    /// cracked it.
+    pub fn wear_plating(&mut self) -> bool {
+        match &mut self.gear.body {
+            Some((_, uses)) if *uses > 0 => {
+                *uses -= 1;
+                *uses == 0
+            }
+            _ => false,
+        }
+    }
+
+    /// Is this station built? (Any culture bed counts for the culture bed.)
+    pub fn has_station(&self, station: Station) -> bool {
+        match station {
+            Station::CultureBed => self.culture_beds > 0,
+            _ => self.stations.contains(&station),
+        }
     }
 
     /// What the body rules read each tick.

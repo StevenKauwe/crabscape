@@ -148,3 +148,32 @@ impl Food {
         }
     }
 }
+
+impl crate::SimCrab {
+    /// Crab eats one portion: the shell mends at once, the reserve fills at
+    /// once, and a timed buff starts (a new one replaces the old).
+    pub(crate) fn eat_portion(
+        &mut self,
+        kind: crate::prepared_food::PortionKind,
+        t: &crate::Tuning,
+    ) {
+        let food = kind.food();
+        let mend = food.mend_percent();
+        if mend > 0 {
+            let max = self.mover.max_shell(t);
+            self.fighter.vitals.health =
+                (self.fighter.vitals.health + max * mend as f32 / 100.0).min(max);
+        }
+        match food.reserve_strokes() {
+            0 => {}
+            u8::MAX => self.mover.reserve = 1.0,
+            strokes => {
+                self.mover.reserve =
+                    (self.mover.reserve + f32::from(strokes) / self.mover.reserve_strokes(t)).min(1.0);
+            }
+        }
+        if let Some(buff) = food.buff() {
+            self.econ.buff = Some(buff);
+        }
+    }
+}

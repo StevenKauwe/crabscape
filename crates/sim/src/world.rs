@@ -962,9 +962,9 @@ impl Sim {
 
     /// Something was made at the workbench at `tick`: a running recording
     /// notes it.
-    pub(crate) fn note_craft(&mut self, tick: u64, recipe: crate::craft::Recipe) {
+    pub(crate) fn note_craft(&mut self, tick: u64, craft: impl Into<crate::craft::Craft>) {
         if let Some(rec) = &mut self.recorder {
-            rec.note_craft(tick, recipe);
+            rec.note_craft(tick, craft.into());
         }
     }
 
@@ -3006,18 +3006,7 @@ impl Sim {
                 eligible,
             ) {
                 crab.events.ate_portion = true;
-                match kind {
-                    crate::prepared_food::PortionKind::Shell => {
-                        let max = crab.mover.max_shell(&self.tuning);
-                        crab.fighter.vitals.health =
-                            (crab.fighter.vitals.health + max * 0.2).min(max);
-                    }
-                    crate::prepared_food::PortionKind::Reserve => {
-                        crab.mover.reserve = (crab.mover.reserve
-                            + 3.0 / crab.mover.reserve_strokes(&self.tuning))
-                        .min(1.0);
-                    }
-                }
+                crab.eat_portion(kind, &self.tuning);
             }
         }
         // A monkey that has gone has gone (its last updates have passed).
