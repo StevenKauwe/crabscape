@@ -2,7 +2,7 @@ use bevy_math::Vec2;
 use crabsim::{Controls, PlayerId, Sim};
 const P: PlayerId = PlayerId(0);
 fn setup(size: u32, phase: u32) -> Sim {
-    let mut sim = Sim::with_one_crab(Vec2::new(13380.0, -3250.0));
+    let mut sim = Sim::with_one_crab(Vec2::new(13380.0, -5250.0));
     sim.enable_underwater_cells();
     let m = &mut sim.crab_mut(P).unwrap().mover;
     m.moults = size;
@@ -41,7 +41,7 @@ fn flood_ride_reaches_the_silt_shelf_and_returns_to_the_floor() {
                 jump_held: true,
                 ..Default::default()
             },
-            |p| p.y > -2890.0,
+            |p| p.y > -4890.0,
         );
         travel(
             &mut sim,
@@ -52,7 +52,7 @@ fn flood_ride_reaches_the_silt_shelf_and_returns_to_the_floor() {
                 jump_held: true,
                 ..Default::default()
             },
-            |p| p.x < 13220.0 && p.y >= -2800.0,
+            |p| p.x < 13220.0 && p.y >= -4800.0,
         );
         travel(
             &mut sim,
@@ -72,7 +72,7 @@ fn flood_ride_reaches_the_silt_shelf_and_returns_to_the_floor() {
             },
             |p| p.x > 13540.0,
         );
-        travel(&mut sim, 600, |_, _| Controls::default(), |p| p.y < -3200.0);
+        travel(&mut sim, 600, |_, _| Controls::default(), |p| p.y < -5200.0);
     }
 }
 #[test]
@@ -89,7 +89,7 @@ fn lower_walk_and_coral_exit_work_in_flood_slack_and_ebb() {
                 },
                 |p| p.x > 13490.0,
             );
-            assert!(sim.crab(P).unwrap().mover.pos.y < -3150.0);
+            assert!(sim.crab(P).unwrap().mover.pos.y < -5150.0);
             travel(
                 &mut sim,
                 1000,
@@ -98,7 +98,7 @@ fn lower_walk_and_coral_exit_work_in_flood_slack_and_ebb() {
                     jump_held: true,
                     ..Default::default()
                 },
-                |p| p.y > -3010.0,
+                |p| p.y > -5010.0,
             );
             travel(
                 &mut sim,
@@ -109,7 +109,7 @@ fn lower_walk_and_coral_exit_work_in_flood_slack_and_ebb() {
                 },
                 |p| p.x > 13590.0,
             );
-            travel(&mut sim, 600, |_, _| Controls::default(), |p| p.y < -3250.0);
+            travel(&mut sim, 600, |_, _| Controls::default(), |p| p.y < -5250.0);
         }
     }
 }
@@ -127,7 +127,7 @@ fn either_side_of_the_lane_is_an_immediate_exit() {
                     jump_held: true,
                     ..Default::default()
                 },
-                |p| p.y > -3000.0,
+                |p| p.y > -5000.0,
             );
             travel(
                 &mut sim,

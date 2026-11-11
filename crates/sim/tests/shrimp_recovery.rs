@@ -3,11 +3,11 @@ use crabsim::enemy::State;
 use crabsim::{Controls, Kind, PlayerId, Sim};
 const P: PlayerId = PlayerId(0);
 fn encounter(size: u32) -> Sim {
-    let mut s = Sim::with_one_crab(Vec2::new(13070.0, -3250.0));
+    let mut s = Sim::with_one_crab(Vec2::new(13070.0, -5250.0));
     s.crab_mut(P).unwrap().mover.moults = size;
     s.enable_underwater_cells();
     s.start_recording();
-    s.spawn_enemy(Kind::Snapper, Vec2::new(13200.0, -3250.0));
+    s.spawn_enemy(Kind::Snapper, Vec2::new(13200.0, -5250.0));
     s
 }
 fn tick(s: &mut Sim, c: Controls) {
@@ -181,7 +181,7 @@ fn wire_state_preserves_the_window_and_only_the_local_defender_takes_damage() {
     };
     assert_eq!(e, copy);
     let mut local = s.crabs().to_vec();
-    local[0].mover.pos = Vec2::new(13140.0, -3250.0);
+    local[0].mover.pos = Vec2::new(13140.0, -5250.0);
     let mut remote = local.clone();
     remote[0].remote = true;
     let before = local[0].fighter.vitals.health;
