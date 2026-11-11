@@ -104,19 +104,29 @@ fn reload_castle(browser: &mut Chrome) -> Result<()> {
     browser.eval("window.kingtestOld = true")?;
     browser.reload()?;
     let until = Instant::now() + Duration::from_secs(120);
+    let mut progress = ReloadProgress::default();
     loop {
-        if browser.eval(
+        let state = browser.eval(
             r#"(() => {
               const c = document.getElementById('crabscape');
               const ready = window.kingtestOld !== true &&
                 document.getElementById('message')?.hidden === true &&
                 document.activeElement === c &&
                 c?.getAttribute('data-king-ddd') === 'castle';
-              if (ready && window.kingProbe) window.kingProbe.reloadReady = performance.now();
-              return ready;
+              if (ready && window.kingProbe && window.kingProbe.reloadReady === undefined)
+                window.kingProbe.reloadReady = performance.now();
+              return {ready,tick:c?.getAttribute('data-king-ddd-tick')};
             })()"#,
-        )? == true
-        {
+        )?;
+        // The loaded castle marker and tick come from the saved position
+        // and clock. They can be published while initial terrain paging
+        // still prevents every simulation tick. Complete readiness only
+        // after that replacement document actually advances, with no
+        // movement input and within the same original loading deadline.
+        let ready = state["ready"] == true;
+        let tick = state["tick"].as_str().and_then(|v| v.parse().ok());
+        if progress.observe(ready, tick) && Instant::now() <= until {
+            browser.eval("window.kingProbe.reloadProgressReady = performance.now()")?;
             return Ok(());
         }
         if let Some(e) = browser.trouble() {
@@ -124,9 +134,48 @@ fn reload_castle(browser: &mut Chrome) -> Result<()> {
         }
         if Instant::now() > until {
             failure_evidence(browser);
-            return Err("The new castle document did not finish loading with game focus".into());
+            return Err(format!(
+                "The new castle document did not become focused and advance its restored simulation: {state}"
+            ));
         }
         sleep(Duration::from_millis(100));
+    }
+}
+
+#[derive(Default)]
+struct ReloadProgress {
+    baseline: Option<u64>,
+}
+impl ReloadProgress {
+    fn observe(&mut self, ready: bool, tick: Option<u64>) -> bool {
+        if !ready {
+            self.baseline = None;
+            return false;
+        }
+        let Some(tick) = tick else { return false };
+        let Some(baseline) = self.baseline else {
+            self.baseline = Some(tick);
+            return false;
+        };
+        tick > baseline
+    }
+}
+
+#[derive(Debug, PartialEq)]
+enum WalkStatus {
+    Moving,
+    Arrived,
+    TimedOut,
+}
+fn walk_status(distance: f64, reach: f64, elapsed: Duration, budget: Duration) -> WalkStatus {
+    // A slow browser reply must not turn a late target observation into
+    // success. Readiness never resets or extends this movement budget.
+    if elapsed > budget {
+        WalkStatus::TimedOut
+    } else if distance < reach {
+        WalkStatus::Arrived
+    } else {
+        WalkStatus::Moving
     }
 }
 fn position(browser: &mut Chrome) -> Result<[f64; 3]> {
@@ -211,7 +260,7 @@ fn walk_to(browser: &mut Chrome, target: f64, seconds: u64) -> Result<()> {
         browser.set_key("KeyW", true)?;
     }
     let started = Instant::now();
-    let until = started + Duration::from_secs(seconds);
+    let budget = Duration::from_secs(seconds);
     let mut trace = VecDeque::new();
     let mut held = None;
     loop {
@@ -234,14 +283,20 @@ fn walk_to(browser: &mut Chrome, target: f64, seconds: u64) -> Result<()> {
         // of walking). Aim within the actual interaction/pickup reach,
         // rather than oscillate over a sub-frame 16-unit target forever.
         // The tour still asserts every collected page, bell and reward.
-        if (p[0] - target).abs() < if rope { 48.1 } else { 50.0 } {
-            break;
-        }
-        if Instant::now() > until {
-            failure_evidence(browser);
-            return Err(format!(
-                "Walk toward {target} stopped at {p:?}; observations={trace:?}"
-            ));
+        match walk_status(
+            (p[0] - target).abs(),
+            if rope { 48.1 } else { 50.0 },
+            started.elapsed(),
+            budget,
+        ) {
+            WalkStatus::Arrived => break,
+            WalkStatus::TimedOut => {
+                failure_evidence(browser);
+                return Err(format!(
+                    "Walk toward {target} stopped at {p:?}; observations={trace:?}"
+                ));
+            }
+            WalkStatus::Moving => {}
         }
         let right = p[0] < target;
         let command = Instant::now();
@@ -867,6 +922,42 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn restored_clock_is_not_progress_and_new_readiness_resets_the_baseline() {
+        let mut progress = ReloadProgress::default();
+        assert!(!progress.observe(false, Some(99)));
+        assert!(!progress.observe(true, Some(17703)));
+        assert!(!progress.observe(true, Some(17703)));
+        assert!(!progress.observe(true, Some(17702)));
+        assert!(progress.observe(true, Some(17704)));
+        assert!(!progress.observe(false, Some(17705)));
+        assert!(!progress.observe(true, Some(17705)));
+        assert!(progress.observe(true, Some(17706)));
+    }
+
+    #[test]
+    fn missing_tick_never_proves_readiness_and_zero_is_a_valid_baseline() {
+        let mut progress = ReloadProgress::default();
+        assert!(!progress.observe(true, None));
+        assert!(!progress.observe(true, Some(0)));
+        assert!(!progress.observe(true, None));
+        assert!(!progress.observe(true, Some(0)));
+        assert!(progress.observe(true, Some(1)));
+    }
+
+    #[test]
+    fn movement_keeps_its_deadline_even_when_a_late_sample_reaches_the_target() {
+        let budget = Duration::from_secs(12);
+        assert_eq!(walk_status(100.0, 50.0, budget, budget), WalkStatus::Moving);
+        assert_eq!(walk_status(49.9, 50.0, budget, budget), WalkStatus::Arrived);
+        for distance in [0.0, 49.9, 100.0] {
+            assert_eq!(
+                walk_status(distance, 50.0, budget + Duration::from_nanos(1), budget),
+                WalkStatus::TimedOut
+            );
+        }
+    }
 
     #[test]
     #[ignore = "requires installed Chrome; no game build or network"]
