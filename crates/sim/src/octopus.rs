@@ -666,6 +666,11 @@ fn web_drop(
 ) {
     let w = &t.octopus.webover;
     let down = (e.state_tick as f32 / w.drop_ticks.max(1) as f32).min(1.0);
+    // It catches as it lands on the floor (one moment, whatever the crab's
+    // height), so a dodge timed to the landing gets through.
+    if down < 1.0 {
+        return;
+    }
     let bottom = e.pos.y + w.height * (1.0 - down);
     let (left, right) = (o.aim - w.width / 2.0, o.aim + w.width / 2.0);
     for crab in crabs.iter_mut() {
@@ -786,9 +791,20 @@ fn probe(e: &Enemy, o: &mut Octopus, crabs: &[SimCrab], t: &Tuning) {
     else {
         return;
     };
-    // To where its tip just touches the crab's near side (so the touch comes
-    // at the end of the slide), as far as the arm reaches.
     let root = root(e, t);
+    let target = tip_target(root, crab, t);
+    let arm = &mut o.arms[i];
+    arm.tip = root;
+    arm.set(ArmState::Slide);
+    arm.target = target;
+    o.turn = i + 1;
+    o.next_probe = a.gap_ticks;
+}
+
+/// Where a probing tip goes: to just touch the crab's near side, as far as
+/// the arm reaches.
+fn tip_target(root: Vec2, crab: &SimCrab, t: &Tuning) -> Vec2 {
+    let a = &t.octopus.arms;
     let body = combat::body(&crab.mover, t);
     let side = if crab.mover.pos.x >= root.x {
         1.0
@@ -796,19 +812,15 @@ fn probe(e: &Enemy, o: &mut Octopus, crabs: &[SimCrab], t: &Tuning) {
         -1.0
     };
     let edge = if side > 0.0 { body.min.x } else { body.max.x };
-    let mut target = Vec2::new(
+    let target = Vec2::new(
         edge - side * (a.tip_radius - 1.0),
         crab.mover.pos.y + a.height,
     );
     if root.distance(target) > a.length {
-        target = root + (target - root).normalize_or_zero() * a.length;
+        root + (target - root).normalize_or_zero() * a.length
+    } else {
+        target
     }
-    let arm = &mut o.arms[i];
-    arm.tip = root;
-    arm.set(ArmState::Slide);
-    arm.target = target;
-    o.turn = i + 1;
-    o.next_probe = a.gap_ticks;
 }
 
 /// Each arm's tip moves on: sliding in, feeling about, drawing back, or with
@@ -822,13 +834,22 @@ fn move_arms(e: &Enemy, o: &mut Octopus, crabs: &[SimCrab], t: &Tuning) {
         .find(|c| c.fighter.grabbed.is_some_and(|g| g.by == e.id))
         .map(|c| c.mover.pos + Vec2::new(0.0, a.height));
     let frac = |tick: u32, len: u32| (tick as f32 / len.max(1) as f32).min(1.0);
+    // A sliding tip follows the crab it feels for, so it touches it at the
+    // end of its slide wherever the crab has gone: the tell is always whole.
+    let feeling_for = e
+        .target
+        .and_then(|id| crabs.iter().find(|c| c.id == id))
+        .map(|c| tip_target(root, c, t));
     for arm in &mut o.arms {
         arm.tick += 1;
         match arm.state {
             ArmState::Curled | ArmState::Lost => arm.tip = root,
             ArmState::Slide if !probing => arm.set(ArmState::Back),
             ArmState::Slide => {
-                if arm.tick > a.tell_ticks {
+                if let Some(target) = feeling_for {
+                    arm.target = target;
+                }
+                if arm.tick >= a.tell_ticks {
                     arm.set(ArmState::Feel);
                     arm.tip = arm.target;
                 } else {
@@ -878,7 +899,9 @@ fn touch(
     let a = &t.octopus.arms;
     let grab = t.octopus.base.strike.grab;
     for i in 0..o.arms.len() {
-        if !matches!(o.arms[i].state, ArmState::Slide | ArmState::Feel) {
+        // A sliding tip is its tell: it touches once it has arrived, so every
+        // probe gives the whole tell, however the crab moves meanwhile.
+        if o.arms[i].state != ArmState::Feel {
             continue;
         }
         for crab in crabs.iter_mut() {
@@ -910,6 +933,15 @@ fn touch(
                 Outcome::Parried => {
                     arm.set(ArmState::Recoil);
                     e.vitals.hitstop = e.vitals.hitstop.max(t.parry_hitstop_ticks);
+                    // The whole animal flinches: its other sliding tips draw
+                    // back and it sends none while the crab counters, so a
+                    // parry always opens it to the counter.
+                    for (k, other) in o.arms.iter_mut().enumerate() {
+                        if k != i && other.state == ArmState::Slide {
+                            other.set(ArmState::Back);
+                        }
+                    }
+                    o.next_probe = o.next_probe.max(t.counter_ticks);
                 }
                 Outcome::Blocked(_) => arm.set(ArmState::Back),
                 Outcome::Hit(took) => match grab.filter(|_| !took.died) {

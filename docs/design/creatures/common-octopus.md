@@ -59,6 +59,9 @@ into growing: its den.
 - **Scenario tests:** dodging sideways out of the drop takes nothing; caught crabs are grabbed; autotomy frees at
   once; the venom bite lands at tick 120 of a grab, not before; a parried probe tip recoils without grabbing; an arm
   at 0 health stops probing; ink at 66% and 33% exactly once each; inside the ink a sight-hunting enemy loses the crab.
+  A tip follows a crab stepping mid-slide and still takes its whole tell; a parry makes it flinch open to the counter;
+  the web catches only as it lands. **Beatable** (`crates/sim/tests/boss_is_beatable.rs`): a fair bot (only what is on
+  the screen, 250 ms reactions) wins 60-80% of fights from the den's door, a perfect one nearly all.
 
 ## Built so far
 **Placed** in its den at the end of the far rim (`Level::den`; x 8650, its back to the wall, facing the way in). To try
@@ -75,16 +78,19 @@ walk=right; @62 parry"`):
   140 out. The tell is the flush; the answers are dodge, parry (it staggers) or block.
 - **Probe:** found out and the crab within an arm's length (625) of the arm roots, it stays in its den and sends arm
   tips, two out at most, one every 45 ticks at least, taking turns. A tip slides 60 ticks to where it just touches the
-  crab's near side (so the touch lands on the 60th), then feels there 120 ticks and draws back. On a touch (tip circle
-  r 14): parried, it recoils (snaps in, sore for 150); blocked, pushed back (each block drains 15 poise, so a guard
+  crab's near side, following the crab as it moves, and touches only once it has arrived (on the 60th): the whole
+  tell, every time, wherever the crab steps meanwhile. Then it feels there 120 ticks and draws back. On a touch (tip
+  circle r 14): parried, it recoils (snaps in, sore for 150) and the whole animal flinches: its other sliding tip
+  draws back and it sends none for the crab's counter (45 ticks), so a parry always opens it; blocked, pushed back (each block drains 15 poise, so a guard
   held forever breaks); through, 5 damage and grabbed. Any blow on an arm takes its own health (40) and pulls it back;
   at 0 it is lost for the fight. Scissor claws' jab cuts an arm x2.
 - **Webover:** with the crab's middle within 250 of its own (under its web) and 220 of clear water over the crab (no
   low roof of rock: it can't webover in a low tunnel), it `rise`s 84 ticks (the tell; its aim follows the crab until
   the last 24), then `drop`s the web over 10: a net 500 wide coming down from 150 to the floor. Whatever is under it
-  when it gets down to it is caught (8 damage, then held); raised claws don't stop a net, a dodge's invulnerable
+  as it lands (the drop's last tick, whatever the crab's height, so the moment to dodge never moves) is caught (8 damage, then held); raised claws don't stop a net, a dodge's invulnerable
   moment does. Missed, it lies 70 ticks `spread`, arms on the floor and mantle low (eye in reach): an arm hit then
-  counts x1.5. Then 120 ticks before the next webover (it probes meanwhile).
+  counts x1.5. Then 210 ticks before the next webover (it probes meanwhile; measured by `boss_is_beatable`: at 120 the
+  expected player won 54%, at 210 68%).
 - **Grabbed** (after a pounce, a tip or the web): held up to 240 ticks, each dodge press 10 off (the moray's hold, its
   struggle now per creature). At 120 ticks held, the venom bite (10 + *venom*); at 200 the heavy bite (30).
 - **Venom** (the crab's status, for any bite or sting): each dose 2 damage/s for 5 s, doses stack, and the crab walks
