@@ -69,26 +69,50 @@ one GitHub issue (label `world-plan`) that stands on its own.
    (`crates/sim/src/underwater.rs`, `crates/sim/src/underwater/`, `src/cellular*`) unless the issue says it is a
    **gated engine package**.
 
-## Where things stand (2026-11-05, lead designer's handoff)
+## Where things stand (2026-11-10, lead designer)
 Read this first if you are continuing without the lead designer. Check each item's live state with `gh pr view <n>`
 or `gh issue view <n>` before acting.
 - **Merged:** plan and bible (#473, #476, #486, #488, #494, #507), W0.1 landmarks (#474), W0.2 route library
   (#480), W0.3 fear invariants (#485), W0.4 seed fingerprint (#479), W0.5 compact memory saves (#495), W1.1 depth
   bands (#478), W1.3 canyon refuges (#490), W1.3b lower canyon and frames (#506), W1.4 tether and deep food (#509),
-  W2.1 pressure on the body (#483), W2.3 anxiety (#484), W3.0 strata in the frames (#511), and the fix for main's
-  flaky save tests (#491). Draft #419 is finished by #484 and can be closed.
-- **At a taste gate, waiting for the owner:** W2.2 sound (#493, Milestone 2; "what to try" is on #462). Do not merge
-  it or build on it until the owner answers. **W1.2, the open-water hunter (#458), needs #493's Tell cue, so it
-  waits too.**
-- **In progress:** W3.1 pockets, mouths and the hunter rule (#465) on branch `issue-465-pockets` (worktree
-  `.claude/worktrees/pockets`). The hunter rule and the mouth tests are done; left: silt mouth columns from the home
-  burrow up to the floor (its mouths open into the opening's deep rock), one bake, and drawing the ground tell at an
-  ambushed mouth. Exact steps are in the last comment on #465. The branch sits on the pre-squash W3.0 commits:
-  cherry-pick its own three commits onto main.
-- **Next, in order, none gated on #493:** W3.2 home burrow (#466) and W3.3 mantis mouth and bone hall (#467, the
-  Milestone 3 taste gate) after W3.1; W4.1 seep chimney (#468, a rock package: see its comment) and W4.2 long
-  chimney (#469, also the vent field's loop home); then the Plunge (#470 to #472; #470 decides the odd tunnel's dig,
-  since no strata can be baked below y -10,000; #471 is the Milestone 4 gate).
+  W2.1 pressure on the body (#483), W2.3 anxiety (#484), W3.0 strata in the frames (#511), and **W2.2 sound
+  (#493, merged 2026-11-10 after the owner's play-test)**. The final sound design only adds sound: warnings swell,
+  nothing ducks or pauses the music, and the music path is `main`'s.
+- **Now: the first burrow (Milestone "first burrow" = W3.1 + W3.2 in one PR, one bake).** W3.1 (#465) and W3.2
+  (#466) both reshape the home burrow's strata, so they ship together on branch `issue-465-burrow` (worktree
+  `.claude/worktrees/burrow`, the old `issue-465-pockets` work cherry-picked onto `main`): the hunter rule, mouth
+  shafts from the home burrow up to the floor, a gallery and clam beds inside, the mantis moved to the mantis mouth
+  with its ground tell drawn on the ground, one bake. The coding is done by Claude Sonnet subagents from a written
+  brief; the lead reviews every diff.
+- **Then, in order:** W3.3 mantis mouth chain and bone hall (#467, **Milestone 3 taste gate**: stop there and wait
+  for the owner); after the owner's go, W4.1 seep chimney (#468, a rock package), W4.2 long chimney (#469), the
+  open-water hunter W1.2 (#458, unblocked by #493: it uses the existing `Cue::Tell` swell, there is no `Hush`; see the
+  issue's last comment; Milestone 1 taste gate), then the Plunge (#470 to #472; #471 is the Milestone 4 gate).
+- **Coding agents:** the owner wants Claude Sonnet to write the code (not Codex). Write the package brief (files,
+  behaviour, tests first, constraints, taste check, hidden rules), run it as a Sonnet subagent in the package's own
+  worktree (it runs fmt, clippy native and wasm32, tests; it never opens PRs), then review and open the PR yourself.
+  At most two coders at once, never two on the same files. Item 4 above (Codex) is kept for reference only.
+
+### How the built map differs from the owner's Plate D (and what it costs)
+Plate D draws the strata as layered banks running under the canyon's walls, with pockets embedded in them, mouths as
+dark holes in the banks, chimneys rising through the layers, and the Plunge under an abyssal fan that joins three
+canyons. The game adapts the level that already exists, so:
+- **Pockets are boxes, not banks.** The level is a single-valued heightmap, so the strata exist only inside sealed
+  bedrock frames (four today) placed under the existing floor. Between them the ground is the generator's sand and
+  bedrock, not continuous layers. Cost: you cannot read the strata as a band from the overworld; each pocket has to
+  sell its own layers.
+- **Doors are shafts.** The home burrow sits 460 units under home (below the cellular opening's window, whose tests
+  need their ground), so its mouths are vertical shafts up to the floor instead of a hole in the side of a bank.
+  Cost: going in is a dig down, not a walk in; the first dig must pay off fast (a clam in the shaft).
+- **Deep ground only at new x.** Nothing can sit under the far rim or the reef, so the lower canyon (slump dam,
+  narrows lock, vent field) continues east of Coral Rise (x > 17,400) instead of below the canyon, and the long
+  chimney's return runs as one flat duct at y -12,700 under the whole world. Cost: the wormholes are long straight
+  ducts, not winding seams, and the long chimney is a long ride rather than a surprising shortcut.
+- **One canyon, no fan.** Only the home canyon exists; the second canyon, the cold canyon and the abyssal fan are
+  not built, and the Plunge drops below the vent field (x about 18,700). Cost: "each canyon is a chapter" is not yet
+  true; the Plunge's hint of more lies under the one canyon.
+- **The bake is bounded** (16 million cells, no strata below y -10,000 except sealed frames), so depth beyond the
+  Plunge stays a hint, as Plate D also intends.
 
 ## Hidden rules found while building (read before any package)
 - **The seed fingerprint.** See item 8: only `underwater*`, `physics/consts.rs`, `level/coral_rise.rs` and the
