@@ -9,6 +9,33 @@ use web_sys::{Event, IdbDatabase, IdbRequest, IdbTransaction, IdbTransactionMode
 const OBJECTS: &str = "riders";
 
 impl Store {
+    pub async fn load_preferences(&self) -> Result<PreferencesLoaded, String> {
+        self.record_transaction("preferences", false, |bytes| {
+            let loaded = bytes
+                .map(PreferencesLoaded::decode)
+                .transpose()?
+                .unwrap_or_else(PreferencesLoaded::absent);
+            Ok((loaded, None))
+        })
+        .await
+    }
+    pub async fn save_preferences(
+        &self,
+        previous: &PreferencesLoaded,
+        preferences: Preferences,
+    ) -> Result<PreferencesLoaded, String> {
+        let next = previous.changed(preferences)?;
+        let previous = previous.clone();
+        self.record_transaction("preferences", true, move |bytes| {
+            let current = bytes
+                .map(PreferencesLoaded::decode)
+                .transpose()?
+                .unwrap_or_else(PreferencesLoaded::absent);
+            current.check_current(&previous)?;
+            Ok((next.clone(), next.bytes.clone()))
+        })
+        .await
+    }
     /// Bounded menu/startup admission scan, never a per-frame operation. All
     /// callers must honor this before selecting even a previously empty slot.
     pub async fn load_frozen(&self, now_ms: f64) -> Result<Option<Value>, String> {
@@ -57,11 +84,28 @@ impl Store {
         slot: RiderSlot,
         change: Option<(Option<Loaded>, Loaded)>,
     ) -> Result<Option<Loaded>, String> {
+        self.record_transaction(slot.key(), change.is_some(), move |bytes| {
+            let current = bytes.map(|bytes| decode(slot, bytes)).transpose()?;
+            if let Some((previous, next)) = &change {
+                check_current(current.as_ref(), previous.as_ref())?;
+                Ok((Some(next.clone()), Some(next.bytes.clone())))
+            } else {
+                Ok((current, None))
+            }
+        })
+        .await
+    }
+    async fn record_transaction<T: 'static>(
+        &self,
+        key: &str,
+        write: bool,
+        mut action: impl FnMut(Option<String>) -> Result<(T, Option<String>), String> + 'static,
+    ) -> Result<T, String> {
         let db = Database(open(&self.database).await?);
         let tx =
             db.0.transaction_with_str_and_mode(
                 OBJECTS,
-                if change.is_some() {
+                if write {
                     IdbTransactionMode::Readwrite
                 } else {
                     IdbTransactionMode::Readonly
@@ -69,10 +113,10 @@ impl Store {
             )
             .map_err(problem)?;
         let objects = tx.object_store(OBJECTS).map_err(problem)?;
-        let key = JsValue::from_str(slot.key());
+        let key = JsValue::from_str(key);
         let request = objects.get(&key).map_err(problem)?;
         let (promise, resolve, reject) = promise();
-        let output = Rc::new(RefCell::new(None::<Option<Loaded>>));
+        let output = Rc::new(RefCell::new(None::<T>));
         let reason = Rc::new(RefCell::new(None::<String>));
         let cb_request = request.clone();
         let cb_output = output.clone();
@@ -86,20 +130,15 @@ impl Store {
                 let current = if value.is_undefined() {
                     None
                 } else {
-                    Some(decode(
-                        slot,
-                        value.as_string().ok_or("IndexedDB record is not text")?,
-                    )?)
+                    Some(value.as_string().ok_or("IndexedDB record is not text")?)
                 };
-                if let Some((previous, next)) = &change {
-                    check_current(current.as_ref(), previous.as_ref())?;
+                let (result, replacement) = action(current)?;
+                if let Some(bytes) = replacement {
                     objects
-                        .put_with_key(&JsValue::from_str(&next.bytes), &key)
+                        .put_with_key(&JsValue::from_str(&bytes), &key)
                         .map_err(problem)?;
-                    Ok(Some(next.clone()))
-                } else {
-                    Ok(current)
                 }
+                Ok(result)
             })();
             match result {
                 Ok(value) => *cb_output.borrow_mut() = Some(value),

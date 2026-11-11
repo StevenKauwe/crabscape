@@ -112,6 +112,7 @@ pub struct Adventure {
     pub game: Option<Game>,
     pub shared: Option<crate::coop::Session>,
     network_outbound: Vec<crate::coop::Outbound>,
+    sound_events: Vec<crate::game::sound::Event>,
     pub gate: Gate,
     pub roost: Roost,
     pub result: Option<ResultSummary>,
@@ -153,6 +154,7 @@ impl Adventure {
             game: None,
             shared: None,
             network_outbound: Vec::new(),
+            sound_events: Vec::new(),
             gate: Gate::new(rider_index, false),
             roost: Roost::default(),
             result: None,
@@ -192,12 +194,32 @@ impl Adventure {
             .or(self.game.as_mut())
     }
     fn take_game(&mut self) -> Option<Game> {
-        if let Some(mut session) = self.shared.take() {
+        let mut game = if let Some(mut session) = self.shared.take() {
             self.network_outbound.extend(session.drain_outbound());
             Some(session.game)
         } else {
             self.game.take()
+        };
+        if let Some(game) = &mut game {
+            let room = 256_usize.saturating_sub(self.sound_events.len());
+            self.sound_events
+                .extend(game.drain_sound_events().take(room));
         }
+        game
+    }
+    /// Preserve final-frame cues when a completed mission retires its Game.
+    pub fn drain_sound_events(&mut self) -> std::vec::Drain<'_, crate::game::sound::Event> {
+        let Self {
+            game,
+            shared,
+            sound_events,
+            ..
+        } = self;
+        if let Some(game) = shared.as_mut().map(|s| &mut s.game).or(game.as_mut()) {
+            let remaining = 256_usize.saturating_sub(sound_events.len());
+            sound_events.extend(game.drain_sound_events().take(remaining));
+        }
+        sound_events.drain(..)
     }
     /// Attach transport identity only after a valid local mission launch. Validation
     /// occurs before moving Game, so rejected room data cannot discard progression.

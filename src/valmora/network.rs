@@ -17,6 +17,17 @@ pub struct Lobby {
     last_state: String,
     party_sent: f64,
     launch_hint: Option<(String, usize)>,
+    visuals: BTreeMap<String, PartnerVisual>,
+}
+#[derive(Default)]
+struct PartnerVisual {
+    time: f64,
+    followers: Vec<PartnerFollower>,
+}
+#[derive(Default)]
+struct PartnerFollower {
+    time: f64,
+    position: Option<[f64; 2]>,
 }
 struct Peer {
     rider: Option<usize>,
@@ -128,6 +139,7 @@ impl Lobby {
             last_state: String::new(),
             party_sent: f64::NEG_INFINITY,
             launch_hint: None,
+            visuals: BTreeMap::new(),
         })
     }
     pub fn connected_count(&self) -> usize {
@@ -392,6 +404,7 @@ mod tests {
             last_state: String::new(),
             party_sent: f64::NEG_INFINITY,
             launch_hint: None,
+            visuals: BTreeMap::new(),
         }
     }
     #[test]
@@ -562,12 +575,40 @@ mod tests {
 }
 
 impl Lobby {
+    /// Presentation clocks advance once per Update, never once per egui pass.
+    pub fn tick_visuals(
+        &mut self,
+        dt: f64,
+        view: dragon_game::flight::Viewport,
+        session: &dragon_game::coop::Session,
+    ) {
+        self.visuals
+            .retain(|peer, _| session.ghosts.contains_key(peer));
+        for (peer, ghost) in &session.ghosts {
+            if ghost.mission.as_deref() != Some(&session.game.definition.id) {
+                continue;
+            }
+            let Some(position) = ghost.position else {
+                continue;
+            };
+            let Some(presence) = self.peers.get(peer).and_then(|p| p.presence.as_ref()) else {
+                continue;
+            };
+            let count = presence["p"]
+                .as_array()
+                .map_or(0, |a| a.len().min(5).saturating_sub(1));
+            let visual = self.visuals.entry(peer.clone()).or_default();
+            visual.update(dt, view.scale, position, ghost.facing as f64, count);
+        }
+    }
+
     pub fn paint_partners(
         &self,
         painter: &bevy_egui::egui::Painter,
         session: &dragon_game::coop::Session,
         time: f64,
         view: dragon_game::flight::Viewport,
+        zoom: f64,
     ) {
         use dragon_game::drawing::{Canvas, DragonArt, RiderArt, draw_dragon};
         let mut canvas = Canvas::default();
@@ -596,7 +637,47 @@ impl Lobby {
                 .unwrap_or("#7f88aa");
             let text = |key: &str| build[key].as_str().unwrap_or("").to_owned();
             let size = view.scale * [0.62, 0.8, 1., 1.18][stage];
+            canvas.scale(zoom, zoom);
             canvas.alpha(if ghost.status == "play" { 0.95 } else { 0.35 });
+            if let Some(visual) = self.visuals.get(peer) {
+                for (idx, follower) in visual.followers.iter().enumerate() {
+                    let Some([x, y]) = follower.position else {
+                        continue;
+                    };
+                    let member = &presence["p"][idx + 1];
+                    let stage = member[2].as_u64().unwrap_or(0).min(3) as usize;
+                    let horn = match member[0].as_str().unwrap_or("bond") {
+                        "flame" => "#ffd0a0",
+                        "spark" => "#fff27a",
+                        "boulder" => "#d8c6a8",
+                        "frost" => "#e6fbff",
+                        "star" => "#fff8d8",
+                        _ => "#ffe7a6",
+                    };
+                    let color = member[1]
+                        .as_str()
+                        .filter(|s| {
+                            s.len() == 7
+                                && s.starts_with('#')
+                                && s[1..].bytes().all(|b| b.is_ascii_hexdigit())
+                        })
+                        .unwrap_or("#ff6a3d");
+                    draw_dragon(
+                        &mut canvas,
+                        x,
+                        y,
+                        view.scale * 0.7 * [0.62, 0.8, 1., 1.18][stage],
+                        color,
+                        ghost.facing as f64,
+                        follower.time * 1.3,
+                        &DragonArt {
+                            horn: Some(horn.into()),
+                            ..Default::default()
+                        },
+                    );
+                }
+            }
+            let dad = self.peers.get(peer).is_some_and(|p| p.daddio);
             draw_dragon(
                 &mut canvas,
                 position[0],
@@ -604,7 +685,11 @@ impl Lobby {
                 size,
                 color,
                 ghost.facing as f64,
-                if ghost.status == "frozen" { 0.4 } else { time },
+                if ghost.status == "frozen" {
+                    0.4
+                } else {
+                    self.visuals.get(peer).map_or(time, |v| v.time)
+                },
                 &DragonArt {
                     rider: ghost.riding.then(|| RiderArt {
                         hair: text("hair"),
@@ -613,8 +698,9 @@ impl Lobby {
                         style: text("style"),
                         path: text("path"),
                         crown: build["crown"] == true,
-                        daddio: false,
+                        daddio: dad,
                     }),
+                    dad,
                     ..Default::default()
                 },
             );
@@ -646,12 +732,14 @@ impl Lobby {
             };
             painter.text(
                 bevy_egui::egui::pos2(
-                    position[0] as f32,
-                    (position[1] + size * 0.62 + view.scale * 0.1) as f32,
+                    (position[0] * zoom) as f32,
+                    ((position[1] + size * 0.62 + view.scale * 0.1) * zoom) as f32,
                 ),
                 bevy_egui::egui::Align2::CENTER_TOP,
                 label,
-                bevy_egui::egui::FontId::proportional((view.scale * 0.24).round().max(11.) as f32),
+                bevy_egui::egui::FontId::proportional(
+                    ((view.scale * 0.24).round().max(11.) * zoom) as f32,
+                ),
                 bevy_egui::egui::Color32::WHITE,
             );
         }
@@ -724,5 +812,42 @@ impl Lobby {
             self.party_sent = now;
         }
         Ok(vec![])
+    }
+}
+
+impl PartnerVisual {
+    fn update(&mut self, dt: f64, scale: f64, position: [f64; 2], facing: f64, count: usize) {
+        self.time += dt;
+        self.followers
+            .resize_with(count.min(4), PartnerFollower::default);
+        for (idx, f) in self.followers.iter_mut().enumerate() {
+            f.time += dt;
+            let target = [
+                position[0] - facing * scale * (1.25 + idx as f64 * 0.85),
+                position[1] + scale * 0.3 + (f.time * 2.2 + idx as f64).sin() * scale * 0.18,
+            ];
+            let p = f.position.get_or_insert(target);
+            for axis in 0..2 {
+                p[axis] += (target[axis] - p[axis]) * (dt * 4.).min(1.);
+            }
+        }
+    }
+}
+#[cfg(test)]
+mod partner_visual_tests {
+    use super::PartnerVisual;
+    #[test]
+    fn followers_use_source_offsets_then_smooth_and_cap_at_four() {
+        let mut visual = PartnerVisual::default();
+        visual.update(0., 40., [300., 200.], 1., 20);
+        assert_eq!(visual.followers.len(), 4);
+        assert_eq!(visual.followers[0].position, Some([250., 212.]));
+        visual.update(0.1, 40., [400., 200.], 1., 4);
+        let p = visual.followers[0].position.expect("initialized");
+        assert!((p[0] - 290.).abs() < 1e-9);
+        assert!((p[1] - (212. + 0.22_f64.sin() * 40. * 0.18 * 0.4)).abs() < 1e-9);
+        visual.update(0., 40., [400., 200.], 1., 1);
+        assert_eq!(visual.followers.len(), 1);
+        assert_eq!(visual.time, 0.1);
     }
 }

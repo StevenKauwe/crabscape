@@ -1,6 +1,9 @@
 //! Original Dragon Canvas geometry, expressed as renderer-independent Rust draw operations.
 //! Coordinates and animation arithmetic intentionally remain f64, like the source JavaScript.
 //! This is not a rasterizer. The engine adapter tessellates these paths for the GPU.
+
+mod atmosphere;
+pub use atmosphere::{draw_foreground, draw_moon_rays, draw_shot_lights};
 use serde::{Deserialize, Serialize};
 use std::f64::consts::{PI, TAU};
 

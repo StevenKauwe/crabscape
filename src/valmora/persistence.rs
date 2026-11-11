@@ -1,7 +1,7 @@
 //! One asynchronous storage operation at a time. Keep this driver alive across
 //! menu/scene changes: dropping it does not cancel an already-started checkpoint.
 //! Polling only checks a small mailbox; it never reads files or clones profiles.
-use super::storage::{Loaded, Store};
+use super::storage::{Loaded, Preferences, PreferencesLoaded, Store};
 use dragon_game::save_transfer::RiderSlot;
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
@@ -13,6 +13,8 @@ pub enum Operation {
     ImportArchive,
     ImportProfile,
     Save,
+    LoadPreferences,
+    SavePreferences,
 }
 #[derive(Debug)]
 pub enum Outcome {
@@ -23,21 +25,23 @@ pub enum Outcome {
         empty: bool,
     },
     Stored,
+    PreferencesStored,
 }
 #[derive(Debug)]
 pub struct Completion {
     pub operation: Operation,
-    pub slot: RiderSlot,
+    pub slot: Option<RiderSlot>,
     pub result: Result<Outcome, String>,
 }
 struct Reply {
     loaded: Option<Loaded>,
     frozen: Option<Value>,
+    preferences: Option<PreferencesLoaded>,
 }
 type Mailbox = Arc<Mutex<Option<Result<Reply, String>>>>;
 struct Pending {
     operation: Operation,
-    slot: RiderSlot,
+    slot: Option<RiderSlot>,
     mailbox: Mailbox,
 }
 
@@ -49,6 +53,8 @@ pub struct Persistence {
     loaded: Option<Loaded>,
     pending: Option<Pending>,
     needs_reload: bool,
+    preferences: Option<PreferencesLoaded>,
+    preferences_needs_reload: bool,
 }
 impl Default for Persistence {
     fn default() -> Self {
@@ -62,6 +68,8 @@ impl Persistence {
             loaded: None,
             pending: None,
             needs_reload: false,
+            preferences: None,
+            preferences_needs_reload: false,
         }
     }
     pub fn busy(&self) -> bool {
@@ -69,6 +77,30 @@ impl Persistence {
     }
     pub fn loaded(&self) -> Option<&Loaded> {
         self.loaded.as_ref()
+    }
+    pub fn preferences(&self) -> Option<&PreferencesLoaded> {
+        self.preferences.as_ref()
+    }
+    pub fn preferences_needs_reload(&self) -> bool {
+        self.preferences_needs_reload
+    }
+    pub fn load_preferences(&mut self) -> Result<(), String> {
+        self.submit(None, Operation::LoadPreferences, Work::LoadPreferences)
+    }
+    pub fn save_preferences(&mut self, preferences: Preferences) -> Result<(), String> {
+        self.available()?;
+        let previous = self
+            .preferences
+            .clone()
+            .ok_or("Load device preferences before saving them")?;
+        self.submit(
+            None,
+            Operation::SavePreferences,
+            Work::SavePreferences {
+                previous,
+                preferences,
+            },
+        )
     }
     pub fn needs_reload(&self) -> bool {
         self.needs_reload
@@ -89,21 +121,25 @@ impl Persistence {
             .export_current_profile_json(profile, updated_at)
     }
     pub fn select(&mut self, slot: RiderSlot, now_ms: f64) -> Result<(), String> {
-        self.submit(slot, Operation::Select, Work::Select { slot, now_ms })
+        self.submit(Some(slot), Operation::Select, Work::Select { slot, now_ms })
     }
     pub fn create(&mut self, slot: RiderSlot, profile: Value) -> Result<(), String> {
-        self.submit(slot, Operation::Create, Work::Create { slot, profile })
+        self.submit(
+            Some(slot),
+            Operation::Create,
+            Work::Create { slot, profile },
+        )
     }
     pub fn import_archive(&mut self, slot: RiderSlot, text: String) -> Result<(), String> {
         self.submit(
-            slot,
+            Some(slot),
             Operation::ImportArchive,
             Work::ImportArchive { slot, text },
         )
     }
     pub fn import_profile(&mut self, slot: RiderSlot, text: String) -> Result<(), String> {
         self.submit(
-            slot,
+            Some(slot),
             Operation::ImportProfile,
             Work::ImportProfile { slot, text },
         )
@@ -117,7 +153,7 @@ impl Persistence {
             .clone()
             .ok_or("Select or create a rider before saving")?;
         self.submit(
-            previous.slot(),
+            Some(previous.slot()),
             Operation::Save,
             Work::Save {
                 previous: Box::new(previous),
@@ -139,10 +175,23 @@ impl Persistence {
             .pending
             .take()
             .expect("pending operation was checked above");
+        let preferences_operation = matches!(
+            pending.operation,
+            Operation::LoadPreferences | Operation::SavePreferences
+        );
         if result.is_err() {
-            self.needs_reload = true;
+            if preferences_operation {
+                self.preferences_needs_reload = true;
+            } else {
+                self.needs_reload = true;
+            }
         }
         let result = result.map(|reply| {
+            if preferences_operation {
+                self.preferences = reply.preferences;
+                self.preferences_needs_reload = false;
+                return Outcome::PreferencesStored;
+            }
             let empty = reply.loaded.is_none();
             self.loaded = reply.loaded;
             self.needs_reload = false;
@@ -168,9 +217,21 @@ impl Persistence {
             Ok(())
         }
     }
-    fn submit(&mut self, slot: RiderSlot, operation: Operation, work: Work) -> Result<(), String> {
+    fn submit(
+        &mut self,
+        slot: Option<RiderSlot>,
+        operation: Operation,
+        work: Work,
+    ) -> Result<(), String> {
         self.available()?;
-        if self.needs_reload && operation != Operation::Select {
+        let preferences_operation = matches!(
+            operation,
+            Operation::LoadPreferences | Operation::SavePreferences
+        );
+        if self.preferences_needs_reload && operation == Operation::SavePreferences {
+            return Err("Reload device preferences before another preference write".into());
+        }
+        if self.needs_reload && operation != Operation::Select && !preferences_operation {
             return Err(
                 "Reload a Valmora slot before another write; the last operation failed".into(),
             );
@@ -187,7 +248,7 @@ impl Persistence {
             let mut mailbox = worker_mailbox.lock().unwrap_or_else(|e| e.into_inner());
             *mailbox = Some(result);
         }) {
-            self.needs_reload = true;
+            if preferences_operation { self.preferences_needs_reload=true; } else { self.needs_reload=true; }
             return Err(format!("Could not start Valmora storage worker: {error}"));
         }
         #[cfg(target_arch = "wasm32")]
@@ -206,6 +267,11 @@ impl Persistence {
 }
 
 enum Work {
+    LoadPreferences,
+    SavePreferences {
+        previous: PreferencesLoaded,
+        preferences: Preferences,
+    },
     Select {
         slot: RiderSlot,
         now_ms: f64,
@@ -234,10 +300,31 @@ enum Work {
 impl Work {
     fn run(self, store: &Store) -> Result<Reply, String> {
         let loaded = match self {
+            Self::LoadPreferences => {
+                return Ok(Reply {
+                    loaded: None,
+                    frozen: None,
+                    preferences: Some(store.load_preferences()?),
+                });
+            }
+            Self::SavePreferences {
+                previous,
+                preferences,
+            } => {
+                return Ok(Reply {
+                    loaded: None,
+                    frozen: None,
+                    preferences: Some(store.save_preferences(&previous, preferences)?),
+                });
+            }
             Self::Select { slot, now_ms } => {
                 let frozen = store.load_frozen(now_ms)?;
                 let loaded = store.load(slot)?;
-                return Ok(Reply { loaded, frozen });
+                return Ok(Reply {
+                    loaded,
+                    frozen,
+                    preferences: None,
+                });
             }
             Self::Create { slot, profile } => store.create(slot, profile)?,
             Self::ImportArchive { slot, text } => store.import_archive(slot, &text)?,
@@ -251,6 +338,7 @@ impl Work {
         Ok(Reply {
             loaded: Some(loaded),
             frozen: None,
+            preferences: None,
         })
     }
 }
@@ -258,10 +346,31 @@ impl Work {
 impl Work {
     async fn run(self, store: &Store) -> Result<Reply, String> {
         let loaded = match self {
+            Self::LoadPreferences => {
+                return Ok(Reply {
+                    loaded: None,
+                    frozen: None,
+                    preferences: Some(store.load_preferences().await?),
+                });
+            }
+            Self::SavePreferences {
+                previous,
+                preferences,
+            } => {
+                return Ok(Reply {
+                    loaded: None,
+                    frozen: None,
+                    preferences: Some(store.save_preferences(&previous, preferences).await?),
+                });
+            }
             Self::Select { slot, now_ms } => {
                 let frozen = store.load_frozen(now_ms).await?;
                 let loaded = store.load(slot).await?;
-                return Ok(Reply { loaded, frozen });
+                return Ok(Reply {
+                    loaded,
+                    frozen,
+                    preferences: None,
+                });
             }
             Self::Create { slot, profile } => store.create(slot, profile).await?,
             Self::ImportArchive { slot, text } => store.import_archive(slot, &text).await?,
@@ -275,6 +384,7 @@ impl Work {
         Ok(Reply {
             loaded: Some(loaded),
             frozen: None,
+            preferences: None,
         })
     }
 }
@@ -341,6 +451,58 @@ mod tests {
         assert!(!tmp.0.exists());
     }
     #[test]
+    fn global_preferences_survive_slot_switch_and_have_an_independent_error_latch() {
+        let tmp = Temp::new();
+        let store = tmp.store();
+        let mut driver = Persistence::new(store.clone());
+        driver.load_preferences().unwrap();
+        let done = finish(&mut driver);
+        assert_eq!(done.slot, None);
+        assert!(matches!(done.result, Ok(Outcome::PreferencesStored)));
+        assert_eq!(driver.preferences().unwrap().revision(), 0);
+        driver.create(RiderSlot::Alexa, profile()).unwrap();
+        finish(&mut driver).result.unwrap();
+        let mut first = driver.preferences().unwrap().preferences().clone();
+        first.music_on = false;
+        driver.save_preferences(first.clone()).unwrap();
+        finish(&mut driver).result.unwrap();
+        assert_eq!(driver.loaded().unwrap().revision(), 1);
+        driver.select(RiderSlot::Tavian, 0.).unwrap();
+        finish(&mut driver).result.unwrap();
+        assert!(driver.loaded().is_none());
+        assert_eq!(driver.preferences().unwrap().preferences(), &first);
+        store
+            .save_preferences(driver.preferences().unwrap(), Preferences::default())
+            .unwrap();
+        driver.save_preferences(first).unwrap();
+        assert!(finish(&mut driver).result.is_err());
+        assert!(driver.preferences_needs_reload());
+        assert!(!driver.needs_reload());
+        assert_eq!(driver.preferences().unwrap().revision(), 1);
+        driver.select(RiderSlot::Alexa, 0.).unwrap();
+        finish(&mut driver).result.unwrap();
+        assert!(driver.preferences_needs_reload());
+        driver
+            .save_state(driver.loaded().unwrap().profile().clone(), Value::Null)
+            .unwrap();
+        finish(&mut driver).result.unwrap();
+        assert!(driver.preferences_needs_reload());
+        assert!(driver.save_preferences(Preferences::default()).is_err());
+        driver.load_preferences().unwrap();
+        finish(&mut driver).result.unwrap();
+        assert!(!driver.preferences_needs_reload());
+        assert_eq!(driver.preferences().unwrap().revision(), 2);
+        driver.select(RiderSlot::Alexa, f64::NAN).unwrap();
+        assert!(finish(&mut driver).result.is_err());
+        assert!(driver.needs_reload());
+        driver.load_preferences().unwrap();
+        finish(&mut driver).result.unwrap();
+        assert!(driver.needs_reload());
+        driver.save_preferences(Preferences::default()).unwrap();
+        finish(&mut driver).result.unwrap();
+        assert!(driver.needs_reload());
+    }
+    #[test]
     fn one_operation_including_unconsumed_completion_and_empty_selection_clears_token() {
         let tmp = Temp::new();
         let mut driver = Persistence::new(tmp.store());
@@ -349,7 +511,7 @@ mod tests {
         assert!(driver.loaded().is_none());
         let completion = finish(&mut driver);
         assert_eq!(completion.operation, Operation::Create);
-        assert_eq!(completion.slot, RiderSlot::Alexa);
+        assert_eq!(completion.slot, Some(RiderSlot::Alexa));
         assert!(matches!(completion.result, Ok(Outcome::Stored)));
         assert!(driver.loaded().is_some());
         assert!(driver.poll().is_none());

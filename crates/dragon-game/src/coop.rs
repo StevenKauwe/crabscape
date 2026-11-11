@@ -362,6 +362,17 @@ impl Session {
                 for e in events {
                     match e {
                         world::Event::Bank(_) => self.game.bank_network_gems(),
+                        world::Event::Sound(cue) => {
+                            use crate::game::sound::{self, Event as S};
+                            sound::push(
+                                &mut self.game.sound_events,
+                                match cue {
+                                    world::Sound::Wave => S::Wave,
+                                    world::Sound::Wrong => S::Wrong,
+                                    world::Sound::Win => S::Win,
+                                },
+                            );
+                        }
                         world::Event::FailureCaption(s) => self.game.fail_reason = Some(s),
                         _ => {}
                     }

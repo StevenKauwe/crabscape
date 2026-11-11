@@ -12,6 +12,38 @@ use std::{
 };
 
 impl Store {
+    pub fn load_preferences(&self) -> Result<PreferencesLoaded, String> {
+        if !self.directory.exists() {
+            return Ok(PreferencesLoaded::absent());
+        }
+        let _lock = lock(&self.directory)?;
+        read_preferences(&self.directory)
+    }
+    pub fn save_preferences(
+        &self,
+        previous: &PreferencesLoaded,
+        preferences: Preferences,
+    ) -> Result<PreferencesLoaded, String> {
+        self.save_preferences_checked(previous, preferences, |_| Ok(()))
+    }
+    fn save_preferences_checked(
+        &self,
+        previous: &PreferencesLoaded,
+        preferences: Preferences,
+        checkpoint: impl FnMut(&str) -> Result<(), String>,
+    ) -> Result<PreferencesLoaded, String> {
+        let next = previous.changed(preferences)?;
+        let _lock = lock(&self.directory)?;
+        read_preferences(&self.directory)?.check_current(previous)?;
+        publish_checkpoint(
+            &self.directory,
+            "preferences",
+            next.bytes.as_deref().expect("changed record"),
+            next.revision(),
+            checkpoint,
+        )?;
+        Ok(next)
+    }
     /// Device-global admission check: call before opening any rider, including
     /// empty slots. Never clear another slot's future freeze by switching riders.
     pub fn load_frozen(&self, now_ms: f64) -> Result<Option<Value>, String> {
@@ -63,37 +95,81 @@ impl Store {
         &self,
         previous: Option<&Loaded>,
         next: Loaded,
-        mut checkpoint: impl FnMut(&str) -> Result<(), String>,
+        checkpoint: impl FnMut(&str) -> Result<(), String>,
     ) -> Result<Loaded, String> {
         let _lock = lock(&self.directory)?;
         let current = read_current(&self.directory, next.slot)?;
         check_current(current.as_ref(), previous)?;
-        let staging = self.directory.join(format!("{}.staging", next.slot.key()));
-        let destination =
-            self.directory
-                .join(format!("{}.{}", next.slot.key(), next.record.revision % 2));
-        // Only the bounded staging scratch file may be discarded on a retry.
-        regular_or_absent(&staging)?;
-        regular_or_absent(&destination)?;
-        checkpoint("before_write")?;
-        let mut file = options()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(&staging)
-            .map_err(io)?;
-        file.write_all(next.bytes.as_bytes()).map_err(io)?;
-        checkpoint("after_write")?;
-        file.sync_all().map_err(io)?;
-        checkpoint("after_sync")?;
-        fs::rename(&staging, &destination).map_err(io)?;
-        // After publication an error is uncertain success. Reload to find which
-        // generation survived; an old token will be rejected if it committed.
-        checkpoint("after_publish")
-            .map_err(|e| format!("Checkpoint may have committed; reload: {e}"))?;
-        sync_directory(&self.directory)
-            .map_err(|e| format!("Checkpoint may have committed; reload: {e}"))?;
+        publish_checkpoint(
+            &self.directory,
+            next.slot.key(),
+            &next.bytes,
+            next.revision(),
+            checkpoint,
+        )?;
         Ok(next)
+    }
+}
+fn publish_checkpoint(
+    directory: &Path,
+    key: &str,
+    bytes: &str,
+    revision: u64,
+    mut checkpoint: impl FnMut(&str) -> Result<(), String>,
+) -> Result<(), String> {
+    let staging = directory.join(format!("{key}.staging"));
+    let destination = directory.join(format!("{key}.{}", revision % 2));
+    // Only the bounded staging scratch file may be discarded on a retry.
+    regular_or_absent(&staging)?;
+    regular_or_absent(&destination)?;
+    checkpoint("before_write")?;
+    let mut file = options()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&staging)
+        .map_err(io)?;
+    file.write_all(bytes.as_bytes()).map_err(io)?;
+    checkpoint("after_write")?;
+    file.sync_all().map_err(io)?;
+    checkpoint("after_sync")?;
+    fs::rename(&staging, &destination).map_err(io)?;
+    // After publication an error is uncertain success. Reload to find which
+    // generation survived; an old token will be rejected if it committed.
+    checkpoint("after_publish")
+        .map_err(|e| format!("Checkpoint may have committed; reload: {e}"))?;
+    sync_directory(directory).map_err(|e| format!("Checkpoint may have committed; reload: {e}"))?;
+    Ok(())
+}
+fn read_preferences(directory: &Path) -> Result<PreferencesLoaded, String> {
+    let read = |bank| -> Result<Option<PreferencesLoaded>, String> {
+        let path = directory.join(format!("preferences.{bank}"));
+        regular_or_absent(&path)?;
+        let file = match File::open(path) {
+            Ok(file) => file,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(io(e)),
+        };
+        let mut bytes = String::new();
+        file.take(preferences::MAX_PREFERENCES_BYTES as u64 + 1)
+            .read_to_string(&mut bytes)
+            .map_err(io)?;
+        PreferencesLoaded::decode(bytes).map(Some)
+    };
+    match (read(0)?, read(1)?) {
+        (None, None) => Ok(PreferencesLoaded::absent()),
+        (Some(value), None) | (None, Some(value)) => Ok(value),
+        (Some(a), Some(b)) => {
+            let (old, new) = if a.revision() < b.revision() {
+                (a, b)
+            } else {
+                (b, a)
+            };
+            if old.revision().checked_add(1) != Some(new.revision()) {
+                return Err("Device preference generations disagree; files are preserved".into());
+            }
+            Ok(new)
+        }
     }
 }
 fn io(error: impl std::fmt::Display) -> String {
@@ -250,6 +326,102 @@ mod tests {
         next["rid"] = "different".into();
         assert!(store.save(&second, next).is_err());
         assert_eq!(store.load(RiderSlot::Alexa).unwrap().unwrap().revision(), 2);
+    }
+    #[test]
+    fn device_preferences_are_independent_bounded_and_reject_stale_or_malformed_records() {
+        let tmp = Temp::new();
+        let store = tmp.store();
+        let absent = store.load_preferences().unwrap();
+        assert_eq!(absent.revision(), 0);
+        assert!(!tmp.0.exists());
+        let rider = store.create(RiderSlot::Alexa, profile()).unwrap();
+        let mut prefs = Preferences {
+            music_on: false,
+            view: 0.7,
+            ..Preferences::default()
+        };
+        prefs.mark_heard("intro|Hello".into()).unwrap();
+        let first = store.save_preferences(&absent, prefs.clone()).unwrap();
+        assert_eq!(store.load_preferences().unwrap().preferences(), &prefs);
+        assert!(
+            store
+                .save_preferences(&absent, Preferences::default())
+                .is_err()
+        );
+        assert_eq!(
+            store.load(RiderSlot::Alexa).unwrap().unwrap().revision(),
+            rider.revision()
+        );
+        let mut token = first;
+        for _ in 0..8 {
+            token = store.save_preferences(&token, prefs.clone()).unwrap();
+        }
+        assert_eq!(std::fs::read_dir(&tmp.0).unwrap().count(), 4);
+        let path = tmp.0.join(format!("preferences.{}", token.revision() % 2));
+        std::fs::write(&path, "malformed exact bytes").unwrap();
+        assert!(store.load_preferences().is_err());
+        assert!(store.save_preferences(&token, prefs).is_err());
+        assert_eq!(
+            std::fs::read_to_string(path).unwrap(),
+            "malformed exact bytes"
+        );
+        assert!(store.load(RiderSlot::Alexa).unwrap().is_some());
+    }
+    #[test]
+    fn preference_failure_boundaries_leave_a_complete_checkpoint() {
+        for stage in ["before_write", "after_write", "after_sync", "after_publish"] {
+            let tmp = Temp::new();
+            let store = tmp.store();
+            let first = store
+                .save_preferences(&store.load_preferences().unwrap(), Preferences::default())
+                .unwrap();
+            let mut next = first.preferences().clone();
+            next.narrate_on = false;
+            assert!(
+                store
+                    .save_preferences_checked(&first, next, |at| if at == stage {
+                        Err("injected".into())
+                    } else {
+                        Ok(())
+                    })
+                    .is_err()
+            );
+            let loaded = store.load_preferences().unwrap();
+            assert_eq!(
+                loaded.revision(),
+                if stage == "after_publish" { 2 } else { 1 }
+            );
+            store
+                .save_preferences(&loaded, loaded.preferences().clone())
+                .unwrap();
+        }
+    }
+    #[test]
+    fn archive_preferences_apply_explicitly_and_keep_exact_original_keys() {
+        let tmp = Temp::new();
+        let store = tmp.store();
+        let rider = serde_json::to_string(&profile()).unwrap();
+        let source = serde_json::to_string_pretty(&std::collections::BTreeMap::from([
+            ("vdf-save-alexa", rider.as_str()),
+            ("vdf-music", " false \n"),
+            ("vdf-heard", " [\"intro|Hello\"] "),
+            ("future-key", "opaque"),
+        ]))
+        .unwrap();
+        let loaded = store.import_archive(RiderSlot::Alexa, &source).unwrap();
+        let preferences = store.load_preferences().unwrap();
+        assert!(preferences.preferences().music_on);
+        let proposed = loaded
+            .imported_preferences(preferences.preferences())
+            .unwrap()
+            .unwrap();
+        assert!(!proposed.music_on);
+        store.save_preferences(&preferences, proposed).unwrap();
+        assert_eq!(loaded.export_plan(0.).unwrap().backup_archive(), source);
+        let exported =
+            StorageArchive::parse(loaded.export_plan(0.).unwrap().replacement_archive()).unwrap();
+        assert_eq!(exported.entries()["vdf-music"], " false \n");
+        assert_eq!(exported.entries()["future-key"], "opaque");
     }
     #[test]
     fn all_failure_boundaries_preserve_a_complete_generation() {

@@ -12,6 +12,10 @@ pub struct AdventureUi {
     pub notice: String,
     pub checkpoint_requested: bool,
     pub networked: bool,
+    pub sound_muted: bool,
+    pub preferences: super::storage::Preferences,
+    pub sound_events: Vec<super::audio::Effect>,
+    pub narration: Option<Option<String>>,
     story: Option<Value>,
     hatch_name: String,
     release: Option<String>,
@@ -33,13 +37,26 @@ pub struct Controls {
 impl AdventureUi {
     pub fn events(&mut self, events: Vec<Event>) {
         for event in events {
+            if let Some(effect) = super::audio::adventure_effect(&event)
+                && self.sound_events.len() < 64
+            {
+                self.sound_events.push(effect);
+            }
             match event {
                 Event::Dirty
                 | Event::Flush
                 | Event::Gate {
                     value: dragon_game::roost_gate::Event::SaveFrozen { .. },
                 } => self.checkpoint_requested = true,
-                Event::Story { page, .. } => self.story = Some(page),
+                Event::StopNarration => self.narration = Some(None),
+                Event::Story { id, page, .. } => {
+                    let heard = format!("{id}|{}", page["title"].as_str().unwrap_or(""));
+                    if let Err(error) = self.preferences.mark_heard(heard) {
+                        self.notice = error;
+                    }
+                    self.narration = Some(Some(narration_text(&page)));
+                    self.story = Some(page);
+                }
                 Event::Roost {
                     value: dragon_game::roost::Event::Toast { text },
                 } => self.notice = text,
@@ -67,6 +84,45 @@ impl AdventureUi {
                 controls.return_home = true;
             }
         });
+        if adventure.state() != "play" {
+            ui.horizontal(|ui| {
+                if ui
+                    .button(if self.sound_muted {
+                        "Sound: off"
+                    } else {
+                        "Sound: on"
+                    })
+                    .clicked()
+                {
+                    self.sound_muted = !self.sound_muted;
+                }
+                if ui
+                    .button(if !self.preferences.music_on {
+                        "Music: off"
+                    } else {
+                        "Music: on"
+                    })
+                    .clicked()
+                {
+                    self.preferences.music_on = !self.preferences.music_on;
+                }
+                if ui
+                    .button(if !self.preferences.narrate_on {
+                        "Narrator: off"
+                    } else {
+                        "Narrator: on"
+                    })
+                    .clicked()
+                {
+                    self.preferences.narrate_on = !self.preferences.narrate_on;
+                    if !self.preferences.narrate_on {
+                        self.narration = Some(None);
+                    } else if let Some(page) = &self.story {
+                        self.narration = Some(Some(narration_text(page)));
+                    }
+                }
+            });
+        }
         ui.small(
             "Native port preview. Original saves are untouched; checkpoint status appears above.",
         );
@@ -125,14 +181,26 @@ impl AdventureUi {
             "story" => {
                 if let Some(page) = &self.story {
                     ui.heading(page["title"].as_str().unwrap_or(""));
+                    let progress = super::audio::narration_progress();
+                    let mut word = page["title"]
+                        .as_str()
+                        .unwrap_or("")
+                        .split_whitespace()
+                        .count();
                     if let Some(paragraphs) = page["text"].as_array() {
                         for paragraph in paragraphs {
-                            ui.label(paragraph.as_str().unwrap_or(""));
+                            narrated_label(
+                                ui,
+                                paragraph.as_str().unwrap_or(""),
+                                &mut word,
+                                &progress,
+                            );
                             ui.add_space(6.);
                         }
                     }
                     if let Some(next) = page["next"].as_str() {
-                        ui.label(next);
+                        word += 2; // Spoken "Next up!" is a separate source cue.
+                        narrated_label(ui, next, &mut word, &progress);
                     }
                 }
                 // Current source enables Continue immediately, including during narration.
@@ -356,6 +424,34 @@ impl AdventureUi {
                         self.events(adventure.pause());
                     }
                 }
+                if adventure.state() == "pause" {
+                    if ui
+                        .button(if self.preferences.fancy {
+                            "Graphics: fancy"
+                        } else {
+                            "Graphics: simple"
+                        })
+                        .clicked()
+                    {
+                        self.preferences.fancy = !self.preferences.fancy;
+                    }
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label("View size:");
+                        for (scale, label) in [
+                            (1.2, "Zoom in"),
+                            (1., "Normal"),
+                            (0.85, "Wide"),
+                            (0.7, "Extra wide"),
+                        ] {
+                            if ui
+                                .selectable_label(self.preferences.view == scale, label)
+                                .clicked()
+                            {
+                                self.preferences.view = scale;
+                            }
+                        }
+                    });
+                }
                 ui.horizontal(|ui| {
                     for (index, label) in ["Left", "Right", "Up", "Down"].into_iter().enumerate() {
                         controls.direction[index] = ui.button(label).is_pointer_button_down_on();
@@ -397,6 +493,58 @@ impl AdventureUi {
         }
         controls
     }
+}
+
+fn narration_text(page: &Value) -> String {
+    let mut text = format!("{}. ", page["title"].as_str().unwrap_or(""));
+    if let Some(lines) = page["text"].as_array() {
+        for line in lines {
+            if let Some(line) = line.as_str() {
+                text.push_str(line);
+                text.push(' ');
+            }
+        }
+    }
+    if let Some(next) = page["next"].as_str() {
+        text.push_str("Next up! ");
+        text.push_str(next);
+    }
+    text
+}
+fn narrated_label(
+    ui: &mut egui::Ui,
+    text: &str,
+    word: &mut usize,
+    progress: &super::audio::narration::Progress,
+) {
+    let mut layout = egui::text::LayoutJob::default();
+    for token in text.split_inclusive(char::is_whitespace) {
+        let contains_word = !token.trim().is_empty();
+        let current = progress.speaking
+            && (progress.word == Some(*word)
+                || progress.word.is_none()
+                    && progress
+                        .active_range
+                        .is_some_and(|(start, end)| (*word >= start) && (*word < end)));
+        let color = if current {
+            egui::Color32::from_rgb(255, 215, 110)
+        } else {
+            ui.visuals().text_color()
+        };
+        layout.append(
+            token,
+            0.,
+            egui::TextFormat {
+                font_id: egui::TextStyle::Body.resolve(ui.style()),
+                color,
+                ..Default::default()
+            },
+        );
+        if contains_word {
+            *word += 1;
+        }
+    }
+    ui.label(layout);
 }
 
 #[cfg(test)]

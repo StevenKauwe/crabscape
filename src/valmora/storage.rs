@@ -10,6 +10,9 @@ use dragon_game::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+#[path = "storage/preferences.rs"]
+mod preferences;
+pub use preferences::{Preferences, PreferencesLoaded};
 
 #[cfg(target_arch = "wasm32")]
 #[path = "storage/browser.rs"]
@@ -118,6 +121,19 @@ pub struct Loaded {
     bytes: String,
 }
 impl Loaded {
+    /// Explicit archive import proposal. Missing keys preserve current device
+    /// settings; profile-only imports have no settings keys and return None.
+    pub fn imported_preferences(
+        &self,
+        current: &Preferences,
+    ) -> Result<Option<Preferences>, String> {
+        self.original_archive()
+            .map(StorageArchive::parse)
+            .transpose()?
+            .map(|archive| Preferences::overlay_archive(&archive, current))
+            .transpose()
+            .map(Option::flatten)
+    }
     pub fn frozen(&self) -> &Value {
         &self.record.frozen
     }

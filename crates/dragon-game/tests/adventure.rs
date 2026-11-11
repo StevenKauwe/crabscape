@@ -365,3 +365,22 @@ fn shared_flight_owns_one_game_and_preserves_profile_on_pause_and_retire() {
     assert_eq!(a.profile()["rid"], original["rid"]);
     assert_eq!(a.profile()["party"], original["party"]);
 }
+
+#[test]
+fn retiring_a_flight_preserves_final_sound_cues_once() {
+    use dragon_game::game::sound::Event as Sound;
+    let mut a = start(json!({"seenIntro":true}));
+    a.choose_mission("m1", true).unwrap();
+    a.game_mut().unwrap().sound_events.clear();
+    a.game_mut()
+        .unwrap()
+        .sound_events
+        .extend([Sound::Gold, Sound::Win]);
+    a.to_roost().unwrap();
+    assert!(a.game().is_none());
+    assert_eq!(
+        a.drain_sound_events().collect::<Vec<_>>(),
+        vec![Sound::Gold, Sound::Win]
+    );
+    assert!(a.drain_sound_events().next().is_none());
+}

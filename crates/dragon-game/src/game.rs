@@ -1,8 +1,9 @@
 //! Solo mission integration harness, not the full browser game.
 //! Uses original update ordering and one explicit gameplay draw stream. Presentation
-//! particle/audio draws, networking and persistent storage are
+//! particle draws, networking and persistent storage are
 //! not ported. Normalized profile, party combat, growth and abilities run in memory. Consequently a seed is a Rust replay seed, not a
 //! promise to reproduce a browser Math.random session. No personal saves are read.
+pub mod sound;
 use crate::{
     abilities,
     combat::{Breath, Kind as BreathKind, Mouth, Path, Shot},
@@ -126,6 +127,9 @@ pub struct Game {
     pub objective_events: Vec<objectives::Event>,
     /// Ring/splash presentation requests; cleared at each step, never simulation commands.
     pub presentation_events: Vec<enemies::Event>,
+    /// Retained until drained, capped independently from simulation state.
+    pub sound_events: Vec<sound::Event>,
+    sound_state: sound::State,
     pub fail_reason: Option<String>,
     objective_failed: bool,
     objective_cd: BTreeMap<u64, f64>,
@@ -163,6 +167,12 @@ pub struct Game {
     pub pouch_charm: bool,
 }
 impl Game {
+    pub fn drain_sound_events(&mut self) -> std::vec::Drain<'_, sound::Event> {
+        self.sound_events.drain(..)
+    }
+    fn sound(&mut self, event: sound::Event) {
+        sound::push(&mut self.sound_events, event);
+    }
     pub fn first_flight(view: Viewport, seed: u32) -> Self {
         Self::with_definition(&definitions()[0], view, seed)
     }
@@ -202,6 +212,8 @@ impl Game {
             objective: None,
             objective_events: vec![],
             presentation_events: vec![],
+            sound_events: Vec::with_capacity(sound::CAPACITY),
+            sound_state: sound::State::new(seed),
             fail_reason: None,
             objective_failed: false,
             objective_cd: BTreeMap::new(),
@@ -541,6 +553,13 @@ impl Game {
         draw: &mut impl FnMut() -> f64,
     ) {
         let boss = kind.definition().boss;
+        self.sound(
+            if kind.definition().ground && !kind.definition().hop && !calmed {
+                sound::Event::Grr
+            } else {
+                sound::Event::Poof
+            },
+        );
         if !calmed {
             self.hit_stop = self.hit_stop.max(if boss { 0.12 } else { 0.05 });
         }
@@ -583,6 +602,7 @@ impl Game {
                     lost_one: false,
                 });
             }
+            self.sound(sound::Event::Win);
             self.add_xp(None, 80.);
         }
     }
@@ -592,6 +612,9 @@ impl Game {
         view: Viewport,
         draw: &mut impl FnMut() -> f64,
     ) {
+        let mut bubbles = 0;
+        let mut slam = false;
+        let mut fall = false;
         for e in effects {
             match e {
                 enemies::Event::Strike { x, y0, warn, bolt } => {
@@ -617,6 +640,7 @@ impl Game {
                         if hurts {
                             let armor = self.craft("armor");
                             damage::bonk(&mut self.player, p, view.scale, armor);
+                            self.sound(sound::Event::Bonk);
                             self.bonks += 1;
                             self.squash = 0.3;
                             self.hit_stop = self.hit_stop.max(0.06);
@@ -624,6 +648,7 @@ impl Game {
                             self.retire(draw);
                         } else {
                             damage::bump(&mut self.player, p, view.scale);
+                            self.sound(sound::Event::Thud);
                             self.squash = 0.25;
                         }
                     }
@@ -658,6 +683,25 @@ impl Game {
                     extra,
                 } => self.spawn_baby(at, velocity, dir, extra, draw),
                 enemies::Event::Hazard(h) => {
+                    use enemies::HazardKind;
+                    match h.kind {
+                        HazardKind::Rock | HazardKind::Boulder => self.sound(sound::Event::Throw),
+                        HazardKind::Bubble => {
+                            bubbles += 1;
+                            if bubbles % 3 == 0 {
+                                self.sound(sound::Event::Throw);
+                            }
+                        }
+                        HazardKind::Ember if !slam => {
+                            slam = true;
+                            self.sound(sound::Event::Smash);
+                        }
+                        HazardKind::Fall if !fall => {
+                            fall = true;
+                            self.sound(sound::Event::Smash);
+                        }
+                        _ => {}
+                    }
                     let uid = self.next_id();
                     self.hazards.push(Hazard {
                         uid,
@@ -691,6 +735,7 @@ impl Game {
                         let pos = [t.x, t.y];
                         let armor = self.craft("armor");
                         damage::bonk(&mut self.player, pos, view.scale, armor);
+                        self.sound(sound::Event::Bonk);
                         self.bonks += 1;
                         self.squash = 0.3;
                         self.hit_stop = self.hit_stop.max(0.06);
@@ -699,6 +744,9 @@ impl Game {
                     }
                 }
                 event @ (enemies::Event::Ring { .. } | enemies::Event::Splash { .. }) => {
+                    if matches!(&event, enemies::Event::Ring { .. }) {
+                        self.sound(sound::Event::Zap);
+                    }
                     self.presentation_events.push(event)
                 }
             }
@@ -737,6 +785,7 @@ impl Game {
             self.hit_stop -= dt;
             dt = 0.;
         }
+        self.sound_state.tick(dt);
         self.time += dt;
         let mut rng = self.rng;
         let mut draw = || rng.next_unit();
@@ -754,6 +803,7 @@ impl Game {
         )?;
         if events.mega_blast {
             self.apply_ability_events(abilities::mega_blast(&self.target_snapshot()), &mut draw);
+            self.sound(sound::Event::MegaBoom);
         }
         if events.shadow_burst {
             let mut p = self.player.clone();
@@ -762,6 +812,7 @@ impl Game {
             let effects =
                 abilities::shadow_burst(&p, &self.ability_rules(), &self.target_snapshot());
             self.apply_ability_events(effects, &mut draw);
+            self.sound(sound::Event::Spell);
         }
         if events.shoot {
             self.shoot_all(origin, &mut draw);
@@ -861,9 +912,19 @@ impl Game {
                     .filter(|e| e.extra && !e.target.dead && !e.target.calm)
                     .count(),
             };
+            let previous_pre = self.enemies[index].pre;
+            let previous_cool2 = self.enemies[index].cool2;
             self.enemies[index]
                 .step_with_context(dt, &world, context, &mut draw, &mut effects)
                 .map_err(|_| "unsupported enemy")?;
+            if previous_pre <= 0. && self.enemies[index].pre > 0. {
+                self.sound(sound::Event::Throw);
+            }
+            if self.enemies[index].kind == enemies::Kind::Swallower
+                && self.enemies[index].cool2 > previous_cool2
+            {
+                self.sound(sound::Event::Smash);
+            }
             self.enemy_effects(effects, view, &mut draw);
             index += 1;
         }
@@ -907,6 +968,11 @@ impl Game {
             },
         );
         for event in damage_events {
+            match &event {
+                damage::DamageEvent::Bonk { .. } => self.sound(sound::Event::Bonk),
+                damage::DamageEvent::Zap => self.sound(sound::Event::Zap),
+                _ => {}
+            }
             if matches!(event, damage::DamageEvent::Bonk { .. }) {
                 self.bonks += 1;
                 self.squash = 0.3;
@@ -923,6 +989,8 @@ impl Game {
         let sweeping = self.mission.done && !failing;
         let profile = &mut self.profile;
         let progression_events = &mut self.progression_events;
+        let sound_events = &mut self.sound_events;
+        let sound_state = &mut self.sound_state;
         let followers: Vec<_> = self.wings.values().map(|w| [w.x, w.y]).collect();
         gems::update_gems(
             &mut self.gems,
@@ -932,6 +1000,7 @@ impl Game {
             sweeping,
             &followers,
             |gem| {
+                sound::push(sound_events, sound_state.collect(gem.golden));
                 if failing {
                     *earned += gem.value;
                     if let Some(p) = profile.as_mut() {
@@ -948,6 +1017,7 @@ impl Game {
                     profile,
                     xp,
                     progression_events,
+                    sound_events,
                     None,
                     gem.value * multiplier,
                 );
@@ -1066,11 +1136,16 @@ impl MissionWorld for Adapter<'_> {
         let g = &mut self.0;
         match effect {
             Effect::Bank(n) => {
+                g.sound(sound::Event::Gold);
                 g.earned += n;
                 if let Some(p) = g.profile.as_mut() {
                     p["earned"] = json!(g.earned);
                 }
             }
+            Effect::WaveBanner { wave, .. } if wave > 0 => g.sound(sound::Event::Wave),
+            Effect::BossPhase(_) => g.sound(sound::Event::Wave),
+            Effect::Complete => g.sound(sound::Event::Win),
+            Effect::Failed => g.sound(sound::Event::Wrong),
             Effect::ClearObjective => {
                 g.objective = None;
                 g.objective_failed = false;
@@ -1193,6 +1268,7 @@ impl Game {
                 ob_hit: self.objective_strikes.contains(&s.uid),
             })
             .collect();
+        let sound_start = self.objective_events.len();
         ob.update(
             dt,
             &mut objectives::World {
@@ -1220,7 +1296,17 @@ impl Game {
             .filter(|s| s.ob_hit)
             .map(|s| s.id)
             .collect();
-        for event in &self.objective_events {
+        for event in &self.objective_events[sound_start..] {
+            let cue = match event {
+                objectives::Event::Hurt { .. } => Some(sound::Event::Thud),
+                objectives::Event::Delivered(_) => Some(sound::Event::Win),
+                objectives::Event::PickedUp(_) => Some(sound::Event::Gold),
+                objectives::Event::Stolen(_) => Some(sound::Event::Grr),
+                _ => None,
+            };
+            if let Some(cue) = cue {
+                sound::push(&mut self.sound_events, cue);
+            }
             if let objectives::Event::Failed(reason) = event {
                 self.objective_failed = true;
                 self.fail_reason = Some(reason.clone());
@@ -1272,6 +1358,7 @@ fn award_xp(
     profile: &mut Option<Value>,
     xp: &mut f64,
     events: &mut Vec<progression::Event>,
+    sounds: &mut Vec<sound::Event>,
     owner: Option<&str>,
     amount: f64,
 ) {
@@ -1293,16 +1380,21 @@ fn award_xp(
                 .collect()
         };
         for dragon in ids {
-            events.extend(
-                progression::apply(
-                    p,
-                    &[],
-                    true,
-                    progression::Command::AddXp { dragon, amount },
-                    0.,
-                )
-                .expect("validated in-memory XP command"),
-            );
+            let growth = progression::apply(
+                p,
+                &[],
+                true,
+                progression::Command::AddXp { dragon, amount },
+                0.,
+            )
+            .expect("validated in-memory XP command");
+            for event in &growth {
+                if matches!(event,progression::Event::Growth {stage_before,stage_after,..} if stage_after>stage_before)
+                {
+                    sound::push(sounds, sound::Event::Grow);
+                }
+            }
+            events.extend(growth);
         }
         *xp = number(&p["party"][0]["xp"]);
     } else {
@@ -1423,6 +1515,7 @@ impl Game {
             &mut self.profile,
             &mut self.xp,
             &mut self.progression_events,
+            &mut self.sound_events,
             owner,
             amount,
         );
@@ -1483,6 +1576,9 @@ impl Game {
             [self.player.vx, self.player.vy],
             draw,
         ));
+        if !follower {
+            self.sound(sound::Event::Breath(d.kind));
+        }
         b.cooldown()
     }
     fn shoot_all(&mut self, origin: [f64; 2], draw: &mut impl FnMut() -> f64) {
@@ -1522,6 +1618,7 @@ impl Game {
                 self.body_scale(self.view.dragon_scale),
                 self.craft("bellows"),
             ));
+            self.sound(sound::Event::Weapon(path));
             self.player.weapon_cool = path.cooldown();
         }
     }
@@ -1643,17 +1740,33 @@ impl Game {
     pub fn special(&mut self) {
         let r = self.ability_rules();
         let targets = self.target_snapshot();
+        let before = self.player.special_cd;
         let effects = abilities::do_special(&mut self.player, &r, &targets);
         let mut rng = self.rng;
         self.apply_ability_events(effects, &mut || rng.next_unit());
+        if before <= 0. && self.player.special_cd > 0. {
+            self.sound(if r.daddio {
+                sound::Event::MegaLaunch
+            } else {
+                match r.path {
+                    Path::Shadow => sound::Event::Shadow,
+                    Path::Guardian => sound::Event::Spell,
+                    _ => sound::Event::Smash,
+                }
+            });
+        }
         self.rng = rng;
     }
     pub fn cast(&mut self, spell: abilities::Spell) {
         let r = self.ability_rules();
         let targets = self.target_snapshot();
+        let before = self.player.energy;
         let effects = abilities::cast_spell(&mut self.player, &r, &targets, spell);
         let mut rng = self.rng;
         self.apply_ability_events(effects, &mut || rng.next_unit());
+        if self.player.energy < before {
+            self.sound(sound::Event::Spell);
+        }
         self.rng = rng;
     }
     pub fn dad_power(&mut self, power: abilities::DadPower) {
@@ -1662,7 +1775,14 @@ impl Game {
         let mut rng = self.rng;
         let effects =
             abilities::dad_power(&mut self.player, &r, &targets, power, || rng.next_unit());
+        let accepted = !effects.is_empty();
+        if accepted && power == abilities::DadPower::Said {
+            self.sound(sound::Event::DadBoom);
+        }
         self.apply_ability_events(effects, &mut || rng.next_unit());
+        if accepted && power == abilities::DadPower::Joke {
+            self.sound(sound::Event::Rimshot);
+        }
         self.rng = rng;
     }
     fn apply_ability_events(
@@ -1754,7 +1874,34 @@ impl Game {
             guest: self.mission.guest,
             ..authority
         };
+        // Classify the pre-hit effective damage directly: subtracting remaining HP
+        // can round an exact 0.6 hit below the source sound threshold.
+        let mut audible_damage = shot.dmg;
+        if e.marked > 0. && !shot.mega {
+            audible_damage *= 1.4;
+        }
+        if e.armor != 0. && !shot.mega && e.cracked <= 0. {
+            audible_damage *= match shot.kind {
+                BreathKind::Boulder => 1.6,
+                BreathKind::Arrow | BreathKind::Hammer | BreathKind::Area => 1.,
+                _ => e.armor,
+            };
+        }
+        let cracked = !authority.guest
+            && (shot.kind == BreathKind::Hammer || shot.crack)
+            && (e.armor != 0. || e.boss)
+            && e.cracked <= 0.;
         projectiles::hit_enemy(e, shot, authority, events);
+        let thud = !authority.guest
+            && !e.boss
+            && !e.dead
+            && (audible_damage >= 0.6 || self.sound_state.quiet_hit());
+        if cracked {
+            self.sound(sound::Event::Smash);
+        }
+        if thud {
+            self.sound(sound::Event::Thud);
+        }
         for event in &events[start..] {
             if matches!(event, projectiles::Event::GuestHit { .. }) {
                 self.net
@@ -1855,6 +2002,7 @@ impl Game {
         let effects = abilities::apply_spell(&mut self.player, &rules, &targets, spell);
         let mut rng = self.rng;
         self.apply_ability_events(effects, &mut || rng.next_unit());
+        self.sound(sound::Event::Spell);
         self.rng = rng;
     }
     pub(crate) fn apply_network_hit(&mut self, hit: crate::network_actions::AdmittedHit) {
@@ -1967,6 +2115,9 @@ impl Game {
         effects
     }
 }
+
+#[cfg(test)]
+mod sound_tests;
 
 #[cfg(test)]
 mod tests {

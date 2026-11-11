@@ -436,7 +436,7 @@ fn breath(kind: &str) -> Option<[String; 3]> {
 #[derive(Default)]
 pub struct ArtCache {
     canvas: Canvas,
-    background_key: Option<([f64; 5], usize, bool)>,
+    background_key: Option<([f64; 6], usize, bool)>,
     sky: Vec<Shape>,
     far: [Vec<Shape>; 2],
     land: [Vec<Shape>; 2],
@@ -465,6 +465,7 @@ fn mirrored(source: &[Shape], width: f32) -> Vec<Shape> {
         .collect()
 }
 impl ArtCache {
+    #[allow(clippy::too_many_arguments)]
     fn background(
         &mut self,
         painter: &egui::Painter,
@@ -472,6 +473,9 @@ impl ArtCache {
         realm: usize,
         song: bool,
         scroll: f64,
+        zoom: f64,
+        fancy: bool,
+        time: f64,
     ) {
         let key = (
             [
@@ -480,6 +484,7 @@ impl ArtCache {
                 view.scale,
                 view.ground_y,
                 view.top_limit,
+                zoom,
             ],
             realm,
             song,
@@ -491,21 +496,38 @@ impl ArtCache {
             self.far[1] = mirrored(&self.far[0], view.width as f32);
             self.land[0] = shapes(&b.land);
             self.land[1] = mirrored(&self.land[0], view.width as f32);
+            if zoom != 1. {
+                let transform = egui::emath::TSTransform::from_scaling(zoom as f32);
+                for shape in self
+                    .sky
+                    .iter_mut()
+                    .chain(self.far.iter_mut().flatten())
+                    .chain(self.land.iter_mut().flatten())
+                {
+                    shape.transform(transform);
+                }
+            }
             self.background_key = Some(key);
         }
         painter.extend(self.sky.iter().cloned());
         for (layer, speed) in [(&self.far, 0.22), (&self.land, 0.55)] {
+            if speed == 0.55 && fancy {
+                self.canvas.reset();
+                self.canvas.scale(zoom, zoom);
+                dragon_game::drawing::draw_moon_rays(&mut self.canvas, view, time);
+                paint(painter, &self.canvas);
+            }
             let off = (scroll * speed).rem_euclid(view.width * 2.);
             let mut x = -off;
             let mut k = 0;
             while x < view.width {
                 let clip = painter.clip_rect().intersect(egui::Rect::from_min_size(
-                    egui::pos2(x as f32, 0.),
-                    egui::vec2(view.width as f32, view.height as f32),
+                    egui::pos2((x * zoom) as f32, 0.),
+                    egui::vec2((view.width * zoom) as f32, (view.height * zoom) as f32),
                 ));
                 let p = painter.with_clip_rect(clip);
                 p.extend(layer[k % 2].iter().cloned().map(|mut shape| {
-                    shape.translate(egui::vec2(x as f32, 0.));
+                    shape.translate(egui::vec2((x * zoom) as f32, 0.));
                     shape
                 }));
                 x += view.width;
@@ -517,6 +539,7 @@ impl ArtCache {
 /// Original team/enemy layers with separate source global and flap clocks.
 /// Random dadTrail particles remain unimplemented.
 /// The source geometry itself is retained; this adapter does not claim pixel-identical rasterization.
+#[allow(clippy::too_many_arguments)]
 pub fn paint_game(
     painter: &egui::Painter,
     cache: &mut ArtCache,
@@ -525,6 +548,8 @@ pub fn paint_game(
     animation_time: f64,
     flap_time: f64,
     squash: f64,
+    zoom: f64,
+    fancy: bool,
 ) {
     use dragon_game::drawing::{
         DragonArt, EnemyArt, RiderArt, SceneArt, draw_cracks, draw_dragon, draw_enemy_fx,
@@ -536,9 +561,19 @@ pub fn paint_game(
         .and_then(|p| p["hatched"].as_u64())
         .unwrap_or(0)
         >= 3;
-    cache.background(painter, view, game.definition.realm, song, game.scroll);
+    cache.background(
+        painter,
+        view,
+        game.definition.realm,
+        song,
+        game.scroll,
+        zoom,
+        fancy,
+        animation_time,
+    );
     let mut c = std::mem::take(&mut cache.canvas);
     c.reset();
+    c.scale(zoom, zoom);
     let time = animation_time;
     let p = &game.player;
     let scene = SceneArt {
@@ -641,6 +676,9 @@ pub fn paint_game(
     let dad = string(build, "name", "")
         .trim()
         .eq_ignore_ascii_case("daddio");
+    if fancy {
+        dragon_game::drawing::draw_shot_lights(&mut c, view, &game.shots);
+    }
     for gem in &game.gems {
         // Empty colors occur only in synthetic/older in-memory inputs.
         dragon_game::drawing::draw_gem(
@@ -825,6 +863,15 @@ pub fn paint_game(
             })
         };
         dragon_game::drawing::draw_shot(&mut c, shot, cols.as_ref(), &scene);
+    }
+    if fancy {
+        dragon_game::drawing::draw_foreground(
+            &mut c,
+            view,
+            game.definition.realm,
+            game.scroll,
+            time,
+        );
     }
     paint(painter, &c);
     cache.canvas = c;

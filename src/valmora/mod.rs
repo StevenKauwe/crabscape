@@ -1,6 +1,8 @@
 //! Native adventure presentation, reusable by the castle transition and test harness.
 //! This module never discovers or overwrites browser saves.
 pub(crate) mod art;
+mod audio;
+mod audio_runtime;
 mod builder;
 mod network;
 mod persistence;
@@ -38,6 +40,7 @@ pub struct Valmora {
     persistence: persistence::Persistence,
     persistent: bool,
     checkpoint_elapsed: f64,
+    preferences_started: bool,
     menu_frozen: Option<Value>,
     import_text: String,
     room_code: String,
@@ -82,7 +85,9 @@ impl Valmora {
     ) -> Result<(), String> {
         let (adventure, events) =
             Adventure::new(profile, vec![], view, seed, rider).map_err(|e| format!("{e:?}"))?;
+        let preferences = self.ui.preferences.clone();
         self.ui = AdventureUi::default();
+        self.ui.preferences = preferences;
         self.ui.events(events);
         self.adventure = Some(adventure);
         self.builder = None;
@@ -115,9 +120,18 @@ impl Valmora {
         let outcome = match completion.result {
             Ok(value) => value,
             Err(error) => {
-                self.ui.notice = format!(
-                    "Checkpoint failed: {error}. Progress remains in memory; reload before saving again."
-                );
+                self.ui.notice = if matches!(
+                    completion.operation,
+                    Operation::LoadPreferences | Operation::SavePreferences
+                ) {
+                    format!(
+                        "Device preferences failed: {error}. Current choices remain in memory; reload preferences before saving them again."
+                    )
+                } else {
+                    format!(
+                        "Checkpoint failed: {error}. Progress remains in memory; reload before saving again."
+                    )
+                };
                 return;
             }
         };
@@ -130,13 +144,39 @@ impl Valmora {
             self.menu = true;
             return;
         }
+        if matches!(
+            completion.operation,
+            Operation::LoadPreferences | Operation::SavePreferences
+        ) {
+            if completion.operation == Operation::LoadPreferences
+                && let Some(loaded) = self.persistence.preferences()
+            {
+                self.ui.preferences = loaded.preferences().clone();
+            }
+            return;
+        }
         self.menu_frozen = None;
         if completion.operation == Operation::Save && self.adventure.is_some() {
             self.ui.notice = "Checkpoint saved. Original saves are unchanged.".into();
             return;
         }
         let was_active = self.active;
-        self.rider = completion.slot.index();
+        let Some(selected_slot) = completion.slot else {
+            self.ui.notice = "Missing rider checkpoint slot".into();
+            return;
+        };
+        self.rider = selected_slot.index();
+        if completion.operation == Operation::ImportArchive
+            && let Some(loaded) = self.persistence.loaded()
+        {
+            match loaded.imported_preferences(&self.ui.preferences) {
+                Ok(Some(preferences)) => self.ui.preferences = preferences,
+                Ok(None) => {}
+                Err(error) => {
+                    self.ui.notice = format!("Rider imported, preferences not applied: {error}")
+                }
+            }
+        }
         let result = if let Outcome::Selected { empty: true, .. } = outcome {
             self.open_new(self.rider, 42)
         } else if let Some(loaded) = self.persistence.loaded() {
@@ -179,6 +219,19 @@ impl Valmora {
         self.active = was_active;
         if let Err(error) = result {
             self.ui.notice = error;
+        }
+    }
+    fn checkpoint_preferences(&mut self) {
+        if self.persistence.busy() || self.persistence.preferences_needs_reload() {
+            return;
+        }
+        if let Some(loaded) = self.persistence.preferences()
+            && loaded.preferences() != &self.ui.preferences
+            && let Err(error) = self
+                .persistence
+                .save_preferences(self.ui.preferences.clone())
+        {
+            self.ui.notice = format!("Preferences not saved: {error}");
         }
     }
     fn checkpoint(&mut self, dt: f64) {
@@ -234,9 +287,13 @@ impl Plugin for ValmoraPlugin {
                     .before(EguiPreUpdateSet::BeginPass),
             )
             .add_systems(Update, update)
+            .add_systems(PostUpdate, audio_runtime::update)
             .add_systems(EguiPrimaryContextPass, draw);
         #[cfg(target_arch = "wasm32")]
-        app.add_systems(Update, publish_stage.after(update));
+        app.add_systems(
+            Update,
+            (publish_stage.after(update), audio::reap_browser_audio),
+        );
     }
 }
 #[allow(clippy::too_many_arguments)]
@@ -280,11 +337,11 @@ fn capture_input(
     mouse.clear();
     touches.clear();
 }
-fn viewport(window: &Window) -> Viewport {
+fn viewport(window: &Window, zoom: f64) -> Viewport {
     Viewport::from_screen(
         f64::from(window.width()),
         f64::from(window.height()),
-        1.,
+        zoom,
         130.,
         0.62,
     )
@@ -316,9 +373,16 @@ fn update(
     mut network: NonSendMut<network::Connection>,
 ) {
     let s = &mut *state;
+    if s.active && !s.preferences_started && !s.persistence.busy() {
+        s.preferences_started = true;
+        if let Err(error) = s.persistence.load_preferences() {
+            s.ui.notice = format!("Preferences unavailable: {error}");
+        }
+    }
     if let (Ok(window), Some(now)) = (windows.single(), clock()) {
-        s.poll_storage(viewport(window), now);
+        s.poll_storage(viewport(window, s.ui.preferences.view), now);
         s.checkpoint(time.delta_secs_f64());
+        s.checkpoint_preferences();
     }
     if let (Some(lobby), Some(adventure), Some(now)) = (&mut network.0, &mut s.adventure, clock()) {
         lobby.poll(adventure, now.now_ms as f64 / 1000.);
@@ -339,7 +403,7 @@ fn update(
             let _ = adventure.tick(
                 time.delta_secs_f64(),
                 Input::default(),
-                viewport(window),
+                viewport(window, s.ui.preferences.view),
                 now,
             );
             lobby.flush(adventure);
@@ -461,12 +525,17 @@ fn update(
         fire: keys.pressed(KeyCode::Space) || s.controls.fire,
         stick: s.controls.stick,
     };
-    match adventure.tick(time.delta_secs_f64(), s.input, viewport(window), clock) {
+    match adventure.tick(
+        time.delta_secs_f64(),
+        s.input,
+        viewport(window, s.ui.preferences.view),
+        clock,
+    ) {
         Ok(events) => s.ui.events(events),
         Err(error) => s.ui.notice = format!("{error:?}"),
     }
     if let Some(session) = &mut adventure.shared {
-        let view = viewport(window);
+        let view = viewport(window, s.ui.preferences.view);
         let k = (time.delta_secs_f64().clamp(0., 0.05) * 10.).min(1.);
         for ghost in session.ghosts.values_mut() {
             let target = [
@@ -479,6 +548,13 @@ fn update(
         }
     }
     if let Some(lobby) = &mut network.0 {
+        if let Some(session) = &adventure.shared {
+            lobby.tick_visuals(
+                animation_dt,
+                viewport(window, s.ui.preferences.view),
+                session,
+            );
+        }
         lobby.flush(adventure);
     }
     s.animation_time += animation_dt;
@@ -573,6 +649,14 @@ fn draw(
                     "Choose a rider slot. Native checkpoints stay separate from the original game.",
                 );
                 ui.label(&s.ui.notice);
+                if s.persistence.preferences_needs_reload()
+                    && ui
+                        .button("Discard unsaved device preferences and reload")
+                        .clicked()
+                    && let Err(error) = s.persistence.load_preferences()
+                {
+                    s.ui.notice = error;
+                }
                 if s.persistence.busy() {
                     ui.label("Opening checkpoint…");
                 }
@@ -665,7 +749,12 @@ fn draw(
                 if let Err(error) = result {
                     s.ui.notice = error;
                 }
-            } else if let Err(error) = s.open(profile, s.rider, viewport(window), 42) {
+            } else if let Err(error) = s.open(
+                profile,
+                s.rider,
+                viewport(window, s.ui.preferences.view),
+                42,
+            ) {
                 s.ui.notice = error;
             }
         }
@@ -685,14 +774,22 @@ fn draw(
                     p,
                     &mut s.art_cache,
                     game,
-                    viewport(window),
+                    viewport(window, s.ui.preferences.view),
                     s.animation_time,
                     s.flap_time,
                     game.squash,
+                    s.ui.preferences.view,
+                    s.ui.preferences.fancy,
                 );
             }
             if let (Some(lobby), Some(session)) = (&network.0, &adventure.shared) {
-                lobby.paint_partners(ui.painter(), session, s.animation_time, viewport(window));
+                lobby.paint_partners(
+                    ui.painter(),
+                    session,
+                    s.animation_time,
+                    viewport(window, s.ui.preferences.view),
+                    s.ui.preferences.view,
+                );
             }
             // Register sky input before smaller foreground controls, so buttons
             // retain pointer ownership. Source floating-stick radius and dead zone
@@ -707,11 +804,20 @@ fn draw(
             } else {
                 None
             };
-            let radius = (viewport(window).scale * 1.1).clamp(48., 72.) as f32;
+            let radius =
+                (viewport(window, s.ui.preferences.view).scale * 1.1).clamp(48., 72.) as f32;
             let normalized_stick = stick.map(|(origin, point)| {
                 let delta = (point - origin) / radius;
                 [delta.x as f64, delta.y as f64]
             });
+            if s.persistence.preferences_needs_reload()
+                && ui
+                    .button("Discard unsaved device preferences and reload")
+                    .clicked()
+                && let Err(error) = s.persistence.load_preferences()
+            {
+                s.ui.notice = error;
+            }
             if s.persistent {
                 if s.persistence.needs_reload() {
                     ui.colored_label(

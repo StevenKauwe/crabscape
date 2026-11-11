@@ -253,3 +253,38 @@ The dark source palette now covers the root world/HUD while in Valmora menus.
 Imported unbuilt profiles keep their rider identity when completing the builder.
 Browser/native interoperability, mobile controls/performance, remaining presentation,
 and full audio/narration remain open gates.
+
+## Audio, device preferences and presentation checkpoint
+
+The runtime now consumes a bounded presentation-only sound queue for combat,
+abilities, pickups, mission transitions and validated guest snapshots. Adventure
+retirement retains final-frame cues. Original-JavaScript comparisons cover sound
+recipes, music scheduling, narration segmentation, hit/defeat and guest world cues.
+Browser playback schedules WebAudio nodes directly. Native music renders on a
+bounded worker; late batches are dropped instead of shifting the beat. Native SFX
+cache finite variants. Neither backend accesses a microphone or recording API.
+Browser narration uses source voice scoring, sentence/quotation parameters and
+word-boundary highlighting; Continue still skips immediately. Native speech and
+recorded-clip playback are not implemented. The browser clip adapter exists, but
+home-server clip discovery is not integrated or verified. Audible/live narration
+QA is still required; PCM spectra are not claimed bit-identical to WebAudio.
+
+Device-global preferences have their own exact revision token and failure latch,
+separate from rider checkpoints: music, narration, view size, fancy graphics and
+last-300 insertion-ordered heard pages. Explicit archive imports apply only known
+provided keys; missing keys and profile-only imports leave native preferences
+alone. Original archive bytes remain immutable. Actual Chromium tests cover
+preference concurrency, stale tokens, quota failures and malformed-record retention.
+Master mute remains ephemeral. Runtime view scaling covers gameplay and rendering.
+
+Fancy mode adds original moon rays, six realm foregrounds and bounded projectile
+lights. The source command oracle includes 22 new atmosphere/light cases. Partner
+followers retain bounded presentation positions and source smoothing. Ambient
+particles, trails and builder/roost previews remain unfinished. Vignette/full-frame
+flash overlays are omitted under the repository's overlay restriction.
+
+The host-only browser/native WebRTC fixture exchanges reliable messages in both
+directions with zero microphone requests. Native dependencies now use maintained
+Tokio/rustls signaling and DTLS, and both cargo-deny graphs pass without suppressions.
+This is transport validation, not a claim that the full two-player UI journey or
+phone two-thumb controls have completed QA. The port remains a draft, unmerged.
