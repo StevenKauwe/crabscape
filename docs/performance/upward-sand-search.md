@@ -112,6 +112,24 @@ routes per invocation (six ascents per version, 135 samples each):
 - Samples over 16.667 ms: 3 per baseline ascent, 1 per candidate ascent.
 - Every stage position and complete state hash matches the baseline exactly.
 
+The original A/B/B/A sequence paused known competing workers, but did not verify
+whole-machine quiescence. A later fresh A/B/B/A repeat used isolated binaries
+from baseline `ff427e0ce654e5c27da536d6abcad271c7697c0c` and candidate
+`340b2fd5e9ab333116695cec7fa65641ac8f78df`, with six upward ascents per version.
+The machine was 96% idle before sampling; one-second process snapshots showed no
+competing build/test, and no thermal warnings appeared before or after.
+
+- Baseline p95: 10.5117–10.9585 ms; maximum: 21.6930–22.6494 ms.
+- Candidate p95: 8.0528–8.0638 ms; maximum: 16.6960–16.7297 ms.
+- Samples over 16.667 ms: baseline 3–4 per ascent, candidate 1.
+- All 18 stage frame counts, positions and full-state hashes match, including
+  upward hash `399dd0b7f1d54866`.
+
+This stronger controlled repeat supports approximately 24% lower p95 native CPU
+cost. It still leaves one over-budget sample before rendering and is not a phone
+FPS result. Logs: `dig-isolated-{a1,b1,b2,a2}.txt` and
+`dig-isolated-os-load.txt` in the local temporary directory.
+
 The tail CPU cost drops approximately 23%; one over-budget CPU sample still
 remains before adding rendering. This improves the reported symptom but does not
 establish smooth phone frame pacing or close the separate border-paging issue.
@@ -121,5 +139,5 @@ in the system temporary directory. The final underwater release suite passes
 
 Final additional checks: coral-rise 5/5 and cellular resumed-replay 4/4 passed
 (252 total release tests, 21 opt-in ignored). Native `crabsim --all-targets`
-Clippy with `-D warnings` passed. Local wasmtime is unavailable, so cross-target
-replay equivalence remains a required CI check, not a local pass.
+Clippy with `-D warnings` passed. Local wasmtime is unavailable; cross-target
+replay equivalence subsequently passed in #557 CI, not locally.

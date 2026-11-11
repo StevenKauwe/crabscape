@@ -23,6 +23,8 @@ pub(crate) mod work;
 // that production path until it has equivalent limits.
 #[cfg(any(test, target_arch = "wasm32"))]
 pub mod cleanup;
+#[cfg(any(test, target_arch = "wasm32"))]
+pub(crate) mod connection_slot;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native;
 #[cfg(any(test, target_arch = "wasm32"))]

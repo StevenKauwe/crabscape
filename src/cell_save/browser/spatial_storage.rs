@@ -646,10 +646,11 @@ pub(super) async fn read_pages(
 ) -> Result<super::super::paging::Replies, String> {
     let _total = super::super::work::begin("cell-page-read-total");
     let opening = super::super::work::begin("cell-page-open");
-    let db = open_for_pages(database.to_owned()).await?;
+    let connection = super::page_connection::acquire(database, epoch).await?;
+    let db = connection.database();
     drop(opening);
     let batch_read = super::super::work::begin("cell-page-batch-read");
-    let tx = db.0.transaction_with_str(STORE).map_err(issue)?;
+    let tx = db.transaction_with_str(STORE).map_err(issue)?;
     let _abort = AbortRead(tx.clone());
     let store = tx.object_store(STORE).map_err(issue)?;
     let head_request = store.get(&JsValue::from_str(KEY)).map_err(issue)?;
@@ -687,8 +688,10 @@ pub(super) async fn read_pages(
     }
     drop(decoding);
     let validation = super::super::work::begin("cell-page-final-validation");
-    current_page_revision(&db.0, head).await?;
+    current_page_revision(db, head).await?;
     drop(validation);
+    drop(_abort);
+    connection.retain();
     Ok(super::super::paging::Replies { terrain, memory })
 }
 
