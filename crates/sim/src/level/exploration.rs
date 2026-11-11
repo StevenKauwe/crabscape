@@ -164,7 +164,11 @@ mod tests {
         {
             assert!((pair[1].y - pair[0].y).abs() / (pair[1].x - pair[0].x) <= 0.8);
         }
-        for climb in level.climbs.iter().filter(|c| c.x > 8800.0 && c.x < 17781.0) {
+        for climb in level
+            .climbs
+            .iter()
+            .filter(|c| c.x > 8800.0 && c.x < 17781.0)
+        {
             assert_eq!(climb.bottom, level.floor_height(climb.x));
             assert!(climb.top > climb.bottom);
         }

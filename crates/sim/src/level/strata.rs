@@ -143,7 +143,9 @@ impl StrataBody {
             .any(|r| r.contains(self.frame.min - Vec2::splat(2.0)))
     }
 
-    pub(crate) fn cell_at(&self, x: f32, y: f32) -> Option<Cell> {
+    /// The authored material at a point (water inside a cavity), if this
+    /// body owns it.
+    pub fn cell_at(&self, x: f32, y: f32) -> Option<Cell> {
         let inside = |r: &Rect| x >= r.min.x && x < r.max.x && y >= r.min.y && y < r.max.y;
         if self.shafts.iter().any(inside) {
             return Some(Cell::Sand);
