@@ -321,8 +321,10 @@ fn amphipod_broth_cuts_pressure_and_gives_a_stroke() {
     let sim = make("amphipod-broth");
     assert_eq!(sim.crab(P0).unwrap().mover.prepared_food.held(), 2);
     assert_eq!(Food::AmphipodBroth.reserve_strokes(), 1);
-    let mut e = Economy::default();
-    e.buff = Food::AmphipodBroth.buff();
+    let e = Economy {
+        buff: Food::AmphipodBroth.buff(),
+        ..Economy::default()
+    };
     assert!(matches!(e.buff, Some((Buff::Pressure20, _))));
     assert!((e.pressure_factor() - 0.8).abs() < 1e-6);
 }

@@ -248,6 +248,29 @@ closed).
 
 **Survival** XP: per second in a band ≥ 2 (twilight): `band − 1` XP; ×2 while pressure strain is above 0.5.
 
+## Creature drops (data: `economy/items.rs` `from_drop`, `economy/recipes.rs`; P9)
+Eating a beaten creature's body (the same host-refereed take as before) also puts that creature's drops on the shell. No
+room: they are left behind and the shell says it is full (`shell_full`). An amphipod swarm has a body like the rest, so
+"scooping the dispersed swarm" is the same take. Item tier is the zone the creature lives in. Fighting XP for a beaten
+bestiary creature is `max(15, 0.5 x vitals.health)` (squid 70, lobster 60, isopod 45, hagfish 30, hermit 25, bobbit 20,
+viperfish 17.5); the older creatures keep the flat win bonus. A renamed `DROPS` string fails a test.
+
+| Creature | Zone | Drop | Used for |
+|---|---|---|---|
+| Humboldt squid | twilight (3) | squid beak | Beak claw tips: 2 + braided cord, Shellcraft 35, grindstone, claws +10% |
+| Viperfish | midnight (4) | viperfish fang | Fang claw tips: 2 + bone splint, Shellcraft 50, grindstone, claws +18% |
+| Viperfish | midnight (4) | photophore | Photophore lantern: 1 + twilight strain, Culturing 40, +1 lantern step |
+| Hermit crab | basin (2) | whelk shell | Whelk room: 1 + 4 clay, Building 30, home grows one stage |
+| Hermit crab | basin (2) | anemone | Anemone guards: 1 + 2 valves, Shellcraft 20, clam-shell guards |
+| Giant isopod | midnight (4) | isopod plate | Isopod plating: 3 + braided cord, Shellcraft 57, grindstone, -25%, 140 blows |
+| Bobbit worm | basin (2) | bobbit jaw | Jaw claw tips: 2 + braided cord, Shellcraft 40, grindstone, claws +12% |
+| American lobster | twilight (3) | crusher fragment | Crusher-fragment guards: 2 + kelp cord, Shellcraft 25, claws +8% |
+| Hagfish | midnight (4) | slime thread | Slime cord: 2 + kelp cord, Weaving 45, loom, makes 3 braided cord |
+| Amphipod swarm | midnight (4) | amphipods | Amphipod broth: 3 + kelp, Cooking 40, brine pot, pressure strain -20%, +1 reserve stroke |
+| Turtle, grouper | | none | |
+
+One claw gear at a time (the claw slot); tips replace each other. Zones are design readings, not verified.
+
 ## Inventory pressure, sinks and pacing
 - Shell slots `4 × size²` + bag (+2/+4/+6). Big items one at a time on the back. A full shell stops gathering ("No room
   on your shell"); the crab can drop items (existing Drop), which lie as its own recoverable cast-offs.
@@ -326,6 +349,8 @@ and P3 never edits `world.rs`; P2 never edits `craft.rs`.
 - The route solver plays real ticks and is slow: tight stop predicates; heavy surveys `#[ignore]`d, run by hand.
 - Level lists (clams, cultures...) are found by place in tests, never `.last()`.
 - `crates/sim` forbids `unwrap()` outside tests.
+- UI systems' text queries must be disjoint (Bevy B0001 panics at startup and the unit tests don't catch it): run the
+  native game for 20 s before pushing UI changes.
 - CI flake: `cell_save::native` on Linux (#482): rerun the failed job.
 
 ## Where things stand
@@ -350,11 +375,9 @@ and P3 never edits `world.rs`; P2 never edits `craft.rs`.
      bone hall → T4 whale bones, seep chimneys/garden → T4 seep mussels, the vent and chimney hall → T5). Then re-measure
      T5 with `cargo test -p crabsim --test economy_pacing -- --ignored --nocapture measure_routes` (~18 min) and lower
      T5 XP if the trip shortens.
-  2. P9 (new issue): the creature build's drops (`crates/sim/src/creatures/<name>.rs` `DROPS`): squid beak, viperfish
-     fang, lobster crusher fragment, bobbit jaw → Shellcraft claw-tip materials; isopod plate → plating between bone and
-     nodule; slime thread → Weaving cord stronger than braided; photophore → a lantern ingredient (Culturing); whelk
-     shell → Building; anemone → claw-guard decoration; amphipods → deep food. Fighting XP per kill scaled by
-     `vitals.health`. The creatures lane owns `creatures/*`; the economy owns `economy/*` and `craft.rs`.
+  2. P9 (#602, **done in #601**): creature drops; see "Creature drops". The creatures lane owns `creatures/*`; the
+     economy owns `economy/*` and `craft.rs`. Known gap: the hermit crab ends itself in its own `die`, so its kill
+     pays no win XP (creatures lane).
   3. Excavating XP from real digging (cellular digging has no clean per-unit amount; needs an engine-package hook).
   4. Look at the gather ring, prompt, touch button and crafting tabs in a browser at phone size (never seen running).
 - **Hidden rules found:** node indexes come from `placed_nodes` (spots outside a small level are dropped), so never index
