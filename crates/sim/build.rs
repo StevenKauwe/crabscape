@@ -1,4 +1,7 @@
 //! Fingerprint baked physics at build time; do not ship source text in Wasm.
+#[path = "build_support/fingerprint.rs"]
+mod fingerprint;
+
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
@@ -41,12 +44,13 @@ fn main() {
             .join(";")
     );
     let mut hash = Sha256::new();
+    println!("cargo:rerun-if-changed=build_support/fingerprint.rs");
     for path in paths {
         println!("cargo:rerun-if-changed={}", path.display());
         hash.update(path.to_string_lossy().replace('\\', "/").as_bytes());
         hash.update([0]);
         let source = std::fs::read_to_string(&path).expect("read baked physics source");
-        hash.update(source.replace("\r\n", "\n").as_bytes());
+        hash.update(fingerprint::normalise(&source));
     }
     println!(
         "cargo:rustc-env=CRAB_BAKED_PHYSICS_HASH={:x}",

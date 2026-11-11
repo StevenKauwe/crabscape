@@ -56,7 +56,9 @@ one GitHub issue (label `world-plan`) that stands on its own.
    Do not guess at taste. Packages marked **(gate)** do not auto-merge: open the PR without `--auto` and wait.
 8. **Rebakes.** The settled-world seed's source fingerprint (`crates/sim/build.rs`) hashes
    `crates/sim/src/underwater.rs`, all Rust files recursively in `underwater/` except `settled_seed.rs`,
-   `physics/consts.rs` and `level/coral_rise.rs`. Runtime also fingerprints the floor, rocks, maximum x,
+   `physics/consts.rs` and `level/coral_rise.rs`, after normalising each (comments, whitespace and
+   `#[cfg(test)]` items dropped: `crates/sim/build_support/fingerprint.rs`), so comments, tests and lint-only
+   edits no longer force a bake. Runtime also fingerprints the floor, rocks, maximum x,
    material parameters and seed-format/timing constants. Changes to these inputs require the ~9-minute bake
    (`docs/design/settled-terrain.md`). `world.rs`, `tuning.rs`, `physics.rs`, `level/circulation.rs` and
    loader/test-only edits to `settled_seed.rs` do not force one. A field added to `Tuning` or a call added to
