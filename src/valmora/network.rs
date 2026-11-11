@@ -324,12 +324,16 @@ impl Lobby {
             return Ok(());
         }
         let peer = self.id.clone().ok_or("Room is still connecting")?;
+        let fresh_host = adventure.requires_fresh_host_run();
+        if fresh_host {
+            self.launch_hint = None;
+        }
         let mission = &adventure.game().ok_or("No flight")?.definition.id;
         let candidate = self
             .peers
             .iter()
             .filter_map(|(peer, p)| {
-                if now_ms as f64 / 1000. - p.seen > 6. {
+                if fresh_host || now_ms as f64 / 1000. - p.seen > 6. {
                     return None;
                 }
                 let presence = p.presence.as_ref()?;
@@ -474,6 +478,65 @@ mod tests {
             last_presence: None,
             visuals: BTreeMap::new(),
         }
+    }
+    #[test]
+    fn retry_attach_ignores_old_live_host_and_stale_party_hint() {
+        let mut lobby = lobby("ws://127.0.0.1:1", 0);
+        lobby.id = Some("local-peer".into());
+        lobby.launch_hint = Some(("old-host".into(), 1));
+        lobby.peers.insert(
+            "old-host".into(),
+            Peer {
+                rider: Some(1),
+                presence: Some(json!({"r":1,"s":"play","o":0,"ms":["m1",2,0,0,"oldrun",1,7]})),
+                seen: 10.,
+                daddio: false,
+                progress: None,
+                progress_at: 10.,
+                presence_at: 10.,
+            },
+        );
+        let mut local = adventure(0);
+        local.choose_mission("m1", true).unwrap();
+        let g = local.game_mut().unwrap();
+        g.mission.stop = 2;
+        g.result = Some(false);
+        g.completion_events
+            .push(dragon_game::roost::CompletionEvent::Results {
+                story: None,
+                rank: None,
+            });
+        local
+            .tick(
+                0.,
+                Input::default(),
+                view(),
+                Clock {
+                    now_ms: 10000,
+                    day: 0,
+                },
+            )
+            .unwrap();
+        local.retry_mission().unwrap();
+        assert!(local.requires_fresh_host_run());
+        lobby.id = None;
+        assert!(lobby.attach_flight(&mut local, 10000).is_err());
+        assert!(local.requires_fresh_host_run());
+        lobby.id = Some("local-peer".into());
+        lobby.attach_flight(&mut local, 10000).unwrap();
+        let session = local.shared.as_ref().unwrap();
+        assert!(!session.authority().guest);
+        assert_eq!(session.authority().epoch, 0);
+        assert_ne!(session.run(), "oldrun");
+        assert_eq!(session.game.mission.stop, 2);
+        assert!(lobby.launch_hint.is_none());
+        assert!(!local.requires_fresh_host_run());
+        // Ordinary launches still join a validated active same-mission host.
+        local.to_party().unwrap();
+        local.choose_mission("m1", true).unwrap();
+        lobby.attach_flight(&mut local, 10000).unwrap();
+        assert!(local.shared.as_ref().unwrap().authority().guest);
+        assert_eq!(local.shared.as_ref().unwrap().run(), "oldrun");
     }
     #[test]
     fn live_team_rejects_stale_absent_unbound_and_invalid_projection() {

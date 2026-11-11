@@ -137,6 +137,27 @@ impl AdventureUi {
                     controls.spell = Some(spell);
                 }
             }
+            if game
+                .profile
+                .as_ref()
+                .and_then(|p| p["build"]["name"].as_str())
+                .is_some_and(|name| name.trim().eq_ignore_ascii_case("daddio"))
+            {
+                use dragon_game::abilities::DadPower;
+                for (index, label, power) in [
+                    (5, "Because I Said So", DadPower::Said),
+                    (6, "Dad Joke", DadPower::Joke),
+                ] {
+                    let button =
+                        overlay.put(layout.ability(index), egui::Button::new(label).truncate());
+                    controls
+                        .touch_actions
+                        .push((button.rect, Action::Dad(power)));
+                    if button.clicked() {
+                        controls.dad = Some(power);
+                    }
+                }
+            }
             let party = game.profile.as_ref().and_then(|p| p["party"].as_array());
             let count = party.map_or(0, Vec::len);
             if let Some(party) = party {
@@ -237,6 +258,35 @@ mod tests {
             );
             output.textures_delta.clear();
         }
+        adventure.game_mut().unwrap().profile.as_mut().unwrap()["build"]["name"] = json!("Daddio");
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(390., 844.),
+                )),
+                ..Default::default()
+            },
+            |ui| {
+                controls = presentation.draw(
+                    ui,
+                    &mut adventure,
+                    Clock {
+                        now_ms: 100,
+                        day: 0,
+                    },
+                );
+            },
+        );
+        output.textures_delta.clear();
+        assert_eq!(
+            controls
+                .touch_actions
+                .iter()
+                .filter(|(_, a)| matches!(a, Action::Dad(_)))
+                .count(),
+            2
+        );
         let hud = controls.hud_rect.expect("actual top hud");
         assert!(hud.bottom() < 110., "{hud:?}");
         let fire = controls.fire_rect.unwrap();
@@ -296,7 +346,7 @@ mod tests {
                 egui::vec2(w, h),
             ));
             let mut buttons = vec![layout.fire()];
-            buttons.extend((0..5).map(|i| layout.ability(i)));
+            buttons.extend((0..7).map(|i| layout.ability(i)));
             buttons.extend((0..5).map(|i| layout.team(i, 5)));
             for (i, r) in buttons.iter().enumerate() {
                 assert!(layout.screen.contains_rect(*r), "{w}×{h}: {r:?}");

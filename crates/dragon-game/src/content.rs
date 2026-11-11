@@ -73,3 +73,15 @@ fn cleared(profile: &Value, id: &str) -> bool {
         .as_array()
         .is_some_and(|a| a.iter().any(|v| v == id))
 }
+
+/// Authored source ROUTES labels, with the source fallback for longer missions.
+pub fn route_stop(id: &str, wave: usize) -> String {
+    static ROUTES: OnceLock<Value> = OnceLock::new();
+    let routes = ROUTES.get_or_init(|| {
+        serde_json::from_str(include_str!("../assets/routes.json")).expect("source routes")
+    });
+    routes[id][wave][0]
+        .as_str()
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("stop {}", wave + 1))
+}

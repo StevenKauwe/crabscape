@@ -22,6 +22,15 @@ pub const CHARMS: [(&str, &str, f64, &str); 3] = [
     ),
 ];
 impl Adventure {
+    pub fn leave_mission(&mut self) -> Result<Vec<Event>, Error> {
+        if !matches!(self.state(), "play" | "pause") || self.game().is_none() {
+            return Err(Error::InvalidState);
+        }
+        if let Some(session) = &mut self.shared {
+            session.handoff();
+        }
+        self.to_map()
+    }
     pub fn loadout_slots(&self) -> usize {
         let rank = ["m4", "m8", "m12", "m16", "m20", "m24"]
             .iter()
@@ -159,6 +168,20 @@ mod tests {
         .unwrap();
         a.gate.state = "roost".into();
         a
+    }
+    #[test]
+    fn leaving_mission_does_not_bank_carried_gems() {
+        let mut a = adventure();
+        a.profile["briefed"] = json!(["m1"]);
+        a.choose_mission("m1", false).unwrap();
+        let earned = a.profile()["earned"].clone();
+        a.game_mut().unwrap().mission.carry = 37.;
+        a.pause();
+        a.leave_mission().unwrap();
+        assert_eq!(a.state(), "map");
+        assert!(a.game().is_none());
+        assert_eq!(a.profile()["earned"], earned);
+        assert!(a.leave_mission().is_err());
     }
     #[test]
     fn charms_spend_exact_cost_and_stop_at_three() {

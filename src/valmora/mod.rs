@@ -4,6 +4,7 @@ pub(crate) mod art;
 mod audio;
 mod audio_runtime;
 mod builder;
+mod keyboard;
 mod network;
 mod persistence;
 mod storage;
@@ -44,6 +45,7 @@ pub struct Valmora {
     checkpoint_elapsed: f64,
     preferences_started: bool,
     reduced_motion: Option<bool>,
+    resume_fire_guard: bool,
     menu_frozen: Option<Value>,
     import_text: String,
     room_code: String,
@@ -319,6 +321,14 @@ fn capture_input(
     mut touches: ResMut<Touches>,
     windows: Query<&Window>,
 ) {
+    if std::mem::take(&mut state.ui.clear_controls_requested) {
+        state.keys.reset_all();
+        state.touches = touch::TouchControls::default();
+        state.input = Input::default();
+        state.controls = Controls::default();
+        state.resume_fire_guard = false;
+        state.capturing = state.owns_input();
+    }
     state.keys.clear();
     if !state.owns_input() {
         events.clear();
@@ -335,7 +345,20 @@ fn capture_input(
     }
     for event in events.read() {
         match event.state {
-            bevy::input::ButtonState::Pressed => state.keys.press(event.key_code),
+            bevy::input::ButtonState::Pressed => {
+                let paused = state
+                    .adventure
+                    .as_ref()
+                    .is_some_and(|a| a.state() == "pause");
+                if !paused
+                    || matches!(
+                        event.key_code,
+                        KeyCode::Space | KeyCode::Enter | KeyCode::KeyP
+                    )
+                {
+                    state.keys.press(event.key_code);
+                }
+            }
             bevy::input::ButtonState::Released => state.keys.release(event.key_code),
         }
     }
@@ -462,44 +485,64 @@ fn update(
         game.hit_stop -= frame_dt;
     }
     if adventure.state() == "riddle" && adventure.gate.frozen.is_none() {
-        for (key, text) in [
-            (KeyCode::Digit0, "0"),
-            (KeyCode::Digit1, "1"),
-            (KeyCode::Digit2, "2"),
-            (KeyCode::Digit3, "3"),
-            (KeyCode::Digit4, "4"),
-            (KeyCode::Digit5, "5"),
-            (KeyCode::Digit6, "6"),
-            (KeyCode::Digit7, "7"),
-            (KeyCode::Digit8, "8"),
-            (KeyCode::Digit9, "9"),
-            (KeyCode::Backspace, "Backspace"),
-        ] {
+        for &(key, text) in keyboard::RIDDLE_KEYS {
             if keys.just_pressed(key) {
-                s.ui.events(adventure.times_key(text));
+                s.ui.events(adventure.times_key(keyboard::riddle_action(text)));
             }
         }
-        if keys.just_pressed(KeyCode::Enter) {
+        if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter) {
             match adventure.answer_times(clock) {
                 Ok(events) => s.ui.events(events),
                 Err(error) => s.ui.notice = format!("{error:?}"),
             }
         }
     }
-    if keys.just_pressed(KeyCode::Escape) || keys.just_pressed(KeyCode::KeyP) {
-        s.ui.events(if adventure.state() == "pause" {
-            adventure.resume()
-        } else {
-            adventure.pause()
-        });
+    let was_paused = adventure.state() == "pause";
+    if !keys.pressed(KeyCode::Space) && !keys.pressed(KeyCode::Enter) {
+        s.resume_fire_guard = false;
+    }
+    match keyboard::pause_action(adventure.state(), keys) {
+        Some(keyboard::PauseAction::Resume) => {
+            s.resume_fire_guard = keyboard::fire_down(keys);
+            s.ui.events(adventure.resume());
+        }
+        Some(keyboard::PauseAction::Pause) => s.ui.events(adventure.pause()),
+        None => {}
     }
     if adventure.gate.state == "play"
+        && !was_paused
         && let Some(game) = adventure.game_mut()
     {
+        if keys.just_pressed(KeyCode::KeyM) {
+            s.ui.sound_muted = !s.ui.sound_muted;
+        }
+        if let Some(power) = s.controls.dad.take() {
+            game.dad_power(power);
+        }
+        if keys.just_pressed(KeyCode::KeyB) {
+            game.dad_power(dragon_game::abilities::DadPower::Said);
+        }
+        if keys.just_pressed(KeyCode::KeyJ) {
+            game.dad_power(dragon_game::abilities::DadPower::Joke);
+        }
+        for (index, key) in [
+            KeyCode::Digit1,
+            KeyCode::Digit2,
+            KeyCode::Digit3,
+            KeyCode::Digit4,
+            KeyCode::Digit5,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if keys.just_pressed(key) {
+                let _ = game.select_main(index);
+            }
+        }
         if keys.just_pressed(KeyCode::KeyF) || s.controls.special {
             game.special();
         }
-        if keys.just_pressed(KeyCode::Tab) || s.controls.swap {
+        if keys.just_pressed(KeyCode::Tab) || keys.just_pressed(KeyCode::KeyQ) || s.controls.swap {
             let _ = game.swap_main();
         }
         if let Some(spell) = s.controls.spell.take() {
@@ -543,7 +586,7 @@ fn update(
         down: keys.pressed(KeyCode::KeyS)
             || keys.pressed(KeyCode::ArrowDown)
             || s.controls.direction[3],
-        fire: keys.pressed(KeyCode::Space) || s.controls.fire,
+        fire: !s.resume_fire_guard && keyboard::fire_down(keys) || s.controls.fire,
         stick: s.controls.stick,
     };
     match adventure.tick(
@@ -1130,6 +1173,7 @@ fn draw(
                     match *action {
                         touch::Action::Pause => s.ui.events(adventure.pause()),
                         touch::Action::Special => s.controls.special = true,
+                        touch::Action::Dad(power) => s.controls.dad = Some(power),
                         touch::Action::Swap => s.controls.swap = true,
                         touch::Action::Spell(spell) => s.controls.spell = Some(spell),
                         touch::Action::Select(index) => s.controls.select = Some(index),
@@ -1247,6 +1291,65 @@ mod input_tests {
         ButtonState,
         keyboard::{Key, KeyboardInput},
     };
+    use serde_json::json;
+    #[test]
+    fn source_clear_controls_and_pause_ignore_gameplay_keys() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_message::<KeyboardInput>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<Touches>()
+            .init_resource::<Valmora>()
+            .add_systems(Update, capture_input);
+        let window = app
+            .world_mut()
+            .spawn(Window {
+                focused: true,
+                ..Default::default()
+            })
+            .id();
+        let profile = dragon_game::profile::normalize_profile(
+            &json!({"build":{"name":"Nova","dname":"Ember","path":"forge"}}),
+            "rider3",
+            2,
+            || "extra".into(),
+        )
+        .unwrap();
+        let (mut adventure, _) = Adventure::new(
+            profile,
+            vec![],
+            Viewport::from_screen(800., 600., 1., 130., 0.62),
+            42,
+            2,
+        )
+        .unwrap();
+        adventure.gate.state = "pause".into();
+        {
+            let mut state = app.world_mut().resource_mut::<Valmora>();
+            state.active = true;
+            state.capturing = true;
+            state.adventure = Some(adventure);
+            state.keys.press(KeyCode::KeyW);
+            state.controls.fire = true;
+            state.ui.clear_controls_requested = true;
+        }
+        for key in [KeyCode::KeyW, KeyCode::KeyP] {
+            app.world_mut().write_message(KeyboardInput {
+                key_code: key,
+                logical_key: Key::Character("x".into()),
+                state: ButtonState::Pressed,
+                text: Some("x".into()),
+                repeat: false,
+                window,
+            });
+        }
+        app.update();
+        let state = app.world().resource::<Valmora>();
+        assert!(!state.keys.pressed(KeyCode::KeyW));
+        assert!(state.keys.just_pressed(KeyCode::KeyP));
+        assert!(!state.controls.fire);
+    }
     #[test]
     fn captured_keys_stay_held_without_repeating_or_leaking_root_shortcuts() {
         let mut app = App::new();

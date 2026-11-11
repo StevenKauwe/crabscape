@@ -189,6 +189,14 @@ impl Game {
         Ok(Self::with_definition(def, view, seed))
     }
     fn with_definition(def: &'static MissionDef, view: Viewport, seed: u32) -> Self {
+        Self::with_definition_at(def, view, seed, 0)
+    }
+    fn with_definition_at(
+        def: &'static MissionDef,
+        view: Viewport,
+        seed: u32,
+        from_wave: usize,
+    ) -> Self {
         let player = Player {
             x: view.scale * 2.6,
             y: view.ground_y - view.scale * 1.6,
@@ -284,7 +292,7 @@ impl Game {
             view.clamp(&mut g.player);
         }
         let mut m = std::mem::take(&mut g.mission);
-        m.start_leg(def, 0, true, &mut Adapter(&mut g));
+        m.start_leg(def, from_wave, true, &mut Adapter(&mut g));
         g.mission = m;
         g
     }
@@ -1454,6 +1462,27 @@ impl Game {
         seed: u32,
         team_profiles: Vec<Value>,
     ) -> Result<Self, &'static str> {
+        Self::from_profile_team_at(id, profile, view, seed, team_profiles, 0)
+    }
+    /// Fresh run from a validated reached stop. No old world or reward counters are copied.
+    pub fn from_profile_team_at(
+        id: &str,
+        profile: Value,
+        view: Viewport,
+        seed: u32,
+        team_profiles: Vec<Value>,
+        from_wave: usize,
+    ) -> Result<Self, &'static str> {
+        let def = definitions()
+            .iter()
+            .find(|d| d.id == id)
+            .ok_or("unknown mission")?;
+        if !valid_view(view)
+            || from_wave >= def.waves.len()
+            || (def.id.ends_with('c') && from_wave != 0)
+        {
+            return Err("invalid retry stop");
+        }
         let party = profile["party"]
             .as_array()
             .ok_or("profile must be normalized")?;
@@ -1475,7 +1504,7 @@ impl Game {
                 return Err("invalid normalized dragon");
             }
         }
-        let mut g = Self::start(id, view, seed)?;
+        let mut g = Self::with_definition_at(def, view, seed, from_wave);
         g.earned = number(&profile["earned"]);
         g.xp = number(&profile["party"][0]["xp"]);
         g.profile = Some(profile);

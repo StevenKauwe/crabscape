@@ -13,6 +13,7 @@ use serde_json::Value;
 pub struct AdventureUi {
     pub notice: String,
     pub checkpoint_requested: bool,
+    pub clear_controls_requested: bool,
     pub networked: bool,
     pub live_crew: Vec<Value>,
     healing_cache: super::art::HealingCache,
@@ -25,6 +26,7 @@ pub struct AdventureUi {
     pub narration: Option<Option<String>>,
     story: Option<Value>,
     hatch_name: String,
+    hatch_id: Option<String>,
     release: Option<String>,
     milestone: Option<String>,
     vote_display: Option<(String, u64, Option<u64>)>,
@@ -35,6 +37,7 @@ pub struct Controls {
     pub pause: bool,
     pub return_home: bool,
     pub special: bool,
+    pub dad: Option<dragon_game::abilities::DadPower>,
     pub swap: bool,
     pub spell: Option<dragon_game::abilities::Spell>,
     pub select: Option<usize>,
@@ -81,6 +84,7 @@ impl AdventureUi {
                 self.sound_events.push(effect);
             }
             match event {
+                Event::ClearControls => self.clear_controls_requested = true,
                 Event::Dirty
                 | Event::Flush
                 | Event::Gate {
@@ -536,7 +540,9 @@ impl AdventureUi {
                             if *key == "Enter" {
                                 self.result(adventure.answer_times(clock));
                             } else {
-                                self.events(adventure.times_key(key));
+                                self.events(
+                                    adventure.times_key(super::keyboard::riddle_action(key)),
+                                );
                             }
                         }
                         if i % 3 == 2 {
@@ -550,32 +556,90 @@ impl AdventureUi {
                 if let Some(baby) = &adventure.roost.pending_baby {
                     scene(ui, super::art::AdventureScene::Hatch { baby }, 130.);
                 }
-                if self.hatch_name.is_empty() {
+                let baby_id = adventure
+                    .roost
+                    .pending_baby
+                    .as_ref()
+                    .and_then(|b| b["id"].as_str())
+                    .map(str::to_owned);
+                if self.hatch_id != baby_id {
+                    self.hatch_id = baby_id;
                     self.hatch_name.clone_from(&adventure.roost.suggested_name);
+                    self.release = None;
                 }
-                ui.text_edit_singleline(&mut self.hatch_name);
-                ui.label("If your team is full, choose a dragon to release into the valley.");
-                if let Some(party) = adventure.profile()["party"].as_array() {
-                    for dragon in party.iter().filter(|d| d["bonded"] != true) {
-                        let id = dragon["id"].as_str().unwrap_or("").to_owned();
+                let name = ui.text_edit_singleline(&mut self.hatch_name);
+                let submit = name.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                let full = adventure.profile()["party"].as_array().is_some_and(|p| {
+                    p.len() >= dragon_game::roost::team_slots(adventure.profile())
+                });
+                if full {
+                    ui.label("Your team is full. Who flies to the Dragon Valley?");
+                    if let Some(party) = adventure.profile()["party"].as_array() {
+                        for dragon in party.iter().filter(|d| d["bonded"] != true) {
+                            ui.radio_value(
+                                &mut self.release,
+                                dragon["id"].as_str().map(str::to_owned),
+                                dragon["name"].as_str().unwrap_or("Dragon"),
+                            );
+                        }
+                    }
+                    if let Some(baby) = &adventure.roost.pending_baby {
                         ui.radio_value(
                             &mut self.release,
-                            Some(id),
-                            dragon["name"].as_str().unwrap_or("Dragon"),
+                            baby["id"].as_str().map(str::to_owned),
+                            "The new baby",
                         );
                     }
+                } else {
+                    self.release = None;
                 }
-                if ui.button("Welcome home").clicked() {
+                let can_finish = !full || self.release.is_some();
+                if ui
+                    .add_enabled(
+                        can_finish,
+                        egui::Button::new(if full {
+                            "Send to the Valley"
+                        } else {
+                            "To the Roost"
+                        }),
+                    )
+                    .clicked()
+                    || submit && can_finish
+                {
                     let result =
                         adventure.finish_hatch(&self.hatch_name, self.release.as_deref(), clock);
                     if result.is_ok() {
                         self.hatch_name.clear();
+                        self.hatch_id = None;
                         self.release = None;
                     }
                     self.result(result);
                 }
             }
             "results" => {
+                if adventure.can_retry()
+                    && let Some(retry) = adventure.result.as_ref().and_then(|r| r.retry.as_ref())
+                {
+                    ui.label(format!(
+                        "You made it to stop {} of {}, {}. Rest up and try again from there!",
+                        retry.wave + 1,
+                        retry.total,
+                        retry.name
+                    ));
+                    if ui
+                        .button(format!("Try again from {}", retry.name))
+                        .clicked()
+                    {
+                        self.result(adventure.retry_mission());
+                    }
+                }
+                if adventure.result.as_ref().is_some_and(|r| r.won)
+                    && adventure.profile()["eggs"].as_f64().unwrap_or(0.) > 0.
+                    && adventure.profile()["eggAwake"] == true
+                    && ui.button("Wake the egg!").clicked()
+                {
+                    self.result(adventure.wake_egg(clock));
+                }
                 if let Some(result) = &adventure.result {
                     ui.heading(if result.won {
                         "Mission complete!"
@@ -616,6 +680,9 @@ impl AdventureUi {
                     }
                 }
                 if adventure.state() == "pause" {
+                    if ui.button("Leave mission").clicked() {
+                        self.result(adventure.leave_mission());
+                    }
                     if ui
                         .button(if self.preferences.fancy {
                             "Graphics: fancy"
@@ -830,6 +897,54 @@ mod tests {
         assert!(ui.show_vote(&vote, "party", 30000));
     }
     #[test]
+    fn full_hatch_offers_baby_and_does_not_restore_cleared_name() {
+        let profile = profile::normalize_profile(&json!({"build":{"name":"Nova","dname":"Ember","path":"forge"},"party":[{"bonded":true,"xp":0},{"id":"extra","name":"Pip","kind":"flame","xp":0}]}), "rider3",2,||"extra".into()).unwrap();
+        let (mut adventure, _) = Adventure::new(
+            profile,
+            vec![],
+            Viewport::from_screen(800., 600., 1., 130., 0.62),
+            42,
+            2,
+        )
+        .unwrap();
+        adventure.gate.state = "hatch".into();
+        adventure.roost.pending_baby =
+            Some(json!({"id":"baby","name":"Ember","kind":"flame","color":"#ff8800","xp":0}));
+        adventure.roost.suggested_name = "Spark".into();
+        let mut presentation = AdventureUi::default();
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            presentation.draw(
+                ui,
+                &mut adventure,
+                Clock {
+                    now_ms: 100,
+                    day: 0,
+                },
+            );
+        });
+        output.textures_delta.clear();
+        let mut labels = String::new();
+        for shape in &output.shapes {
+            visible_text(&shape.shape, &mut labels);
+        }
+        assert!(labels.contains("The new baby") && labels.contains("Send to the Valley"));
+        assert_eq!(presentation.hatch_name, "Spark");
+        presentation.hatch_name.clear();
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            presentation.draw(
+                ui,
+                &mut adventure,
+                Clock {
+                    now_ms: 100,
+                    day: 0,
+                },
+            );
+        });
+        output.textures_delta.clear();
+        assert!(presentation.hatch_name.is_empty());
+    }
+    #[test]
     fn dynamic_growth_page_survives_repeated_frames() {
         let mut profile = profile::normalize_profile(
             &json!({"build":{"name":"Nova","dname":"Ember","path":"forge"}}),
@@ -889,6 +1004,25 @@ mod tests {
         presentation.events(adventure.wake_egg(clock).unwrap());
         assert_eq!(adventure.state(), "riddle");
         let question = adventure.gate.question.unwrap();
+        presentation.events(
+            adventure
+                .tick(
+                    0.,
+                    dragon_game::flight::Input::default(),
+                    Viewport::from_screen(1000., 700., 1., 130., 0.62),
+                    Clock {
+                        now_ms: 1100,
+                        day: 0,
+                    },
+                )
+                .unwrap(),
+        );
+        presentation.events(adventure.times_key("1"));
+        presentation.events(adventure.times_key("2"));
+        assert_eq!(adventure.gate.input, "12");
+        presentation
+            .events(adventure.times_key(super::super::keyboard::riddle_action("Backspace")));
+        assert!(adventure.gate.input.is_empty());
         let ctx = egui::Context::default();
         let mut labels = String::new();
         let mut output = ctx.run_ui(Default::default(), |ui| {

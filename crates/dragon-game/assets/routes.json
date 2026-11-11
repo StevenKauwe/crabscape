@@ -1,0 +1,434 @@
+{
+  "m1": [
+    [
+      "the Village Green",
+      "Storm clouds over the village green! Pop them!"
+    ],
+    [
+      "Lantern Row",
+      "The lanterns are going out. Clear the sky above them!"
+    ],
+    [
+      "the Mill Pond",
+      "Grumpy clouds are raining on the mill pond!"
+    ],
+    [
+      "Hollowbrook Square",
+      "The grumpiest clouds of all are over the square!"
+    ]
+  ],
+  "m2": [
+    [
+      "the Old Well",
+      "Storm Bats! They are flapping toward the bell tower."
+    ],
+    [
+      "Baker's Lane",
+      "A big swarm is chasing the baker's smoke. Scatter them!"
+    ],
+    [
+      "the Tower Stairs",
+      "Bats all over the tower stairs. Almost there!"
+    ],
+    [
+      "the Bell Tower",
+      "The bell is covered in bats. Free it so it can ring!"
+    ]
+  ],
+  "m3": [
+    [
+      "the Apple Orchard",
+      "Sparks in the orchard! Thunder Sprites are zipping by."
+    ],
+    [
+      "the Cow Field",
+      "The sprites are scaring the cows. Catch them!"
+    ],
+    [
+      "the Haystacks",
+      "Sprites are dancing on the haystacks!"
+    ],
+    [
+      "the Hay Barns",
+      "Protect the barns. The animals need that hay!"
+    ]
+  ],
+  "m4": [
+    [
+      "Storm Hill",
+      "The wind is howling. Clouds and bats ride the storm!"
+    ],
+    [
+      "the Riverbank",
+      "The river is rising! Clear the sky over it."
+    ],
+    [
+      "Hollowbrook Gate",
+      "Everything the storm can throw is at the gate!"
+    ],
+    [
+      "the Thunderhead",
+      "There it is, the biggest storm ever. Break it apart!"
+    ]
+  ],
+  "m5": [
+    [
+      "the Forest Edge",
+      "Urgal scouts at the edge of the trees!"
+    ],
+    [
+      "the Mossy Path",
+      "More scouts on the mossy path. Fly low!"
+    ],
+    [
+      "Deer Hollow",
+      "The deer are hiding here. Keep the Urgals away!"
+    ],
+    [
+      "the Old Stump",
+      "The scouts are meeting at the old stump. Drive them out!"
+    ]
+  ],
+  "m6": [
+    [
+      "the Bramble Trail",
+      "Howling! Thornwolves are on the trail."
+    ],
+    [
+      "Fern Gully",
+      "The deer are running through the ferns. Keep up!"
+    ],
+    [
+      "the Creek Crossing",
+      "The wolves are cutting off the creek. Slow them down!"
+    ],
+    [
+      "Fawn Rock",
+      "The little fawn is trapped on the rock. Save it!"
+    ]
+  ],
+  "m7": [
+    [
+      "the Drum Clearing",
+      "Drums! Urgals and wolves guard the path."
+    ],
+    [
+      "the Lookout Oaks",
+      "Urgals in the big oaks, and thunder clouds above!"
+    ],
+    [
+      "the Tent Ring",
+      "The tents are full of Urgals. Break up the camp!"
+    ],
+    [
+      "the Camp Fire",
+      "Their last stand is at the camp fire!"
+    ]
+  ],
+  "m8": [
+    [
+      "the Hidden Trail",
+      "The map leads this way. Urgal guards ahead!"
+    ],
+    [
+      "the Totem Grove",
+      "Urgals and wolves everywhere. Stay together!"
+    ],
+    [
+      "the Chieftain's Gate",
+      "The Chieftain's best guards block the gate!"
+    ],
+    [
+      "the Chieftain's Throne",
+      "The Urgal Chieftain! Show him the forest belongs to the dragons!"
+    ]
+  ],
+  "m9": [
+    [
+      "the Foothills",
+      "The wind is getting cold. Thunder clouds ahead!"
+    ],
+    [
+      "Pine Ridge",
+      "Sprites and bats ride the icy wind!"
+    ],
+    [
+      "the Frozen Falls",
+      "Clouds swirl around the frozen falls!"
+    ],
+    [
+      "Windy Peak",
+      "This is where the wind begins. Clear the sky!"
+    ]
+  ],
+  "m10": [
+    [
+      "the Stone Gate",
+      "Urgals guard the stone gate, and a troll too!"
+    ],
+    [
+      "the Cliff Path",
+      "Trolls on the cliff path. Boulder Blast cracks their armor!"
+    ],
+    [
+      "the Rope Ledge",
+      "Urgals and trolls! Keep moving!"
+    ],
+    [
+      "the Bridge",
+      "Everything is blocking the bridge. Get past them!"
+    ]
+  ],
+  "m11": [
+    [
+      "the Snowy Slope",
+      "The snow is sliding! Wolves and bats are running too."
+    ],
+    [
+      "Rumble Ridge",
+      "Trolls and sprites in the way. Stay together!"
+    ],
+    [
+      "the Ice Tunnel",
+      "Everything is pouring out of the tunnel!"
+    ],
+    [
+      "the Safe Ledge",
+      "One more push and you are safe!"
+    ]
+  ],
+  "m12": [
+    [
+      "the Cave Mouth",
+      "Trolls guard the mouth of the cave."
+    ],
+    [
+      "the Crystal Hall",
+      "Glittering crystals, and grumpy trolls!"
+    ],
+    [
+      "the Echo Tunnel",
+      "Something huge is snoring up ahead..."
+    ],
+    [
+      "the Deep Cave",
+      "The Cave Troll is awake! Wake up, Riders!"
+    ]
+  ],
+  "m13": [
+    [
+      "the Sandy Shore",
+      "Glow Jellies floating up from the sea. Bop them!"
+    ],
+    [
+      "Shell Beach",
+      "Jellies and clouds over the beach!"
+    ],
+    [
+      "the Starlight Shallows",
+      "Fallen starlight in the water. Jellies everywhere!"
+    ],
+    [
+      "Glimmer Point",
+      "The biggest crowd of jellies yet!"
+    ]
+  ],
+  "m14": [
+    [
+      "the Harbor Wall",
+      "Watch the water! Splashfins are leaping."
+    ],
+    [
+      "the Fishing Docks",
+      "Jellies and Splashfins around the docks!"
+    ],
+    [
+      "Rocky Point",
+      "The water is bubbling. Be ready to dodge!"
+    ],
+    [
+      "the Lighthouse",
+      "Clear the Splashfins so the lighthouse can shine!"
+    ]
+  ],
+  "m15": [
+    [
+      "the Open Bay",
+      "Thunder clouds over the bay. The boats are stuck!"
+    ],
+    [
+      "the Wave Rocks",
+      "Splashfins and sprites by the rocks!"
+    ],
+    [
+      "Boat Lane",
+      "Clear a safe path for the fishing boats!"
+    ],
+    [
+      "Home Harbor",
+      "Everything is between the boats and home. Clear it!"
+    ]
+  ],
+  "m16": [
+    [
+      "the Deep Water",
+      "The water is shaking. Splashfins are everywhere!"
+    ],
+    [
+      "the Kelp Forest",
+      "Jellies glowing in the kelp!"
+    ],
+    [
+      "the Whirlpool",
+      "The whole sea is churning!"
+    ],
+    [
+      "Grumblegill's Rock",
+      "Old Grumblegill rises from the deep!"
+    ]
+  ],
+  "m17": [
+    [
+      "Ember Beach",
+      "Magma Slimes! Splat one and it splits in two!"
+    ],
+    [
+      "the Steam Vents",
+      "Slimes and bats in the hot steam!"
+    ],
+    [
+      "the Cinder Field",
+      "Slimes and wolves on the hot rocks!"
+    ],
+    [
+      "the Lava Pools",
+      "The slimes are hopping out of the lava pools!"
+    ]
+  ],
+  "m18": [
+    [
+      "Pebble Hill",
+      "Ember Imps tossing hot pebbles. Keep moving!"
+    ],
+    [
+      "the Ash Garden",
+      "Imps and slimes everywhere!"
+    ],
+    [
+      "the Spark Rocks",
+      "Imps and sprites are playing catch with the star piece!"
+    ],
+    [
+      "the Imp Den",
+      "The star piece is here. Get it back!"
+    ]
+  ],
+  "m19": [
+    [
+      "the River Mouth",
+      "Follow the glowing river. Slimes and imps ahead!"
+    ],
+    [
+      "the Troll Steps",
+      "A troll on the steps, and slimes and bats!"
+    ],
+    [
+      "the Hot Falls",
+      "Everything is bubbling! Keep climbing!"
+    ],
+    [
+      "the Volcano Rim",
+      "Almost at the top. One more fight!"
+    ]
+  ],
+  "m20": [
+    [
+      "the Ash Slope",
+      "Slimes and imps on the way up!"
+    ],
+    [
+      "the Smoke Cave",
+      "Everything on the island is in here!"
+    ],
+    [
+      "the Crater Edge",
+      "More slimes than ever!"
+    ],
+    [
+      "the Crater",
+      "The Great Magma Slime! Free the star!"
+    ]
+  ],
+  "m21": [
+    [
+      "the Cloud Steps",
+      "Star Gobblers! Grab the gems before they do!"
+    ],
+    [
+      "the Floating Isle",
+      "Gobblers and sprites by the floating isle!"
+    ],
+    [
+      "the Rainbow Bridge",
+      "The gobblers are after the rainbow sparkles!"
+    ],
+    [
+      "the Star Garden",
+      "Save the star garden from the gobblers!"
+    ]
+  ],
+  "m22": [
+    [
+      "the Meadow Gate",
+      "Dream Moths ahead. Don't fly under them!"
+    ],
+    [
+      "Sleepy Hollow",
+      "Moths and gobblers. Stay awake!"
+    ],
+    [
+      "the Moonflower Field",
+      "Moths and bats over the moonflowers!"
+    ],
+    [
+      "Meadow's End",
+      "The dark patch is just past here. Push through!"
+    ]
+  ],
+  "m23": [
+    [
+      "the Dim Sky",
+      "The stars are going dark. Moths and gobblers ahead!"
+    ],
+    [
+      "the Shadow Edge",
+      "Jellies, imps and sprites, all here!"
+    ],
+    [
+      "the Swallowed Stars",
+      "You can hear the stars calling for help!"
+    ],
+    [
+      "the Dark Patch",
+      "Everything is here. Find out what it is!"
+    ]
+  ],
+  "m24": [
+    [
+      "the Starless Sky",
+      "Gobblers and moths guard the way!"
+    ],
+    [
+      "the Fading Lights",
+      "Help the last stars hold on!"
+    ],
+    [
+      "the Dark Heart",
+      "Everything that is left is here!"
+    ],
+    [
+      "the Star Swallower",
+      "The Star Swallower! When it breathes in, fly away fast!"
+    ]
+  ]
+}

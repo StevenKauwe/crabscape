@@ -98,7 +98,15 @@ struct Story {
     next: Next,
 }
 #[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct RetryStop {
+    pub mission: String,
+    pub wave: usize,
+    pub name: String,
+    pub total: usize,
+}
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ResultSummary {
+    pub retry: Option<RetryStop>,
     pub won: bool,
     pub mission: String,
     pub banked: f64,
@@ -111,6 +119,7 @@ pub struct Adventure {
     profile: Value,
     pub others: Vec<Value>,
     live_team: bool,
+    fresh_host_run: bool,
     pub game: Option<Game>,
     pub shared: Option<crate::coop::Session>,
     network_outbound: Vec<crate::coop::Outbound>,
@@ -154,6 +163,7 @@ impl Adventure {
             profile,
             others,
             live_team: false,
+            fresh_host_run: false,
             game: None,
             shared: None,
             network_outbound: Vec::new(),
@@ -263,12 +273,16 @@ impl Adventure {
         if self.shared.is_some() || self.game.is_none() || self.state() != "play" {
             return Err(Error::InvalidState);
         }
+        if self.fresh_host_run && authority.guest {
+            return Err(Error::InvalidState);
+        }
         crate::coop::Session::validate_identity(&peer, rider, &run, &authority)
             .map_err(Error::Runtime)?;
         let game = self.game.take().expect("validated local flight");
         self.shared = Some(
             crate::coop::Session::new(game, peer, rider, run, authority).map_err(Error::Runtime)?,
         );
+        self.fresh_host_run = false;
         Ok(())
     }
     pub fn drain_network_outbound(&mut self) -> Vec<crate::coop::Outbound> {
@@ -278,6 +292,7 @@ impl Adventure {
         std::mem::take(&mut self.network_outbound)
     }
     fn retire_game(&mut self) {
+        self.fresh_host_run = false;
         if let Some(g) = self.take_game() {
             if let Some(p) = g.profile {
                 self.profile = p;
@@ -516,11 +531,44 @@ impl Adventure {
         self.launch(id, from_party)
     }
     fn launch(&mut self, id: &str, from_party: bool) -> Result<Vec<Event>, Error> {
+        self.launch_at(id, from_party, 0)
+    }
+    pub fn can_retry(&self) -> bool {
+        self.state() == "results"
+            && self
+                .result
+                .as_ref()
+                .is_some_and(|r| !r.won && r.retry.is_some())
+    }
+    pub fn retry_mission(&mut self) -> Result<Vec<Event>, Error> {
+        if !self.can_retry() {
+            return Err(Error::InvalidState);
+        }
+        let retry = self
+            .result
+            .as_ref()
+            .and_then(|r| r.retry.clone())
+            .ok_or(Error::InvalidState)?;
+        let events = self.launch_at(&retry.mission, true, retry.wave)?;
+        self.fresh_host_run = true;
+        Ok(events)
+    }
+    /// Retry must not rejoin the old same-mission sky or a cached party launch.
+    /// Remains pending across transport connection failures until attached or retired.
+    pub fn requires_fresh_host_run(&self) -> bool {
+        self.fresh_host_run
+    }
+    fn launch_at(
+        &mut self,
+        id: &str,
+        from_party: bool,
+        from_wave: usize,
+    ) -> Result<Vec<Event>, Error> {
         if !from_party && !self.mission_unlocked(id) {
             return Err(Error::LockedMission);
         }
         self.retire_game();
-        let mut g = Game::from_profile_team(
+        let mut g = Game::from_profile_team_at(
             id,
             self.profile.clone(),
             self.view,
@@ -530,6 +578,7 @@ impl Adventure {
             } else {
                 vec![]
             },
+            from_wave,
         )
         .map_err(Error::Runtime)?;
         let p = g.profile.as_mut().expect("profile game");
@@ -591,6 +640,16 @@ impl Adventure {
         self.profile = g.profile.ok_or(Error::InvalidProfile)?;
         self.rng = g.rng;
         self.result = Some(ResultSummary {
+            retry: (!won
+                && !g.definition.id.ends_with('c')
+                && g.mission.stop > 0
+                && g.mission.stop < g.definition.waves.len())
+            .then(|| RetryStop {
+                mission: g.definition.id.clone(),
+                wave: g.mission.stop,
+                name: content::route_stop(&g.definition.id, g.mission.stop),
+                total: g.definition.waves.len(),
+            }),
             won,
             mission: g.definition.id.clone(),
             banked: g.mission.banked,

@@ -4,6 +4,7 @@ use bevy_egui::egui::{Event, Pos2, Rect, TouchDeviceId, TouchId, TouchPhase};
 pub enum Action {
     Pause,
     Special,
+    Dad(dragon_game::abilities::DadPower),
     Swap,
     Spell(dragon_game::abilities::Spell),
     Select(usize),

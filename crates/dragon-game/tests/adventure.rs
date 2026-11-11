@@ -384,3 +384,183 @@ fn retiring_a_flight_preserves_final_sound_cues_once() {
     );
     assert!(a.drain_sound_events().next().is_none());
 }
+
+#[test]
+fn retry_reached_stop_is_fresh_and_preserves_banked_profile() {
+    let mut a = start(json!({"seenIntro":true,"earned":75,"charms":{"heart":2}}));
+    a.choose_mission("m1", true).unwrap();
+    let g = a.game.as_mut().unwrap();
+    g.mission.stop = 2;
+    g.mission.banked = 25.;
+    g.result = Some(false);
+    g.completion_events
+        .push(dragon_game::roost::CompletionEvent::Results {
+            story: None,
+            rank: None,
+        });
+    a.tick(0., Input::default(), view(), clock(100)).unwrap();
+    assert!(a.can_retry());
+    let r = a.result.as_ref().unwrap().retry.as_ref().unwrap();
+    assert_eq!(r.name, "the Mill Pond");
+    assert_eq!(r.wave, 2);
+    let before = a.profile().clone();
+    a.retry_mission().unwrap();
+    assert!(!a.can_retry());
+    let g = a.game.as_ref().unwrap();
+    assert_eq!(g.mission.stop, 2);
+    assert_eq!(g.mission.wave, 1);
+    assert_eq!(g.mission.leg_t, 6.);
+    assert_eq!(g.mission.banked, 0.);
+    assert_eq!(g.mission.carry, 0.);
+    assert_eq!(g.profile.as_ref().unwrap()["earned"], before["earned"]);
+    assert_eq!(g.profile.as_ref().unwrap()["charms"]["heart"], 0.);
+    assert!(!g.mission.guest);
+    assert!(g.result.is_none());
+}
+
+#[test]
+fn retry_rejects_first_stop_success_champion_and_out_of_bounds() {
+    for (id, stop, won) in [
+        ("m1", 0, false),
+        ("m1", 1, true),
+        ("m1c", 1, false),
+        ("m1", usize::MAX, false),
+    ] {
+        let mut a = start(json!({"seenIntro":true}));
+        a.choose_mission(id, true).unwrap();
+        let g = a.game.as_mut().unwrap();
+        g.mission.stop = stop;
+        g.result = Some(won);
+        g.completion_events
+            .push(dragon_game::roost::CompletionEvent::Results {
+                story: None,
+                rank: None,
+            });
+        a.tick(0., Input::default(), view(), clock(100)).unwrap();
+        assert!(!a.can_retry());
+        assert_eq!(a.retry_mission(), Err(Error::InvalidState));
+    }
+}
+
+#[test]
+fn retry_constructor_validates_bounds_and_preserves_rng_and_objective_setup() {
+    use dragon_game::game::Game;
+    let p = built(json!({"seenIntro":true,"earned":95}));
+    for def in dragon_game::missions::missions() {
+        for wave in 0..def.waves.len() {
+            let mut g =
+                Game::from_profile_team_at(&def.id, p.clone(), view(), 42, vec![], wave).unwrap();
+            let normal = Game::from_profile(&def.id, p.clone(), view(), 42).unwrap();
+            assert_eq!(g.rng.state, normal.rng.state);
+            assert_eq!(g.mission.stop, wave);
+            assert_eq!(g.mission.wave, wave as i32 - 1);
+            assert_eq!(g.mission.prog, wave as f64 / def.waves.len() as f64);
+            assert_eq!(g.earned, 95.);
+            assert_eq!(g.kills, 0);
+            // Advance through only this leg; the intended stop's normal objective/wave path runs.
+            for _ in 0..201 {
+                g.step(0.05, Input::default(), view()).unwrap();
+            }
+            assert_eq!(g.mission.wave, wave as i32);
+        }
+        assert!(
+            Game::from_profile_team_at(&def.id, p.clone(), view(), 42, vec![], def.waves.len())
+                .is_err()
+        );
+    }
+    assert!(Game::from_profile_team_at("m1c", p, view(), 42, vec![], 1).is_err());
+}
+
+#[test]
+fn shared_host_leave_drains_handoff_once_without_banking_carry() {
+    for paused in [false, true] {
+        let mut a = start(json!({"seenIntro":true,"earned":100}));
+        a.choose_mission("m1", true).unwrap();
+        a.share_flight(
+            "fixture-host".into(),
+            2,
+            "oldrun".into(),
+            dragon_game::authority::Authority {
+                guest: false,
+                host_peer: None,
+                host_rider: 2,
+                epoch: 4,
+            },
+        )
+        .unwrap();
+        let g = a.game_mut().unwrap();
+        g.mission.carry = 37.;
+        g.mission.banked = 20.;
+        g.profile.as_mut().unwrap()["earned"] = json!(120);
+        let retained = g.profile.clone().unwrap();
+        if paused {
+            a.pause();
+        }
+        a.drain_network_outbound();
+        let events = a.leave_mission().unwrap();
+        assert_eq!(a.state(), "map");
+        assert!(events.contains(&Event::Flush));
+        assert_eq!(a.profile(), &retained);
+        assert!(a.game().is_none());
+        assert!(a.shared.is_none());
+        let outbound = a.drain_network_outbound();
+        let handoff: Vec<_> = outbound.iter().filter(|m| m.topic == "handoff").collect();
+        assert_eq!(handoff.len(), 1);
+        assert_eq!(handoff[0].data["run"], "oldrun");
+        assert_eq!(handoff[0].data["epoch"], 4);
+        assert!(a.drain_network_outbound().is_empty());
+        assert!(a.leave_mission().is_err());
+    }
+}
+
+#[test]
+fn shared_guest_failed_retry_retires_old_authority_and_starts_new_host_run() {
+    let mut a = start(json!({"seenIntro":true,"earned":120}));
+    a.choose_mission("m1", true).unwrap();
+    a.share_flight(
+        "fixture-guest".into(),
+        2,
+        "oldrun".into(),
+        dragon_game::authority::Authority {
+            guest: true,
+            host_peer: Some("fixture-host".into()),
+            host_rider: 0,
+            epoch: 4,
+        },
+    )
+    .unwrap();
+    let g = a.game_mut().unwrap();
+    g.mission.stop = 2;
+    g.result = Some(false);
+    g.completion_events
+        .push(dragon_game::roost::CompletionEvent::Results {
+            story: None,
+            rank: None,
+        });
+    a.tick(0., Input::default(), view(), clock(100)).unwrap();
+    assert!(a.shared.is_none());
+    assert!(a.can_retry());
+    a.drain_network_outbound();
+    a.retry_mission().unwrap();
+    assert!(!a.game().unwrap().mission.guest);
+    assert_eq!(a.game().unwrap().mission.stop, 2);
+    a.share_flight(
+        "fixture-guest".into(),
+        2,
+        "newrun".into(),
+        dragon_game::authority::Authority {
+            guest: false,
+            host_peer: None,
+            host_rider: 2,
+            epoch: 0,
+        },
+    )
+    .unwrap();
+    let session = a.shared.as_ref().unwrap();
+    assert_eq!(session.run(), "newrun");
+    assert!(!session.authority().guest);
+    assert_eq!(session.authority().epoch, 0);
+    assert_eq!(session.game.profile.as_ref().unwrap()["earned"], 120.);
+    assert_eq!(session.game.mission.banked, 0.);
+    assert_eq!(session.game.mission.carry, 0.);
+}

@@ -407,3 +407,20 @@ armor proposal/Yes/grant, exactly one spender and both riders' team armor, then
 Ready launch, guest movement and higher-epoch host-loss takeover without resetting
 the run. Legacy bytes, microphone and nonlocal-signaling guards remain unchanged.
 Completed votes hide after seven seconds and all vote banners hide during flight.
+
+The interaction follow-up restores source checkpoint retry, pause exit and keyboard
+behavior. Failed non-Champion runs can restart at the reached stop with fresh mission
+state and retained banked progression. A retry deliberately creates a fresh host run
+instead of rejoining a stale same-mission room advertisement. Pause exit emits the
+old-run handoff without banking carried gems. Tests cover every normal mission stop,
+rejected retry states, failed-connection retry intent and ordinary launch rejoining.
+
+Riddle Backspace now clears rather than appending its key name; numpad entry and
+source pause/resume/fire shortcuts are covered. Pause clears held controls without
+seeding stale keys on resume. Daddio has both source power buttons on touch layouts.
+Full-party hatches can send the new baby to the Valley, retain an intentionally blank
+name while editing and submit with Enter. Winning results expose egg waking directly.
+An actual synthetic 390×844 Chromium journey verifies cleared riddle input, five
+numpad answers, the full-party baby option and Enter completion, with no microphone
+requests/runtime errors and unchanged original legacy data. These checks do not
+remove the physical-device, recorded-audio or home-server compatibility limits above.
