@@ -3,7 +3,11 @@
 //! Flight uses explicit recorded frame durations and viewport geometry, not CrabScape's
 //! fixed tick: subdividing the original JS integrator changes acceleration and damping.
 //! No wall clock, storage, microphone, transcription or network side effects live here.
+pub mod combat;
 pub mod flight;
+pub mod projectiles;
+pub mod random;
+
 pub mod save;
 
 /// Current Dragon XP curve, matching `levelOf` in `web/dragon/index.html`.

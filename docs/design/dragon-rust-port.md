@@ -71,3 +71,20 @@ This slice does not connect, capture audio, enable a microphone or invoke transc
 The existing Dragon peer voice path remains unchanged. Future multiplayer wiring must
 keep microphone capture off by default and never attach the `listen` transcription
 pipeline to Dragon voice. Verify reconnect and disconnect behavior before rollout.
+
+## Combat increment
+
+The range now supports six breath kinds (1–6), growth stages (G), breath skill (B),
+Space/Enter firing, and all four rider weapons (hold F, cycle path with P). These are
+explicit test controls, not unlock/progression rules. R resets six stationary practice
+targets. Actual missions, enemy AI and rewards are still not integrated into the range.
+
+`combat` ports breath patterns, cooldowns and rider weapons. `projectiles` ports motion,
+homing, hammer return, ordered collisions and local/guest damage authority. Defeat,
+dad-impact and guest-hit effects are emitted; presentation RNG, reward/split spawns,
+boss-add calming and network callbacks are not implemented here. In particular,
+synchronous defeat side effects must be integrated before claiming whole-world parity.
+
+The real-source test oracles now also compare 1,152 breath configurations, 64 weapon
+configurations, and 108 projectile/damage fixtures over four frames. The range is a
+compile-checked prototype with placeholder shapes, not a visual parity result.
