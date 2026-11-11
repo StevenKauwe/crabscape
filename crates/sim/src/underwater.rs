@@ -7395,7 +7395,7 @@ mod strata_tests {
     fn strata_layers_fill_each_frame_in_order() {
         let level = crate::Level::test_level();
         let bodies = level.strata();
-        assert_eq!(bodies.len(), 21);
+        assert_eq!(bodies.len(), 19);
         for body in bodies {
             let mut top = body.frame.max.y;
             for (material, thickness) in body.layers {

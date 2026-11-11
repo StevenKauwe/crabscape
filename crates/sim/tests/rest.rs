@@ -97,15 +97,8 @@ fn the_level_has_crevices_out_past_the_trench_on_solid_floor() {
                     && rock.max.x >= p.x + grown_half_width
             })
     };
-    assert_eq!(crevices.len(), 5, "three original and two eastern havens");
+    assert_eq!(crevices.len(), 4, "two original (the pit's is gone) and two eastern havens");
     let (_, trench_right) = level.trench();
-    let (pit_left, pit_right, pit_bottom) = level.pit();
-    assert!(
-        crevices
-            .iter()
-            .any(|c| c.den.x > pit_left && c.den.x < pit_right && c.den.y == pit_bottom),
-        "one at the bottom of the pit"
-    );
     for c in crevices {
         // Out in the level, supported by the seabed or a broad rock shelf,
         // in its own doorway. Raised shelves must fit a fully grown crab.

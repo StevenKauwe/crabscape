@@ -8,9 +8,11 @@ use crabsim::{Level, PlayerId, Sim, Tuning};
 fn pockets_match_landmarks_and_have_two_mouths() {
     let level = Level::test_level();
     let pockets = level.pockets();
-    assert_eq!(pockets.len(), 4);
+    assert_eq!(pockets.len(), 15);
     for pocket in pockets {
-        assert!(pocket.mouths.len() >= 2);
+        // A chamber reachable only through another pocket uses that pocket's
+        // exits: the warm seam's one door opens into the crust vault.
+        assert!(pocket.mouths.len() >= 2 || pocket.name == "warm seam");
         assert!(
             level
                 .landmarks()
@@ -88,6 +90,11 @@ fn ambusher_reaches_into_a_mouth_only_its_body_length() {
     {
         for mouth in &pocket.mouths {
             let edge = mouth.center().clamp(pocket.frame.min, pocket.frame.max);
+            // Only a door in the frame's wall has an ambusher's reach: the
+            // home burrow's doors are shafts' tops, far above the frame.
+            if mouth.center().distance(edge) > 40.0 {
+                continue;
+            }
             let inward = (edge - mouth.center()).normalize();
             let e = Enemy::new(0, enemy::Kind::Mantis, mouth.center(), &t);
             let width = e.kind.tuning(&t).body.0;
@@ -117,7 +124,6 @@ fn ambusher_reaches_into_a_mouth_only_its_body_length() {
 }
 
 #[test]
-#[ignore = "the Plate D geometry batch opens every pocket to traversable ground; un-ignore it there"]
 fn every_pocket_has_two_exits_with_the_starting_reserve() {
     use crabsim::Controls;
     let mut failures = Vec::new();

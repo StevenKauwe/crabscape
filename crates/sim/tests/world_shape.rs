@@ -94,8 +94,8 @@ fn landmarks_are_derived_the_same_every_time() {
 fn authored_chambers_and_chimney_are_tagged() {
     let level = Level::test_level();
     for (name, rect, prize) in [
-        ("octopus den", level.den, Vec2::new(8650.0, -1896.0)),
-        ("far-wall cave", level.secrets[1], level.eggs[4]),
+        ("octopus den", level.den, Vec2::new(8650.0, -3896.0)),
+        ("far-wall cave", level.secrets[0], level.eggs[4]),
     ] {
         let all = level.landmarks();
         let landmark = all
@@ -129,8 +129,8 @@ fn authored_chambers_and_chimney_are_tagged() {
     );
     for point in [
         Vec2::new(7000.0, -2000.0),
-        Vec2::new(7000.0, -9000.0),
-        Vec2::new(3800.0, -8000.0),
+        Vec2::new(7000.0, -5500.0),
+        Vec2::new(3800.0, -500.0),
         Vec2::new(3000.0, -600.0),
         Vec2::new(4800.0, -600.0),
     ] {
@@ -203,6 +203,18 @@ fn no_hunter_roams_inside_a_tunnel() {
             // Conservative envelope of chase centres plus body and lunge.
             // Include every floor height in a walker's leash, even across
             // cliffs it cannot step over, so slopes cannot hide an intrusion.
+            // A burrowing ambusher stationed at a pocket's mouth is the
+            // hunter rule's own case (`pockets.rs`: it reaches only its body
+            // length into the mouth, never roams inside).
+            let ambusher_at_a_mouth = k.burrows
+                && level
+                    .pockets()
+                    .iter()
+                    .flat_map(|p| &p.mouths)
+                    .any(|m| home.distance(home.clamp(m.min, m.max)) <= k.body.0);
+            if ambusher_at_a_mouth {
+                continue;
+            }
             let swimming = matches!(
                 kind,
                 crabsim::enemy::Kind::Moray
@@ -452,7 +464,6 @@ fn open_water_refuges(needs_rock: bool) {
                 | "canyon shelf crossing"
                 | "canyon deep water"
                 | "far basin"
-                | "pit open water"
                 | "vent field"
         );
         if blocked != needs_rock {
@@ -492,6 +503,16 @@ fn open_water_refuges(needs_rock: bool) {
     assert!(failures.is_empty(), "missing visible refuge: {failures:?}");
 }
 
+/// Is `r` one of the shafts rising from the pocket's frame (just above it)?
+fn shaft_of(level: &Level, pocket: &crabsim::level::landmarks::Landmark, r: &Rect) -> bool {
+    level.pockets().iter().any(|p| {
+        p.frame == pocket.rect
+            && r.min.x >= p.frame.min.x
+            && r.max.x <= p.frame.max.x
+            && r.min.y >= p.frame.max.y - 1.0
+    })
+}
+
 #[test]
 fn every_pocket_has_two_exits() {
     let level = Level::test_level();
@@ -500,14 +521,23 @@ fn every_pocket_has_two_exits() {
         .iter()
         .filter(|l| matches!(l.kind, Kind::Tunnel | Kind::Chamber { .. }))
     {
+        // The pocket and the silt shafts that rise from it to the ground.
+        let region: Vec<Rect> =
+            std::iter::once(pocket.rect)
+                .chain(level.tunnel_interiors().filter(|r| {
+                    !r.intersect(pocket.rect).is_empty() || shaft_of(&level, pocket, r)
+                }))
+                .collect();
         let exits: Vec<_> = landmarks
             .iter()
             .filter(|l| {
                 matches!(l.kind, Kind::Mouth | Kind::OpenWater | Kind::Refuge)
-                    && l.rect.min.x <= pocket.rect.max.x + 40.0
-                    && l.rect.max.x >= pocket.rect.min.x - 40.0
-                    && l.rect.min.y <= pocket.rect.max.y + 40.0
-                    && l.rect.max.y >= pocket.rect.min.y - 40.0
+                    && region.iter().any(|r| {
+                        l.rect.min.x <= r.max.x + 40.0
+                            && l.rect.max.x >= r.min.x - 40.0
+                            && l.rect.min.y <= r.max.y + 40.0
+                            && l.rect.max.y >= r.min.y - 40.0
+                    })
             })
             .map(|l| l.name.as_str())
             .collect();
@@ -667,7 +697,6 @@ fn refuges_make_no_new_climb() {
 }
 
 #[test]
-#[ignore = "the Plate D geometry batch opens every pocket to traversable ground; un-ignore it there"]
 fn pocket_mouths_have_crab_clearance_outside_the_frame() {
     let level = Level::test_level();
     let t = Tuning::default();

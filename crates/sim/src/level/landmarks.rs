@@ -89,7 +89,11 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
             ),
         };
         add(
-            format!("{name} {i}"),
+            if *climb == super::lower_canyon::HANGING_GARDEN {
+                "hanging garden".into()
+            } else {
+                format!("{name} {i}")
+            },
             Rect::new(climb.x - 60.0, climb.bottom, climb.x + 60.0, climb.top),
             kind,
         );
@@ -206,12 +210,6 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
             kind,
         });
     }
-    let garden = super::lower_canyon::HANGING_GARDEN;
-    landmarks.push(Landmark {
-        name: "hanging garden".into(),
-        rect: Rect::new(garden.x - 60.0, garden.bottom, garden.x + 60.0, garden.top),
-        kind: Kind::Refuge,
-    });
     for spec in super::lower_canyon::specs() {
         let pocket = level.pocket_refs().find(|p| p.name == spec.name);
         landmarks.push(Landmark {

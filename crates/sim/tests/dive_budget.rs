@@ -171,66 +171,10 @@ fn the_trench_and_the_cliff_hold_without_their_strokes() {
     }
 }
 
-/// A rested crab at the pit's floor by the coral, holding jump to climb
-/// straight up the coral and the kelp to the lip.
-fn climb_out(kit: Kit, well_fed: bool) -> (f64, f32, Vec2) {
-    let mut sim = world(kit, Vec2::new(3460.0, -8700.0), false);
-    if well_fed {
-        let m = &mut sim.crab_mut(ME).expect("the crab").mover;
-        m.well_fed = 120 * 600;
-    }
-    let mut low = 1.0f32;
-    for tick in 0..120 * 150 {
-        let c = Controls {
-            jump_pressed: tick == 0 || tick == 30,
-            jump_held: true,
-            ..Default::default()
-        };
-        sim.set_controls(ME, c);
-        sim.tick();
-        let m = &sim.crab(ME).expect("the crab").mover;
-        low = low.min(m.reserve);
-        if m.pos.y > -760.0 && !m.climbing {
-            return (tick as f64 * DT, low, m.pos);
-        }
-    }
-    (
-        f64::INFINITY,
-        low,
-        sim.crab(ME).expect("the crab").mover.pos,
-    )
-}
-
-#[test]
-fn an_unprepared_climb_out_of_the_pit_runs_the_reserve_dry_but_never_strands() {
-    let (secs, low, at) = climb_out(Kit::eggs(3), false);
-    assert_eq!(low, 0.0, "the climb home is paid from the reserve");
-    assert!(
-        secs > 32.0,
-        "tired near the top, it climbs slowly: {secs:.1} s"
-    );
-    assert!(secs < 90.0, "but it always gets out: {secs:.1} s, at {at}");
-}
-
-#[test]
-fn a_prepared_climb_out_of_the_pit_is_bounded() {
-    // Well fed (a clam eaten at home), or gripping dactyls: out on the
-    // reserve it went down with, at full speed.
-    for (kit, fed) in [
-        (Kit::eggs(3), true),
-        (
-            Kit {
-                dactyls: true,
-                ..Kit::eggs(3)
-            },
-            false,
-        ),
-    ] {
-        let (secs, low, _) = climb_out(kit, fed);
-        assert!(low > 0.0, "{} fed {fed}: dry", kit.name());
-        assert!(secs < 30.0, "{} fed {fed}: {secs:.1} s", kit.name());
-    }
-}
+// The pit climb tests (an unprepared climb runs the reserve dry; a prepared one
+// is bounded) are retired: the pit is filled (Plate D), so the place is gone.
+// The climb home is still paid from the reserve at the canyon's walls
+// (`canyon.rs`) and the vent field's return below.
 
 #[test]
 fn route_wormhole_edge_makes_a_box_reachable() {
@@ -301,7 +245,7 @@ const VENT_KIT: Kit = Kit {
 };
 
 fn vent_return(open: bool) -> Survey {
-    let mut start = start_node(VENT_KIT, Vec2::new(17720.0, -2520.0), false);
+    let mut start = start_node(VENT_KIT, Vec2::new(17720.0, -4520.0), false);
     // The outbound crab already broke the narrows with its crusher.
     for b in &mut start.sim.level.brittle {
         if b.rect.min.x == 18000.0 {
@@ -374,7 +318,7 @@ fn vent_field_round_trip_with_tether_fits_one_rest() {
     let home = survey
         .nodes
         .iter()
-        .filter(|n| n.mover().pos.x < 17780.0 && n.mover().pos.y >= -2700.0)
+        .filter(|n| n.mover().pos.x < 17780.0 && n.mover().pos.y >= -4700.0)
         .min_by_key(|n| n.strokes)
         .expect("tether returns to Coral Rise");
     println!(
@@ -392,7 +336,7 @@ fn vent_field_round_trip_without_tether_costs_more_than_a_rested_reserve() {
         !survey
             .nodes
             .iter()
-            .any(|n| n.mover().pos.x < 17780.0 && n.mover().pos.y >= -2700.0 && n.strokes <= 6),
+            .any(|n| n.mover().pos.x < 17780.0 && n.mover().pos.y >= -4700.0 && n.strokes <= 6),
         "six strokes cannot repay the slump drop"
     );
 }

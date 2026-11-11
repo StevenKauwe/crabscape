@@ -61,4 +61,12 @@ pub(super) fn shape(level: &mut Level) {
         .currents
         .push(Rect::new(5380.0, -1500.0, 5495.0, -540.0));
     level.sponges.push(BURIED_SPONGE);
+    // A short coral stand on the ridge's hub face: the far basin's west end
+    // lost the pit shaft's coral (the pit is filled).
+    level.climbs.push(Climb {
+        x: east + 60.0,
+        bottom: -700.0,
+        top: -520.0,
+        kind: Growth::Coral,
+    });
 }

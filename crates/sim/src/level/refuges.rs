@@ -20,13 +20,16 @@ const NEAR: f32 = 6160.0;
 /// y -6,000, so the three clumps that stood below it are gone and the floor
 /// has none of its own: the one a floor crab can reach would be a ladder up
 /// to the far-wall cave.
-const CLUMPS: [(f32, f32); 2] = [
+const CLUMPS: [(f32, f32); 3] = [
     // Up the near wall: a full rise below the shelf, so it is never a step
     // up to it.
     (NEAR, -4550.0),
     // Immediately below the dead-end egg cave: its retreat. The root meets
     // the far wall; the tip catches a crab backing out of the west door.
     (7670.0, -5150.0),
+    // On the den rock's west face above the far rim (y -1700 once the rim
+    // has dropped): the crossing's east end had its landing 2,000 lower.
+    (8330.0, 300.0),
 ];
 
 pub(super) fn shape(level: &mut Level) {
