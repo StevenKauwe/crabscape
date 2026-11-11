@@ -174,6 +174,16 @@ fn pump(seconds: f64) {
     std::thread::sleep(Duration::from_secs_f64(seconds));
 }
 
+fn performance_tick(value: &str) -> Option<u64> {
+    value.split_once(':')?.0.parse().ok()
+}
+
+fn ticks_advanced(start: u64, value: &str, required: u64) -> bool {
+    performance_tick(value)
+        .and_then(|tick| tick.checked_sub(start))
+        .is_some_and(|elapsed| elapsed >= required)
+}
+
 enum Run {
     Normal,
     LargeSave,
@@ -395,6 +405,58 @@ impl Test<'_> {
             }
         }
         Ok(top)
+    }
+
+    /// Hold right for at least half a wall-clock second and 60 simulation
+    /// ticks. Slow software rendering can otherwise deliver far fewer ticks
+    /// during the fixed wall-clock hold. The deadline still detects a stalled
+    /// or unresponsive simulation; this is not an FPS measurement.
+    fn walk_for_half_sim_second(&self) -> Result<bool> {
+        self.b.js(&format!(
+            "const c = {CANVAS}; c.removeAttribute('data-cell-performance'); \
+             c.setAttribute('data-cell-performance-probe', '1'); return true;"
+        ))?;
+        let outcome = (|| {
+            if !self.wait_for(
+                &format!("{CANVAS}.getAttribute('data-cell-performance') !== null"),
+                5.0,
+            )? {
+                return Err("simulation tick telemetry did not start".into());
+            }
+            // Capture the tick and dispatch keydown in one browser task, so
+            // no simulation frame can slip between the baseline and input.
+            let pressed = self.b.js(&format!(
+                "const c = {CANVAS}; const tick = c.getAttribute('data-cell-performance'); \
+                 c.focus(); c.dispatchEvent(new KeyboardEvent('keydown', {{ bubbles: true, \
+                 cancelable: true, composed: true, code: 'KeyD', key: 'd' }})); return tick;"
+            ));
+            let held = pressed.and_then(|value| {
+                let start = value
+                    .as_str()
+                    .and_then(performance_tick)
+                    .ok_or("invalid simulation tick telemetry")?;
+                self.hold(0.5, false)?;
+                let deadline = Instant::now() + Duration::from_secs(4);
+                while Instant::now() < deadline {
+                    if self
+                        .attr("data-cell-performance")?
+                        .is_some_and(|value| ticks_advanced(start, &value, 60))
+                    {
+                        return Ok(true);
+                    }
+                    pump(0.05);
+                }
+                Ok(false)
+            });
+            // Release even if a WebDriver or telemetry operation failed.
+            let released = self.key("keyup", "KeyD", "d");
+            held.and_then(|advanced| released.map(|()| advanced))
+        })();
+        let cleared = self.b.js(&format!(
+            "const c = {CANVAS}; c.removeAttribute('data-cell-performance-probe'); \
+             c.removeAttribute('data-cell-performance'); return true;"
+        ));
+        outcome.and_then(|advanced| cleared.map(|_| advanced))
     }
 
     /// Wait until the crab stands still on the floor (or give up after 4 s).
@@ -807,9 +869,11 @@ impl Test<'_> {
         );
         self.hold(1.5, false)?;
 
-        self.key("keydown", "KeyD", "d")?;
-        self.hold(0.5, false)?;
-        self.key("keyup", "KeyD", "d")?;
+        let advanced = self.walk_for_half_sim_second()?;
+        self.check(
+            advanced,
+            "walking advances 60 simulation ticks within the deadline",
+        );
         let moved = self.rest()?;
         self.check(
             moved.0 > start.0 + 80.0,
@@ -1476,4 +1540,18 @@ fn button_centre(w: f64, h: f64, name: &str) -> (f64, f64) {
         bottom
     };
     (left + size / 2.0, bottom - size / 2.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn walk_tick_telemetry_requires_the_full_interval() {
+        assert!(!ticks_advanced(100, "159:0.016", 60));
+        assert!(ticks_advanced(100, "160:0.016", 60));
+        assert!(!ticks_advanced(100, "4:0.016", 60));
+        assert!(!ticks_advanced(100, "bad:0.016", 60));
+        assert!(!ticks_advanced(100, "160", 60));
+    }
 }
