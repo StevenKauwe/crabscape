@@ -270,7 +270,7 @@ fn flicker(
             .get(glow.crab)
             .map_or(1.0, |m| m.lantern_light_factor());
         let reach = (1.0 + BRIGHTER_PER_CULTURE * cultures) * factor;
-        let band = mover_band(&sim, crabs.get(glow.crab).ok());
+        let band = mover_bed(&sim, crabs.get(glow.crab).ok());
         let (tint, fade) = hued(band.lantern_tint, hues.get(glow.crab).ok());
         sprite.color = band_colour(WARM, tint)
             .with_alpha(glow.alpha * wave * (1.0 + 0.1 * cultures) * factor * fade);
@@ -296,7 +296,7 @@ fn fill_jars(
         });
     }
     for (core, mut sprite) in &mut cores {
-        let band = mover_band(&sim, movers.get(core.crab).ok());
+        let band = mover_bed(&sim, movers.get(core.crab).ok());
         let factor = movers
             .get(core.crab)
             .map_or(1.0, |m| m.lantern_light_factor());
@@ -308,6 +308,15 @@ fn fill_jars(
             sprite.custom_size = size;
         }
     }
+}
+
+/// The bed the crab's eyes are in, for the lantern's colour and the smell
+/// wisp: a pocket is the bed of the ground it is dug into (the home burrow is
+/// the shallows' own, warm). How far the light reaches stays the depth band's
+/// (`mover_band`), because sight is a rule and rules keep to depth.
+fn mover_bed<'a>(sim: &'a Sim, mover: Option<&Mover>) -> &'a crabsim::level::bands::Band {
+    let eye = mover.map_or(Vec2::ZERO, |m| m.pos + Vec2::Y * m.height(&sim.tuning));
+    sim.level.bed_at(eye)
 }
 
 /// Sample at the crab's eyes, exactly as memory does, including remote drawings.

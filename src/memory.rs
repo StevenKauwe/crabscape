@@ -566,7 +566,7 @@ fn show_scent_directions(
     let Some(sight) = known.sight else { return };
     let cultures = crab.single().map_or(0, |m| m.lantern_glow());
     let band = sim.level.band_at(sight.eye);
-    let colour = smell_colour(band.smell);
+    let colour = smell_colour(sim.level.bed_at(sight.eye).smell);
     let factor = crab.single().map_or(1.0, |m| m.lantern_light_factor());
     let cue_radius = crate::lantern::band_light_reach(&view_tuning, cultures, band) * 0.9 * factor;
     for (entity, wisp, mut at, mut shown, mut sprite) in &mut wisps {

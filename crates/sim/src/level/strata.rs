@@ -114,6 +114,13 @@ impl Level {
         })
     }
 
+    /// The pocket whose frame, or silt shaft, holds `pos` (muffling and the
+    /// place's own bed; never a rule).
+    pub fn pocket_at(&self, pos: Vec2) -> Option<&Pocket> {
+        self.pocket_refs()
+            .find(|p| p.frame.contains(pos) || shaft_interiors(p.name).any(|r| r.contains(pos)))
+    }
+
     /// Allocation-free geometry shared with the Tunnel landmarks.
     pub fn tunnel_interiors(&self) -> impl Iterator<Item = Rect> + '_ {
         self.pocket_refs()

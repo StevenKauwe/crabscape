@@ -635,3 +635,59 @@ impl crate::Sim {
         tells(self, id)
     }
 }
+
+// --- Hints: quiet, unexplained ---------------------------------------------------
+//
+// Three things hint at the depth below, found only by looking and listening:
+// a faint glow far below a crack in the canyon floor (a sight, no sound), a
+// carcass piece drifting up the seep shaft (a soft bone knock), and the odd
+// tunnel's cold draught (a thin low moan, only for a crab that has act three,
+// the same crab that sees the tunnel's other tells). All are pure functions
+// of the tick, so every player hears the same world.
+
+/// A rib piece in the seep shaft, 1.6 m (not verified).
+pub const RIB_LENGTH: f32 = 1.6 * crate::level::UNITS_PER_METRE;
+/// Seconds a rib piece pauses between its trips up the seep shaft.
+pub const RIB_PAUSE_SECS: f32 = 18.0;
+/// Where along its trip (0 to 1) the rib knocks against the shaft's wall.
+pub const RIB_KNOCKS: [f32; 2] = [0.35, 0.7];
+/// Seconds between the odd tunnel's moans while a crab is in its draught.
+pub const DRAUGHT_SECS: u64 = 5;
+/// How far (units) from the seep shaft a knock can be heard.
+pub const KNOCK_REACH: f32 = 1100.0;
+
+/// The seep shaft, found once by its name.
+pub fn seep_shaft() -> Option<Rect> {
+    static SHAFT: OnceLock<Option<Rect>> = OnceLock::new();
+    *SHAFT.get_or_init(|| {
+        Level::test_level()
+            .landmarks()
+            .into_iter()
+            .find(|l| l.name == "seep shaft")
+            .map(|l| l.rect)
+    })
+}
+
+/// Seconds the rib takes up a shaft `height` units tall (a rib piece
+/// `rib_length` long enters below it and leaves above it).
+pub fn rib_run_secs(height: f32, rib_length: f32) -> f32 {
+    (height + rib_length) / crate::chimney::SEEP_SPEED
+}
+
+/// The rib's trip clock at `tick`: how many seconds into the cycle (a trip,
+/// then the pause), and whether it is on its trip.
+pub fn rib_phase(tick: u64, run_secs: f32) -> (f32, bool) {
+    let cycle = run_secs + RIB_PAUSE_SECS;
+    let secs = (tick as f32 * STEP) % cycle;
+    (secs, secs < run_secs)
+}
+
+/// True on the one tick of each trip when the rib knocks (see [`RIB_KNOCKS`]).
+pub fn rib_knocks(tick: u64, run_secs: f32) -> bool {
+    let (secs, _) = rib_phase(tick, run_secs);
+    let (before, _) = rib_phase(tick.saturating_sub(1), run_secs);
+    RIB_KNOCKS.iter().any(|&k| {
+        let at = k * run_secs;
+        tick > 0 && before < at && secs >= at
+    })
+}

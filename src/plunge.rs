@@ -45,7 +45,7 @@ const CARCASS_LENGTH: f32 = 13.0 * 625.0;
 const ANGLER_LENGTH: f32 = 0.6 * 625.0;
 const PREY_LENGTH: f32 = 0.15 * 625.0;
 /// A rib piece in the seep shaft, 1.6 m (not verified).
-const RIB_LENGTH: f32 = 1.6 * 625.0;
+const RIB_LENGTH: f32 = plunge::RIB_LENGTH;
 const Z: f32 = 2.0;
 
 pub struct PlungePlugin;
@@ -611,6 +611,7 @@ fn spawn_hints(mut commands: Commands, soft: Res<SoftTextures>) {
 }
 
 fn show_hints(
+    sim: Res<Sim>,
     time: Res<Time>,
     local: Single<&Transform, (With<LocalPlayer>, Without<Hint>)>,
     mut hints: Query<(&Hint, &mut Transform, &mut Sprite, &mut Visibility)>,
@@ -633,11 +634,11 @@ fn show_hints(
             }
             Hint::Rib(shaft) => {
                 // Up the shaft at the seep's own speed, then a long pause.
+                // The sim's own clock, so what is heard (the knocks) is what is seen.
                 let speed = crabsim::chimney::SEEP_SPEED;
-                let run = (shaft.height() + RIB_LENGTH) / speed;
-                let phase = t % (run + 18.0);
+                let run = plunge::rib_run_secs(shaft.height(), RIB_LENGTH);
+                let (phase, moving) = plunge::rib_phase(sim.tick_count(), run);
                 let near = at.distance(shaft.center()) < 1100.0;
-                let moving = phase < run;
                 shown.set_if_neq(if near && moving {
                     Visibility::Inherited
                 } else {
