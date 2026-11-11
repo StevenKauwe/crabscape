@@ -161,23 +161,22 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
         Kind::Mouth,
     );
 
-    let (_, octopus_den) = level
+    // A level without these authored parts (a test's variant) simply has no
+    // such chamber: other rules call `landmarks()` and must never panic.
+    let den = level
         .foes
         .iter()
         .find(|(kind, _)| *kind == enemy::Kind::Octopus)
-        .expect("the authored level has an octopus den");
-    // The pickup uses the octopus's home position plus four units (world.rs).
-    let midden = *octopus_den + Vec2::new(0.0, 4.0);
-    let egg = level.eggs[4];
-    let cave = *level
-        .secrets
-        .iter()
-        .find(|rect| rect.contains(egg))
-        .expect("the fifth egg is inside the far-wall cave");
-    for (name, rect, prize) in [
-        ("octopus den", level.den, midden),
-        ("far-wall cave", cave, egg),
-    ] {
+        // The pickup uses the octopus's home position plus four units (world.rs).
+        .map(|(_, home)| ("octopus den", level.den, *home + Vec2::new(0.0, 4.0)));
+    let cave = level.eggs.get(4).and_then(|&egg| {
+        level
+            .secrets
+            .iter()
+            .find(|rect| rect.contains(egg))
+            .map(|&rect| ("far-wall cave", rect, egg))
+    });
+    for (name, rect, prize) in den.into_iter().chain(cave) {
         let door = Rect::new(rect.min.x, rect.min.y, rect.min.x + 20.0, rect.max.y);
         add(name.into(), rect, Kind::Chamber { door, prize });
     }
