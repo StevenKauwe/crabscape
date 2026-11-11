@@ -120,7 +120,7 @@ impl Persistence {
             previous.slot(),
             Operation::Save,
             Work::Save {
-                previous,
+                previous: Box::new(previous),
                 profile,
                 frozen,
             },
@@ -223,7 +223,7 @@ enum Work {
         text: String,
     },
     Save {
-        previous: Loaded,
+        previous: Box<Loaded>,
         profile: Value,
         frozen: Value,
     },

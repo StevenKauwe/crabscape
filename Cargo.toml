@@ -99,16 +99,21 @@ miniz_oxide = { version = "0.8", default-features = false, features = ["with-all
 # default features that fork processes, and not for the browser target, where nothing runs tests.
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 proptest = { version = "1.12", default-features = false, features = ["std"] }
+matchbox_signaling = "0.14"
+dragon-peer = { path = "crates/dragon-peer", features = ["loopback-test"] }
 
 # On the desktop, let Bevy use several CPU cores. (The web build stays
 # single-threaded: browser threads need extra server setup.)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+dragon-peer = { path = "crates/dragon-peer", features = ["native"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time", "net"] }
 time = { version = "0.3.55", features = ["local-offset"] }
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 rfd = "0.17"
 bevy = { version = "0.20.0", default-features = false, features = ["multi_threaded"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+dragon-peer = { path = "crates/dragon-peer" }
 # Browser APIs: localStorage for saving, the touch-screen check, a small
 # status attribute on the <canvas> that the WebKit test reads, and Web Audio
 # for the sounds (made in Rust, see src/sound.rs). wasm-bindgen (already

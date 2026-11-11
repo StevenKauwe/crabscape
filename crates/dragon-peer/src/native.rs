@@ -46,6 +46,26 @@ impl NativePeer {
         Self::connect_with_ice(introducer, build, code, RtcIceServerConfig::default())
     }
 
+    #[cfg(feature = "loopback-test")]
+    pub fn connect_host_only(
+        introducer: &str,
+        build: &str,
+        code: &str,
+    ) -> Result<(Self, MessageLoopFuture), &'static str> {
+        if !introducer.starts_with("ws://127.0.0.1:") {
+            return Err("Host-only test requires loopback introducer");
+        }
+        Self::connect_with_ice(
+            introducer,
+            build,
+            code,
+            RtcIceServerConfig {
+                urls: Vec::new(),
+                username: None,
+                credential: None,
+            },
+        )
+    }
     fn connect_with_ice(
         introducer: &str,
         build: &str,

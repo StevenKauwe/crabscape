@@ -319,3 +319,49 @@ fn changing_look_keeps_import_identity_progress_and_adventure_random_stream() {
         b.game.as_ref().unwrap().rng.state
     );
 }
+
+#[test]
+fn shared_flight_owns_one_game_and_preserves_profile_on_pause_and_retire() {
+    use dragon_game::authority::Authority;
+    let mut a = start(json!({"seenIntro":true,"briefed":["m1"],"rid":"local-rider"}));
+    a.choose_mission("m1", false).unwrap();
+    let original = a.profile().clone();
+    let authority = Authority {
+        guest: false,
+        host_peer: None,
+        host_rider: 2,
+        epoch: 1,
+    };
+    assert!(
+        a.share_flight(String::new(), 2, "run1".into(), authority.clone())
+            .is_err()
+    );
+    assert!(a.game.is_some());
+    a.share_flight("fixture-peer".into(), 2, "run1".into(), authority)
+        .unwrap();
+    assert!(a.game.is_none());
+    assert!(a.game().is_some());
+    a.tick(0.02, Input::default(), view(), clock(100)).unwrap();
+    let position = (a.game().unwrap().player.x, a.game().unwrap().player.y);
+    a.pause();
+    a.tick(
+        0.02,
+        Input {
+            right: true,
+            ..Default::default()
+        },
+        view(),
+        clock(120),
+    )
+    .unwrap();
+    assert_eq!(
+        (a.game().unwrap().player.x, a.game().unwrap().player.y),
+        position
+    );
+    assert!(!a.drain_network_outbound().is_empty());
+    a.to_roost().unwrap();
+    assert!(a.game().is_none());
+    assert!(a.shared.is_none());
+    assert_eq!(a.profile()["rid"], original["rid"]);
+    assert_eq!(a.profile()["party"], original["party"]);
+}

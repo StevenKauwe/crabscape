@@ -76,6 +76,7 @@ mod browser {
         ended: Rc<Cell<bool>>,
         session: Session<PeerId>,
         voice: voice::browser::Voice,
+        data_only: bool,
     }
 
     #[wasm_bindgen]
@@ -100,9 +101,20 @@ mod browser {
                 ended,
                 session: Session::default(),
                 voice: voice::browser::Voice::new(),
+                data_only: false,
             })
         }
 
+        /// Native-adventure data-only connection: no voice signaling, playback or microphone.
+        pub fn without_voice(
+            introducer: &str,
+            build: &str,
+            code: &str,
+        ) -> Result<DragonPeer, JsValue> {
+            let mut peer = Self::new(introducer, build, code)?;
+            peer.data_only = true;
+            Ok(peer)
+        }
         /// The source id always comes from Matchbox, never from a payload supplied by a player.
         pub fn poll(&mut self) -> String {
             let mut events = Vec::new();
@@ -145,9 +157,11 @@ mod browser {
                     );
                 }
             }
-            self.voice.sync(self.socket.id(), &self.session.compatible);
+            if !self.data_only {
+                self.voice.sync(self.socket.id(), &self.session.compatible);
+            }
             for (peer, bytes) in self.socket.channel_mut(2).receive().into_iter().take(128) {
-                if self.session.compatible.contains(&peer) {
+                if !self.data_only && self.session.compatible.contains(&peer) {
                     self.voice.hear(peer, &bytes);
                 }
             }
@@ -166,12 +180,14 @@ mod browser {
 
         /// Playback can be enabled without asking for microphone access.
         pub fn listen(&self) {
-            self.voice.listen();
+            if !self.data_only {
+                self.voice.listen();
+            }
         }
 
         /// Called only by an explicit microphone button click, never by reconnection.
         pub fn microphone(&mut self, on: bool) {
-            if !on || (self.socket.id().is_some() && !self.ended.get()) {
+            if !self.data_only && (!on || (self.socket.id().is_some() && !self.ended.get())) {
                 self.voice.mic(on);
             }
         }

@@ -316,7 +316,7 @@ impl AdventureUi {
                 }
             }
             "play" | "pause" => {
-                if let Some(game) = &adventure.game {
+                if let Some(game) = adventure.game() {
                     ui.label(format!(
                         "{} · Hearts {} · Energy {:.0} · Gems {:.0}",
                         game.definition.name,
@@ -347,7 +347,7 @@ impl AdventureUi {
                     controls.special = ui.button("Special").clicked();
                     controls.swap = ui.button("Swap").clicked();
                 });
-                if let Some(game) = &adventure.game {
+                if let Some(game) = adventure.game() {
                     ui.horizontal_wrapped(|ui| {
                         for spell in game.active_words() {
                             if ui.button(spell.key()).clicked() {

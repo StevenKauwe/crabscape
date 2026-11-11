@@ -37,7 +37,7 @@ pixel equality. One viewport/realm/song backdrop is cached and dynamic outer buf
 are reused, but nested paths/paints and dynamic meshes still allocate per frame. No
 phone performance improvement is claimed or measured. Headless Bevy ECS startup/input/pause tests
 run without opening windows. Actual rendering and feel still need visual verification.
-There is no live Dragon network connection yet. Boarding the castle dragon turns off
+The adventure now offers an explicit data-only room connection. Boarding the castle dragon turns off
 CrabScape microphone capture and transcription, drops pending transcription results,
 and rejects late microphone permission callbacks. Returning does not turn the mic on.
 
@@ -56,7 +56,7 @@ and rejects late microphone permission callbacks. Returning does not turn the mi
   retirement and success/failure results. Normalized profile parties, wings, crafts,
   skills, charms, specials and spells are integrated. Completion mutates the
   profile, with separate checkpoints in the castle route. Champion variants and milestone wild allies are integrated;
-  live co-op is not yet integrated.
+  live co-op uses the same owned Game through the shared Session adapter.
 - All specials, eight spells and Daddio powers, with explicit ordered world effects.
 - Roost hatch/release/milestones and source completion rewards, with injected time,
   day and RNG. The mission harness uses synthetic day/time. Adventure obtains the
@@ -148,7 +148,7 @@ must record inputs, frame times, viewport/HUD geometry, initial state and random
 The current Rust seed is not a replay of a browser Math.random session: cosmetic draws
 are not all consumed. Do not claim fixed-tick or full-world identity from isolated tests.
 
-Before replacing the JS game: complete live co-op integration,
+Before replacing the JS game: complete party readiness/countdown, cross-browser/native co-op validation,
 full rewards/roost/story/egg UI and
 multiplayer; reproduce presentation and controls; compare complete interrupted and
 repeated play flows on phones and desktop; verify browser/native sessions; implement an
@@ -214,3 +214,27 @@ IndexedDB transaction races, quota failure, malformed preservation and freeze ex
 Actual isolated Chromium ran the storage adapter; full root journey screenshots,
 phone controls/performance and browser/native live co-op remain validation gates.
 The home-server disk format remains unverified.
+
+## Live-room increment
+
+The native adventure can opt into a code-named data-only Matchbox room before a
+mission. Native and WASM use CrabScape's introducer and the Dragon channel protocol,
+with an exact-build packet guard and a separate commit-prefixed room namespace.
+They do not silently join legacy JS rooms or an existing CrabScape room. Browser
+voice signaling/playback/microphone are disabled for this connection.
+
+The adapter admits transport peers, rejects conflicting rider slots, discovers an
+existing mission host/run, and wraps the already-launched Game in coop::Session.
+It preserves local profile ownership, keeps paused presence while visiting the castle,
+flushes final packets before mission retirement, and provides explicit leave-to-roost.
+Partner lead-dragon/rider rendering and normalized position interpolation are wired;
+complete follower/trail/presentation-effect parity remains unfinished.
+
+An explicit localhost-only test establishes two real native WebRTC clients, joins a
+shared Adventure, checks host/guest/run/profile ownership, and verifies takeover after
+host disconnect. It uses no public signaling, STUN, GUI, audio or real saves. The
+fixture waits for first server admission before joining: upstream full_mesh separates
+its room snapshot and insertion locks, and simultaneous first arrivals were observed
+with IDs but no peer connection. This does not establish the production server's
+implementation or prove browser/native interoperability. Party Ready/countdown,
+mobile controls, rendered journey QA and full audio/narration remain open gates.

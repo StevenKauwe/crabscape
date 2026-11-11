@@ -2,6 +2,7 @@
 //! This module never discovers or overwrites browser saves.
 pub(crate) mod art;
 mod builder;
+mod network;
 mod persistence;
 mod storage;
 mod ui;
@@ -39,6 +40,7 @@ pub struct Valmora {
     checkpoint_elapsed: f64,
     menu_frozen: Option<Value>,
     import_text: String,
+    room_code: String,
 }
 impl Valmora {
     pub fn owns_input(&self) -> bool {
@@ -203,7 +205,8 @@ pub struct ValmoraPlugin;
 pub(crate) struct CaptureInput;
 impl Plugin for ValmoraPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Valmora>()
+        app.init_non_send::<network::Connection>()
+            .init_resource::<Valmora>()
             .add_systems(
                 PreUpdate,
                 capture_input
@@ -285,12 +288,41 @@ fn clock() -> Option<Clock> {
     };
     Some(Clock { now_ms, day })
 }
-fn update(time: Res<Time>, windows: Query<&Window>, mut state: ResMut<Valmora>) {
+fn update(
+    time: Res<Time>,
+    windows: Query<&Window>,
+    mut state: ResMut<Valmora>,
+    mut network: NonSendMut<network::Connection>,
+) {
     if let (Ok(window), Some(now)) = (windows.single(), clock()) {
         state.poll_storage(viewport(window), now);
         state.checkpoint(time.delta_secs_f64());
     }
+    if let (Some(lobby), Some(adventure), Some(now)) =
+        (&mut network.0, &mut state.adventure, clock())
+    {
+        lobby.poll(adventure, now.now_ms as f64 / 1000.);
+        if let Err(error) = lobby.attach_flight(adventure, now.now_ms) {
+            let events = adventure.pause();
+            state.ui.events(events);
+            state.ui.notice = error;
+        }
+    }
     if !state.active {
+        if let (Some(lobby), Some(adventure), Some(now), Ok(window)) = (
+            &mut network.0,
+            &mut state.adventure,
+            clock(),
+            windows.single(),
+        ) {
+            let _ = adventure.tick(
+                time.delta_secs_f64(),
+                Input::default(),
+                viewport(window),
+                now,
+            );
+            lobby.flush(adventure);
+        }
         return;
     }
     if state.return_requested {
@@ -315,11 +347,12 @@ fn update(time: Res<Time>, windows: Query<&Window>, mut state: ResMut<Valmora>) 
         return;
     };
     let frame_dt = time.delta_secs_f64().clamp(0., 0.05);
-    let stopped = adventure.game.as_ref().is_some_and(|g| g.hit_stop > 0.);
+    let stopped = adventure.game().is_some_and(|g| g.hit_stop > 0.);
     let animation_dt = if stopped { 0. } else { frame_dt };
     if stopped
+        && adventure.shared.is_none()
         && adventure.state() != "play"
-        && let Some(game) = adventure.game.as_mut()
+        && let Some(game) = adventure.game_mut()
     {
         game.hit_stop -= frame_dt;
     }
@@ -355,10 +388,8 @@ fn update(time: Res<Time>, windows: Query<&Window>, mut state: ResMut<Valmora>) 
             adventure.pause()
         });
     }
-    if let Some(game) = adventure
-        .game
-        .as_mut()
-        .filter(|_| adventure.gate.state == "play")
+    if adventure.gate.state == "play"
+        && let Some(game) = adventure.game_mut()
     {
         if keys.just_pressed(KeyCode::KeyF) || s.controls.special {
             game.special();
@@ -414,10 +445,26 @@ fn update(time: Res<Time>, windows: Query<&Window>, mut state: ResMut<Valmora>) 
         Ok(events) => s.ui.events(events),
         Err(error) => s.ui.notice = format!("{error:?}"),
     }
+    if let Some(session) = &mut adventure.shared {
+        let view = viewport(window);
+        let k = (time.delta_secs_f64().clamp(0., 0.05) * 10.).min(1.);
+        for ghost in session.ghosts.values_mut() {
+            let target = [
+                ghost.target[0] * view.width,
+                view.top_limit + ghost.target[1] * (view.ground_y - view.top_limit),
+            ];
+            let position = ghost.position.get_or_insert(target);
+            position[0] += (target[0] - position[0]) * k;
+            position[1] += (target[1] - position[1]) * k;
+        }
+    }
+    if let Some(lobby) = &mut network.0 {
+        lobby.flush(adventure);
+    }
     s.animation_time += animation_dt;
-    let dizzy = adventure.game.as_ref().is_some_and(|g| g.player.dizzy > 0.);
+    let dizzy = adventure.game().is_some_and(|g| g.player.dizzy > 0.);
     s.flap_time += animation_dt * if dizzy { 0.4 } else { 1. };
-    if let Some(game) = adventure.game.as_mut() {
+    if let Some(game) = adventure.game_mut() {
         if game.squash > 0. {
             game.squash -= animation_dt * 2.2;
         }
@@ -430,7 +477,12 @@ fn update(time: Res<Time>, windows: Query<&Window>, mut state: ResMut<Valmora>) 
     s.controls.special = false;
     s.controls.swap = false;
 }
-fn draw(mut contexts: EguiContexts, windows: Query<&Window>, mut state: ResMut<Valmora>) {
+fn draw(
+    mut contexts: EguiContexts,
+    windows: Query<&Window>,
+    mut state: ResMut<Valmora>,
+    mut network: NonSendMut<network::Connection>,
+) {
     if !state.active {
         return;
     }
@@ -554,7 +606,7 @@ fn draw(mut contexts: EguiContexts, windows: Query<&Window>, mut state: ResMut<V
         .fixed_pos(egui::Pos2::ZERO)
         .show(ctx, |ui| {
             ui.set_min_size(ctx.content_rect().size());
-            if let Some(game) = &adventure.game {
+            if let Some(game) = adventure.game() {
                 let p = ui.painter();
                 art::paint_game(
                     p,
@@ -565,6 +617,9 @@ fn draw(mut contexts: EguiContexts, windows: Query<&Window>, mut state: ResMut<V
                     s.flap_time,
                     game.squash,
                 );
+            }
+            if let (Some(lobby), Some(session)) = (&network.0, &adventure.shared) {
+                lobby.paint_partners(ui.painter(), session, s.animation_time, viewport(window));
             }
             if s.persistent {
                 if s.persistence.needs_reload() {
@@ -616,6 +671,30 @@ fn draw(mut contexts: EguiContexts, windows: Query<&Window>, mut state: ResMut<V
                     }
                 });
             }
+            ui.horizontal(|ui| {
+                if let Some(lobby) = &network.0 {
+                    ui.label(&lobby.notice);
+                    if ui.button("Leave room and return to roost").clicked() {
+                        network.0 = None;
+                        match adventure.to_roost() {
+                            Ok(events) => s.ui.events(events),
+                            Err(error) => s.ui.notice = format!("{error:?}"),
+                        }
+                    }
+                } else if adventure.game().is_none() {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut s.room_code)
+                            .hint_text("Room code")
+                            .char_limit(16),
+                    );
+                    if ui.button("Join data-only room").clicked() {
+                        match network::Lobby::connect(s.room_code.trim(), s.rider) {
+                            Ok(lobby) => network.0 = Some(lobby),
+                            Err(error) => s.ui.notice = error,
+                        }
+                    }
+                }
+            });
             s.controls = s.ui.draw(ui, adventure, clock);
             s.return_requested |= s.controls.return_home;
             if s.controls.edit_rider {
@@ -663,7 +742,7 @@ mod tests {
             )
             .unwrap();
         let before = adventure.profile().clone();
-        let position = adventure.game.as_ref().map(|g| (g.player.x, g.player.y));
+        let position = adventure.game().map(|g| (g.player.x, g.player.y));
         state.controls.fire = true;
         state.input.fire = true;
         state.suspend();
@@ -671,10 +750,7 @@ mod tests {
         assert!(!state.controls.fire && !state.input.fire);
         let adventure = state.adventure.as_ref().unwrap();
         assert_eq!(adventure.profile(), &before);
-        assert_eq!(
-            adventure.game.as_ref().map(|g| (g.player.x, g.player.y)),
-            position
-        );
+        assert_eq!(adventure.game().map(|g| (g.player.x, g.player.y)), position);
         assert_eq!(adventure.state(), "pause");
     }
     #[test]

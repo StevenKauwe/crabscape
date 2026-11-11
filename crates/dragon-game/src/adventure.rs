@@ -110,6 +110,8 @@ pub struct Adventure {
     profile: Value,
     pub others: Vec<Value>,
     pub game: Option<Game>,
+    pub shared: Option<crate::coop::Session>,
+    network_outbound: Vec<crate::coop::Outbound>,
     pub gate: Gate,
     pub roost: Roost,
     pub result: Option<ResultSummary>,
@@ -149,6 +151,8 @@ impl Adventure {
             profile,
             others,
             game: None,
+            shared: None,
+            network_outbound: Vec::new(),
             gate: Gate::new(rider_index, false),
             roost: Roost::default(),
             result: None,
@@ -171,13 +175,58 @@ impl Adventure {
     }
     /// Active flights own their profile directly; no whole-profile clone per frame.
     pub fn profile(&self) -> &Value {
-        self.game
-            .as_ref()
+        self.game()
             .and_then(|g| g.profile.as_ref())
             .unwrap_or(&self.profile)
     }
+    pub fn game(&self) -> Option<&Game> {
+        self.shared
+            .as_ref()
+            .map(|session| &session.game)
+            .or(self.game.as_ref())
+    }
+    pub fn game_mut(&mut self) -> Option<&mut Game> {
+        self.shared
+            .as_mut()
+            .map(|session| &mut session.game)
+            .or(self.game.as_mut())
+    }
+    fn take_game(&mut self) -> Option<Game> {
+        if let Some(mut session) = self.shared.take() {
+            self.network_outbound.extend(session.drain_outbound());
+            Some(session.game)
+        } else {
+            self.game.take()
+        }
+    }
+    /// Attach transport identity only after a valid local mission launch. Validation
+    /// occurs before moving Game, so rejected room data cannot discard progression.
+    pub fn share_flight(
+        &mut self,
+        peer: String,
+        rider: usize,
+        run: String,
+        authority: crate::authority::Authority,
+    ) -> Result<(), Error> {
+        if self.shared.is_some() || self.game.is_none() || self.state() != "play" {
+            return Err(Error::InvalidState);
+        }
+        crate::coop::Session::validate_identity(&peer, rider, &run, &authority)
+            .map_err(Error::Runtime)?;
+        let game = self.game.take().expect("validated local flight");
+        self.shared = Some(
+            crate::coop::Session::new(game, peer, rider, run, authority).map_err(Error::Runtime)?,
+        );
+        Ok(())
+    }
+    pub fn drain_network_outbound(&mut self) -> Vec<crate::coop::Outbound> {
+        if let Some(session) = &mut self.shared {
+            self.network_outbound.extend(session.drain_outbound());
+        }
+        std::mem::take(&mut self.network_outbound)
+    }
     fn retire_game(&mut self) {
-        if let Some(g) = self.game.take() {
+        if let Some(g) = self.take_game() {
             if let Some(p) = g.profile {
                 self.profile = p;
             }
@@ -189,7 +238,7 @@ impl Adventure {
     }
     /// Apply finishBuild's edit branch without resetting adventure RNG or original import.
     pub fn change_look(&mut self, draft: &Value, now_ms: u64) -> Result<Vec<Event>, Error> {
-        if !matches!(self.state(), "roost" | "skills") || self.game.is_some() {
+        if !matches!(self.state(), "roost" | "skills") || self.game().is_some() {
             return Err(Error::InvalidState);
         }
         let build = crate::profile::clean_build(draft).map_err(|_| Error::InvalidProfile)?;
@@ -475,7 +524,7 @@ impl Adventure {
         )
     }
     fn finish_game(&mut self) -> Result<Vec<Event>, Error> {
-        let g = self.game.take().ok_or(Error::InvalidState)?;
+        let g = self.take_game().ok_or(Error::InvalidState)?;
         let won = g.result.ok_or(Error::InvalidState)?;
         self.profile = g.profile.ok_or(Error::InvalidProfile)?;
         self.rng = g.rng;
@@ -524,7 +573,12 @@ impl Adventure {
         clock: Clock,
     ) -> Result<Vec<Event>, Error> {
         self.view = view;
-        let active = if let Some(g) = self.game.as_mut() {
+        let active = if let Some(g) = self
+            .shared
+            .as_mut()
+            .map(|session| &mut session.game)
+            .or(self.game.as_mut())
+        {
             g.profile.as_mut().ok_or(Error::InvalidProfile)?
         } else {
             &mut self.profile
@@ -533,16 +587,28 @@ impl Adventure {
             .gate
             .advance(active, clock.now_ms as f64, || self.rng.next_unit())?;
         let mut e = self.gate_effects(gate_events, clock)?;
-        if self.state() == "play" {
+        let playing = self.state() == "play";
+        if let Some(session) = &mut self.shared {
+            session.game.completion_day = clock.day;
+            session.game.completion_now_ms = clock.now_ms;
+            session
+                .step(elapsed, input, view, clock.now_ms as f64 / 1000., !playing)
+                .map_err(Error::Runtime)?;
+        } else if playing {
             let g = self.game.as_mut().ok_or(Error::InvalidState)?;
             g.completion_day = clock.day;
             g.completion_now_ms = clock.now_ms;
             g.step(elapsed, input, view).map_err(Error::Runtime)?;
+        }
+        if playing {
+            let g = self.game().ok_or(Error::InvalidState)?;
             if g.profile.is_none() {
                 return Err(Error::InvalidProfile);
             }
-            self.rng = g.rng;
-            if g.result.is_some() {
+            let rng = g.rng;
+            let finished = g.result.is_some();
+            self.rng = rng;
+            if finished {
                 e.extend(self.finish_game()?);
             }
         }
@@ -554,8 +620,10 @@ impl Adventure {
     }
     pub fn wake_egg(&mut self, clock: Clock) -> Result<Vec<Event>, Error> {
         let active = self
-            .game
+            .shared
             .as_ref()
+            .map(|session| &session.game)
+            .or(self.game.as_ref())
             .and_then(|g| g.profile.as_ref())
             .unwrap_or(&self.profile);
         let e = self
