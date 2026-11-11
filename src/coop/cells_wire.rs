@@ -657,6 +657,7 @@ pub(crate) fn delegated_step(
     partial: usize,
     backup_pending: bool,
     ahead_limit: bool,
+    region_requested: bool,
 ) -> DelegatedStep {
     if stopping && partial == 0 {
         if stop_acknowledged || backup_pending {
@@ -664,7 +665,7 @@ pub(crate) fn delegated_step(
         } else {
             DelegatedStep::FinishStop
         }
-    } else if !enabled || ahead_limit {
+    } else if !enabled || ahead_limit || (region_requested && partial == 0) {
         DelegatedStep::Wait
     } else {
         DelegatedStep::Advance
@@ -676,32 +677,80 @@ mod delegated_stop_tests {
 
     #[test]
     fn installed_authority_stops_before_first_drive_and_only_acknowledges_once() {
-        assert_eq!(delegated_step(false, false, false, 0, false, false), Wait);
+        assert_eq!(
+            delegated_step(false, false, false, 0, false, false, false),
+            Wait
+        );
         // Ready is sent, then Home/regrant requests Stop before any Drive arrives.
         assert_eq!(
-            delegated_step(false, true, false, 0, false, false),
+            delegated_step(false, true, false, 0, false, false, false),
             FinishStop
         );
-        assert_eq!(delegated_step(false, true, true, 0, false, false), Wait);
-        // A later Drive starts a new running interval; a subsequent Stop works.
-        assert_eq!(delegated_step(true, false, false, 0, false, false), Advance);
         assert_eq!(
-            delegated_step(true, true, false, 0, false, false),
+            delegated_step(false, true, true, 0, false, false, false),
+            Wait
+        );
+        // A later Drive starts a new running interval; a subsequent Stop works.
+        assert_eq!(
+            delegated_step(true, false, false, 0, false, false, false),
+            Advance
+        );
+        assert_eq!(
+            delegated_step(true, true, false, 0, false, false, false),
             FinishStop
         );
     }
 
     #[test]
-    fn stop_preserves_batch_and_backup_boundaries_without_needing_tick_credit() {
-        assert_eq!(delegated_step(true, true, false, 2, false, false), Advance);
-        assert_eq!(delegated_step(true, true, false, 2, false, true), Wait);
-        assert_eq!(delegated_step(true, true, false, 0, true, true), Wait);
-        // Once the checkpoint is acknowledged, no extra simulation input is needed.
+    fn boundary_request_waits_for_ordered_stop_and_new_lease() {
+        // A full batch reported a needed lease. Even with credit and more
+        // Drive messages, it cannot walk out while the Stop is in flight.
         assert_eq!(
-            delegated_step(true, true, false, 0, false, true),
+            delegated_step(true, false, false, 0, false, false, true),
+            Wait
+        );
+        // Stopping remains possible without any further simulation steps.
+        assert_eq!(
+            delegated_step(true, true, false, 0, false, false, true),
             FinishStop
         );
-        assert_eq!(delegated_step(false, true, true, 0, false, true), Wait);
-        assert_eq!(delegated_step(true, false, false, 0, false, true), Wait);
+        assert_eq!(
+            delegated_step(false, true, true, 0, false, false, true),
+            Wait
+        );
+        // A newly installed lease starts with the request flag cleared.
+        assert_eq!(
+            delegated_step(true, false, false, 0, false, false, false),
+            Advance
+        );
+    }
+
+    #[test]
+    fn stop_preserves_batch_and_backup_boundaries_without_needing_tick_credit() {
+        assert_eq!(
+            delegated_step(true, true, false, 2, false, false, false),
+            Advance
+        );
+        assert_eq!(
+            delegated_step(true, true, false, 2, false, true, false),
+            Wait
+        );
+        assert_eq!(
+            delegated_step(true, true, false, 0, true, true, false),
+            Wait
+        );
+        // Once the checkpoint is acknowledged, no extra simulation input is needed.
+        assert_eq!(
+            delegated_step(true, true, false, 0, false, true, false),
+            FinishStop
+        );
+        assert_eq!(
+            delegated_step(false, true, true, 0, false, true, false),
+            Wait
+        );
+        assert_eq!(
+            delegated_step(true, false, false, 0, false, true, false),
+            Wait
+        );
     }
 }

@@ -171,6 +171,7 @@ pub(super) fn step(
         r.partial.len(),
         r.backup.is_some(),
         sim.tick_count().saturating_sub(r.applied) >= MAX_AHEAD,
+        m.region_requested,
     ) {
         DelegatedStep::Wait => return Ok(()),
         DelegatedStep::FinishStop => {
@@ -258,6 +259,10 @@ pub(super) fn step(
                 needs_region,
             },
         )?;
+        // At this complete batch boundary, hold until the owner stops and
+        // regrants the region. Extra in-flight Drive messages must not carry
+        // the authority past the lease while that request is in transit.
+        m.region_requested |= needs_region;
     }
     Ok(())
 }
