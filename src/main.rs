@@ -99,6 +99,7 @@ mod food;
 mod gather_ui;
 mod go_home;
 mod home;
+mod home_pieces;
 mod impact;
 mod input;
 mod interior;
@@ -139,6 +140,7 @@ mod triggerfish;
 mod tuning;
 mod view;
 mod voice;
+mod wants_ui;
 
 use bevy::asset::AssetMetaCheck;
 use bevy::prelude::*;
@@ -223,6 +225,7 @@ fn run_app() {
     .add_plugins(triggerfish::TriggerfishPlugin)
     .add_plugins(bestiary::BestiaryPlugin)
     .add_plugins(alarm_jelly::AlarmJellyPlugin)
+    .add_plugins((home_pieces::HomePiecesPlugin, wants_ui::WantsUiPlugin))
     .add_plugins((
         critters::CrittersPlugin,
         deep::DeepPlugin,

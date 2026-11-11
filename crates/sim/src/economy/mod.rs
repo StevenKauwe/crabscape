@@ -29,7 +29,7 @@ pub mod xp;
 
 pub use food::{Buff, Food};
 pub use gear::{Gear, Slot, Station, Tool, ToolKind, Worn};
-pub use home::Piece;
+pub use home::{PIECES, Piece, PieceDef};
 pub use items::Item;
 pub use nodes::{NODES, NodeDef, NodeKind};
 pub use place::{NodeSpot, PlacedNode};

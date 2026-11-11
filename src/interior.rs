@@ -22,7 +22,8 @@ use bevy::prelude::*;
 use crabsim::craft::CantMakeEcon;
 use crabsim::economy::beds::BedAction;
 use crabsim::economy::recipes::{Bench, Output};
-use crabsim::economy::{ECON_RECIPES, EconRecipe};
+use crabsim::economy::wants::{Source, Want};
+use crabsim::economy::{ECON_RECIPES, EconRecipe, PIECES, Piece};
 use crabsim::level::Place;
 use crabsim::{
     CantMake, Feat, Item, Material, Mover, RECIPES, Recipe, Shelter, Sim, SimCrab, Skill, Stash,
@@ -62,6 +63,8 @@ const GRIT: Color = Color::srgb(0.62, 0.58, 0.50);
 const FLARE: Color = Color::srgb(0.56, 0.50, 0.41);
 const TOOTH: Color = Color::srgb(0.60, 0.56, 0.48);
 const VALVE: Color = Color::srgb(0.74, 0.70, 0.62);
+const STONE_INK: Color = Color::srgb(0.04, 0.07, 0.08);
+const NODULE: Color = Color::srgb(0.46, 0.30, 0.22);
 const WILD: Color = Color::srgb(0.35, 0.95, 0.80);
 
 /// Is the local crab inside its home shell (tucked in, out of sight), so
@@ -81,7 +84,11 @@ struct Pick(usize);
 /// The workbench's tabs, left to right.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 enum Tab {
+    /// The task board: what is one thing away, and what opens next.
     #[default]
+    Wants,
+    /// The home's pieces, built together.
+    Home,
     Make,
     Cook,
     Shellcraft,
@@ -91,7 +98,9 @@ enum Tab {
     Repair,
 }
 
-const TABS: [Tab; 7] = [
+const TABS: [Tab; 9] = [
+    Tab::Wants,
+    Tab::Home,
     Tab::Make,
     Tab::Cook,
     Tab::Shellcraft,
@@ -102,16 +111,18 @@ const TABS: [Tab; 7] = [
 ];
 
 impl Tab {
-    /// The tab's word (Shellcraft is "Shell" so seven fit across a phone).
+    /// The tab's word (short, so nine fit across a phone).
     fn label(self) -> &'static str {
         match self {
+            Tab::Wants => "Wants",
+            Tab::Home => "Home",
             Tab::Make => "Make",
             Tab::Cook => "Cook",
             Tab::Shellcraft => "Shell",
             Tab::Weave => "Weave",
             Tab::Build => "Build",
-            Tab::Culture => "Culture",
-            Tab::Repair => "Repair",
+            Tab::Culture => "Beds",
+            Tab::Repair => "Mend",
         }
     }
 
@@ -150,6 +161,14 @@ enum Row {
     Bed(usize),
     /// No culture bed is built yet (no button).
     NoBeds,
+    /// A want on the task board (the recipe's word): tap to pin it.
+    Want(&'static str),
+    /// A skill's next unlock, and how far off (no button).
+    Unlock(Skill, u32),
+    /// The board is empty (no button).
+    NothingNear,
+    /// A home piece: tap to build it.
+    Piece(Piece),
     /// Harvest the first ripe bed.
     Harvest,
     /// Feed a spoiled batch to a growing bed.
@@ -157,7 +176,7 @@ enum Row {
 }
 
 /// The rows of a tab for this crab, in the order shown.
-fn rows_for(tab: Tab, crab: &SimCrab) -> Vec<Row> {
+fn rows_for(tab: Tab, sim: &Sim, id: crabsim::PlayerId, crab: &SimCrab) -> Vec<Row> {
     let mut econ: Vec<usize> = ECON_RECIPES
         .iter()
         .enumerate()
@@ -167,6 +186,19 @@ fn rows_for(tab: Tab, crab: &SimCrab) -> Vec<Row> {
     econ.sort_by_key(|&i| (ECON_RECIPES[i].level, i));
     let mut rows = Vec::new();
     match tab {
+        Tab::Wants => {
+            let wants = sim.wants(id);
+            if wants.is_empty() {
+                rows.push(Row::NothingNear);
+            }
+            rows.extend(wants.iter().map(|w| Row::Want(w.recipe.word)));
+            rows.extend(
+                sim.next_unlocks(id)
+                    .into_iter()
+                    .map(|(skill, level, _)| Row::Unlock(skill, level)),
+            );
+        }
+        Tab::Home => rows.extend(PIECES.iter().map(|d| Row::Piece(d.piece))),
         Tab::Make => rows.extend((0..RECIPES.len()).map(Row::Basic)),
         Tab::Culture => {
             if crab.econ.culture_beds == 0 {
@@ -430,6 +462,8 @@ struct Shown {
     stash: [u32; 5],
     stage: u32,
     keepsakes: usize,
+    /// The nodule hearth is built into the home.
+    hearth: bool,
     style: crate::style::ArtStyle,
 }
 
@@ -471,6 +505,7 @@ fn fill_scene(
         // except a husk still on its way to the shelf.
         keepsakes: (crab.mover.moults as usize + usize::from(crab.mover.growing.is_some()))
             .saturating_sub(usize::from(on_its_way.0)),
+        hearth: sim.home_pieces().contains(&Piece::NoduleHearth),
         style: *style,
     };
     if *shown == Some(now) {
@@ -576,6 +611,25 @@ fn fill_scene(
         let half = Mesh::from(CircularSector::new(7.0, std::f32::consts::FRAC_PI_2));
         parts.push((half, VALVE, at, 1.2 + i as f32 * 0.01, 0.0));
     }
+    // The nodule hearth: warm vent stones in a ring on the floor by the
+    // crab's resting place, no fire, a small warm glow over them.
+    if now.hearth {
+        for (i, (x, y, w, h)) in [
+            (-76.0, 6.0, 10.0, 7.0),
+            (-58.0, 4.0, 9.0, 6.0),
+            (-42.0, 7.0, 10.0, 7.0),
+            (-67.0, 14.0, 8.0, 6.0),
+            (-50.0, 14.0, 8.0, 6.0),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let at = Vec2::new(x, y);
+            let z = 0.7 + i as f32 * 0.01;
+            parts.push(ellipse(at, Vec2::new(w + 1.8, h + 1.8), STONE_INK, z));
+            parts.push(ellipse(at, Vec2::new(w, h), NODULE, z + 0.005));
+        }
+    }
     // The keepsakes' ledges: a strip of packed grit under each row in use.
     let shown_keepsakes = now.keepsakes.min(KEEPSAKES);
     for (row, first, last) in [(0, 0, 3), (1, 4, KEEPSAKES - 1)] {
@@ -606,6 +660,17 @@ fn fill_scene(
                     crate::home::carapace_sprite(&assets, now.style, KEEPSAKE_SCALE, KEEPSAKE),
                     Transform::from_translation(at.extend(0.45))
                         .with_rotation(Quat::from_rotation_z(tilt)),
+                ));
+            }
+            if now.hearth {
+                p.spawn((
+                    Sprite {
+                        image: soft.dot.clone(),
+                        color: Color::srgba(1.0, 0.62, 0.28, 0.5),
+                        custom_size: Some(Vec2::new(90.0, 44.0)),
+                        ..default()
+                    },
+                    Transform::from_xyz(-59.0, 12.0, 0.69),
                 ));
             }
             for i in 0..cultures.min(3) {
@@ -829,6 +894,7 @@ fn text(words: impl Into<String>, size: f32, colour: Color) -> impl Bundle {
 }
 
 const INK: Color = Color::srgba(1.0, 0.9, 0.7, 0.92);
+const GOLD: Color = Color::srgb(1.0, 0.88, 0.45);
 const DIM: Color = Color::srgba(1.0, 0.9, 0.7, 0.6);
 const HAVE: Color = Color::srgb(0.62, 0.92, 0.70);
 const LACK: Color = Color::srgb(0.95, 0.62, 0.55);
@@ -1247,9 +1313,159 @@ fn mm_ss(ticks: u64) -> String {
     format!("{}:{:02}", secs / 60, secs % 60)
 }
 
+/// How far from the doorstep a remembered find is, in words.
+fn how_far(sim: &Sim, at: Vec2) -> &'static str {
+    let away = (at.x - sim.level.home_den.x).abs();
+    if away < 250.0 {
+        "at the doorstep"
+    } else if away < 1500.0 {
+        "not far out"
+    } else {
+        "far out"
+    }
+}
+
+/// Where a want's missing thing comes from: "glass sponge garden, canyon
+/// walls: you saw one at the doorstep" (or "not seen yet"), a creature's
+/// drop, or the recipe that makes it.
+fn source_text(sim: &Sim, source: &Source) -> String {
+    match source {
+        Source::Node {
+            node,
+            remembered_at,
+            band,
+        } => {
+            let seen = match remembered_at {
+                Some(at) => format!("you saw one {}", how_far(sim, *at)),
+                None => "not seen yet".to_string(),
+            };
+            format!(
+                "{}, {}: {seen}",
+                node.def().name.to_lowercase(),
+                band.to_lowercase()
+            )
+        }
+        Source::Creature(kind) => format!("from a {}", kind.name().to_lowercase()),
+        Source::Recipe(word) => EconRecipe::parse(word)
+            .map_or_else(String::new, |r| format!("made: {}", r.name.to_lowercase())),
+    }
+}
+
+/// "need 4 glass": what is missing, in words.
+fn missing_text(missing: &[(Item, u32)]) -> String {
+    let parts: Vec<String> = missing
+        .iter()
+        .map(|&(item, n)| {
+            let (one, many) = item.names();
+            format!("{n} {}", if n == 1 { one } else { many })
+        })
+        .collect();
+    format!("need {}", parts.join(", "))
+}
+
+/// A want's row: the recipe, what is missing, where to find it, and a Pin
+/// button (lit while it is the pinned goal).
+fn want_view(sim: &Sim, w: &Want, pinned: bool) -> RowView {
+    let mut tag = missing_text(&w.missing);
+    if w.soon {
+        tag = format!("{tag} (at {} {})", w.recipe.skill.name(), w.recipe.level);
+    }
+    let mut line = w
+        .sources
+        .iter()
+        .take(2)
+        .map(|s| source_text(sim, s))
+        .collect::<Vec<_>>()
+        .join("; ");
+    if line.chars().count() > 92 {
+        line = line.chars().take(91).collect::<String>() + "…";
+    }
+    RowView {
+        name: w.recipe.name.to_string(),
+        tag,
+        line,
+        lit: true,
+        button: Some((if pinned { "Pinned" } else { "Pin" }, true)),
+    }
+}
+
+/// A skill's next unlock: "Prying 30 opens glass scallops: 140 XP to go".
+fn unlock_view(sim: &Sim, crab: &SimCrab, skill: Skill, level: u32) -> RowView {
+    let opens: Vec<String> = crabsim::economy::unlocks(skill, level)
+        .iter()
+        .map(|l| {
+            l.trim_start_matches("You can ")
+                .trim_start_matches("work ")
+                .trim_start_matches("make ")
+                .trim_end_matches('.')
+                .to_string()
+        })
+        .collect();
+    let to_go = (skill.xp_at(level, &sim.tuning) - crab.xp(skill))
+        .ceil()
+        .max(0.0) as u32;
+    RowView {
+        name: format!("{} {level}", skill.name()),
+        tag: "next".into(),
+        line: format!("opens {}: {to_go} XP to go", opens.join(", ")),
+        lit: true,
+        button: None,
+    }
+}
+
+/// A home piece: built (shared by everyone), or what it takes.
+fn piece_view(sim: &Sim, id: crabsim::PlayerId, crab: &SimCrab, piece: Piece) -> RowView {
+    let verdict = sim.can_build_piece(id, piece);
+    let built = sim.home_pieces().contains(&piece);
+    let needs = econ_needs_text(&crab.stash, piece.needs());
+    let line = if built {
+        format!("Built. {}", piece.def().does)
+    } else {
+        match verdict.err().and_then(why_not_econ) {
+            Some(why) => format!("{why}: {needs}"),
+            None => needs,
+        }
+    };
+    RowView {
+        name: piece.name().to_string(),
+        tag: format!("Building {}", piece.level()),
+        line,
+        lit: built || verdict.is_ok(),
+        button: Some(if built {
+            ("Built", false)
+        } else {
+            ("Build", verdict.is_ok())
+        }),
+    }
+}
+
+/// The word of the recipe this crab has pinned, if any.
+fn pinned_word(sim: &Sim, id: crabsim::PlayerId) -> Option<&'static str> {
+    sim.pinned_status(id).map(|p| p.want.recipe.word)
+}
+
 fn row_view(sim: &Sim, id: crabsim::PlayerId, crab: &SimCrab, row: Row) -> RowView {
     let tick = sim.tick_count();
     match row {
+        Row::Want(word) => match sim.wants(id).iter().find(|w| w.recipe.word == word) {
+            Some(w) => want_view(sim, w, pinned_word(sim, id) == Some(word)),
+            None => RowView {
+                name: String::new(),
+                tag: String::new(),
+                line: String::new(),
+                lit: false,
+                button: None,
+            },
+        },
+        Row::Unlock(skill, level) => unlock_view(sim, crab, skill, level),
+        Row::NothingNear => RowView {
+            name: "Nothing is one thing away.".into(),
+            tag: String::new(),
+            line: "Gather on the way out and see what opens.".into(),
+            lit: true,
+            button: None,
+        },
+        Row::Piece(piece) => piece_view(sim, id, crab, piece),
         Row::Basic(i) => basic_view(sim, id, crab, RECIPES[i].recipe),
         Row::Econ(i) => econ_view(sim, id, crab, &ECON_RECIPES[i]),
         Row::NoBeds => RowView {
@@ -1398,6 +1614,9 @@ fn show_menu(
             Visibility::Hidden
         });
     }
+    if !inside.on {
+        return;
+    }
     let Some((id, crab)) = me.single().ok().and_then(|id| Some((*id, sim.crab(*id)?))) else {
         return;
     };
@@ -1411,7 +1630,7 @@ fn show_menu(
             t.0.clone_from(&words);
         }
     }
-    let list = rows_for(state.tab, crab);
+    let list = rows_for(state.tab, &sim, id, crab);
     let total = pages(list.len());
     if state.page >= total {
         state.page = total - 1;
@@ -1450,7 +1669,8 @@ fn show_menu(
     for (SlotName(i), mut t, mut c) in &mut names {
         let v = shown[*i].as_ref();
         set(&mut t, v.map_or("", |v| v.name.as_str()));
-        c.set_if_neq(TextColor(INK));
+        let pinned = v.is_some_and(|v| v.button.is_some_and(|b| b.0 == "Pinned"));
+        c.set_if_neq(TextColor(if pinned { GOLD } else { INK }));
     }
     for (SlotTag(i), mut t) in &mut tags {
         set(&mut t, shown[*i].as_ref().map_or("", |v| v.tag.as_str()));
@@ -1472,7 +1692,10 @@ fn show_menu(
             Visibility::Hidden
         });
         let ok = button.is_some_and(|b| b.1);
-        bg.set_if_neq(BackgroundColor(if ok {
+        let pinned = button.is_some_and(|b| b.0 == "Pinned");
+        bg.set_if_neq(BackgroundColor(if pinned {
+            Color::srgba(0.75, 0.55, 0.18, 0.85)
+        } else if ok {
             Color::srgba(0.35, 0.55, 0.6, 0.75)
         } else {
             Color::srgba(0.05, 0.12, 0.14, 0.30)
@@ -1603,7 +1826,7 @@ fn press(
         if l.prev.inflate(4.0).contains(p) || l.next.inflate(4.0).contains(p) {
             let total = sim
                 .crab(*id)
-                .map_or(1, |c| pages(rows_for(menu.tab, c).len()));
+                .map_or(1, |c| pages(rows_for(menu.tab, &sim, *id, c).len()));
             menu.page = if l.next.inflate(4.0).contains(p) {
                 (menu.page + 1) % total
             } else {
@@ -1625,7 +1848,7 @@ fn press(
                 pick.0 += 1;
             }
         }
-        let Some(list) = sim.crab(*id).map(|c| rows_for(menu.tab, c)) else {
+        let Some(list) = sim.crab(*id).map(|c| rows_for(menu.tab, &sim, *id, c)) else {
             continue;
         };
         for (slot, (_, button)) in l.rows.iter().enumerate() {
@@ -1665,7 +1888,26 @@ fn perform(sim: &mut Sim, id: crabsim::PlayerId, row: Row) {
                 let _ = sim.feed_bed(id);
             }
         }
-        Row::Bed(_) | Row::NoBeds => {}
+        Row::Want(word) => {
+            // Tap a pinned want again to unpin it.
+            if pinned_word(sim, id) == Some(word) {
+                if !cells_action(CellsAction::Pin(None)) {
+                    sim.unpin(id);
+                }
+            } else if let Some(i) = ECON_RECIPES.iter().position(|r| r.word == word)
+                && !cells_action(CellsAction::Pin(Some(i as u16)))
+            {
+                sim.pin_want(id, word);
+            }
+        }
+        Row::Piece(piece) => {
+            if let Some(i) = PIECES.iter().position(|d| d.piece == piece)
+                && !cells_action(CellsAction::Piece(i as u8))
+            {
+                let _ = sim.build_piece(id, piece);
+            }
+        }
+        Row::Bed(_) | Row::NoBeds | Row::Unlock(..) | Row::NothingNear => {}
     }
 }
 
@@ -1676,6 +1918,8 @@ mod tests {
     #[test]
     fn the_menu_and_the_cut_away_share_the_screen() {
         for window in [
+            Vec2::new(375.0, 812.0),
+            Vec2::new(812.0, 375.0),
             Vec2::new(390.0, 844.0),
             Vec2::new(430.0, 742.0),
             Vec2::new(844.0, 390.0),
@@ -1710,7 +1954,7 @@ mod tests {
                 assert_eq!(l.tabs.len(), TABS.len());
                 for (i, t) in l.tabs.iter().enumerate() {
                     assert!(
-                        t.width() >= 40.0 && t.height() >= 28.0,
+                        t.width() >= 34.0 && t.height() >= 28.0,
                         "a thumb fits {window}"
                     );
                     assert!(l.panel.contains(t.min) && l.panel.contains(t.max));
@@ -1790,13 +2034,71 @@ mod tests {
         let crab = sim.crab(crabsim::PlayerId(0)).unwrap();
         let mut econ_rows = 0;
         for tab in TABS {
-            let rows = rows_for(tab, crab);
+            let rows = rows_for(tab, &sim, crabsim::PlayerId(0), crab);
             assert!(!rows.is_empty(), "{tab:?} has rows");
             econ_rows += rows.iter().filter(|r| matches!(r, Row::Econ(_))).count();
         }
         assert_eq!(econ_rows, ECON_RECIPES.len());
-        assert_eq!(rows_for(Tab::Make, crab).len(), RECIPES.len());
-        assert_eq!(rows_for(Tab::Culture, crab)[0], Row::NoBeds);
+        assert_eq!(
+            rows_for(Tab::Make, &sim, crabsim::PlayerId(0), crab).len(),
+            RECIPES.len()
+        );
+        assert_eq!(
+            rows_for(Tab::Culture, &sim, crabsim::PlayerId(0), crab)[0],
+            Row::NoBeds
+        );
+    }
+
+    #[test]
+    fn the_wants_tab_lists_a_want_with_where_and_pins_it() {
+        let mut sim = Sim::with_one_crab(Vec2::new(95.0, 0.0));
+        let id = crabsim::PlayerId(0);
+        let crab = sim.crab(id).unwrap();
+        let rows = rows_for(Tab::Wants, &sim, id, crab);
+        assert!(rows.contains(&Row::Want("kelp-cord")), "{rows:?}");
+        let v = row_view(&sim, id, crab, Row::Want("kelp-cord"));
+        assert_eq!(v.name, "Kelp cord");
+        assert!(v.tag.starts_with("need 2 "), "{}", v.tag);
+        assert!(v.line.contains("not seen yet"), "{}", v.line);
+        assert_eq!(v.button, Some(("Pin", true)));
+        // Tapping pins it; tapping again lets it go.
+        perform(&mut sim, id, Row::Want("kelp-cord"));
+        let crab = sim.crab(id).unwrap();
+        let v = row_view(&sim, id, crab, Row::Want("kelp-cord"));
+        assert_eq!(v.button, Some(("Pinned", true)));
+        perform(&mut sim, id, Row::Want("kelp-cord"));
+        assert!(sim.pinned_status(id).is_none());
+        let crab = sim.crab(id).unwrap();
+        let empty = row_view(&sim, id, crab, Row::NothingNear);
+        assert_eq!(empty.name, "Nothing is one thing away.");
+        assert_eq!(empty.line, "Gather on the way out and see what opens.");
+    }
+
+    #[test]
+    fn the_home_tab_lists_all_eight_pieces_greyed_until_they_can_be_built() {
+        let sim = Sim::with_one_crab(Vec2::new(95.0, 0.0));
+        let id = crabsim::PlayerId(0);
+        let crab = sim.crab(id).unwrap();
+        let rows = rows_for(Tab::Home, &sim, id, crab);
+        assert_eq!(rows.len(), 8);
+        let Row::Piece(first) = rows[0] else {
+            panic!("a piece row")
+        };
+        let v = row_view(&sim, id, crab, Row::Piece(first));
+        assert_eq!(v.button, Some(("Build", false)));
+        assert!(!v.lit);
+        assert!(v.line.contains("0/"), "{}", v.line);
+    }
+
+    #[test]
+    fn a_next_unlock_says_what_opens_and_the_xp_to_go() {
+        let sim = Sim::with_one_crab(Vec2::new(95.0, 0.0));
+        let id = crabsim::PlayerId(0);
+        let crab = sim.crab(id).unwrap();
+        let v = unlock_view(&sim, crab, Skill::Prying, 15);
+        assert_eq!(v.name, "Prying 15");
+        assert!(v.line.starts_with("opens "), "{}", v.line);
+        assert!(v.line.ends_with("XP to go"), "{}", v.line);
     }
 
     #[test]
