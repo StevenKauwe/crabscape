@@ -280,3 +280,52 @@ fn delayed_stop_can_cross_a_real_lease_but_holding_the_requested_batch_preserves
         );
     }
 }
+
+#[test]
+fn failed_installed_view_tick_keeps_diagnostic_bounds_in_the_live_sim() {
+    let (_, _, kernel) = fixture(720.0);
+    let expected_bounds = kernel.bounds();
+    let mut live = Sim::new(Tuning::default(), Level::test_level());
+    let mut kernel = kernel.install_view(&mut live);
+    assert!(kernel.sim.level.cells.is_none());
+    assert!(kernel.sim.crabs().is_empty());
+
+    let mut observed_fault = false;
+    for _ in 0..240 {
+        let frame = RegionFrame {
+            tick: live.tick_count(),
+            controls: vec![(
+                GUEST,
+                Controls {
+                    down: true,
+                    ..Controls::default()
+                },
+            )],
+            actions: vec![],
+        };
+        if let Err(error) = kernel.tick_view(&mut live, &frame) {
+            assert_eq!(error, RegionError::OutsideRegion);
+            assert_eq!(live.tick_count(), frame.tick);
+            assert!(live.crab(GUEST).is_some());
+            // tick_view must swap back on failure too. Calling kernel.bounds()
+            // here would read its empty placeholder and panic. Diagnostics use
+            // this fallible access to the live view, as regional::bounds does.
+            assert!(kernel.sim.level.cells.is_none());
+            assert!(kernel.sim.crabs().is_empty());
+            let diagnostic_bounds = live
+                .level
+                .cells
+                .as_ref()
+                .map(|cells| cells.region())
+                .ok_or("Missing regional terrain");
+            assert_eq!(diagnostic_bounds, Ok(expected_bounds));
+            observed_fault = true;
+            break;
+        }
+        assert!(kernel.sim.level.cells.is_none());
+    }
+    assert!(
+        observed_fault,
+        "fixture must exercise the real error return path"
+    );
+}

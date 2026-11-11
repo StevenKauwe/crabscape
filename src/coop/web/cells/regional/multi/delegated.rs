@@ -150,7 +150,7 @@ pub(super) fn step(
                         "role=follower region={:?} epoch={:?} bounds={:?} leader={leader:?}",
                         k.id,
                         k.epoch,
-                        k.bounds()
+                        bounds(sim)
                     ),
                 )
             })?;
@@ -238,7 +238,7 @@ pub(super) fn step(
             error,
             &format!(
                 "role=delegated region={:?} epoch={:?} bounds={:?} requested={} stopping={} applied={} partial={}",
-                k.id, k.epoch, k.bounds(), m.region_requested, m.stopping, r.applied, r.partial.len()
+                k.id, k.epoch, bounds(sim), m.region_requested, m.stopping, r.applied, r.partial.len()
             ),
         )
     })?;
