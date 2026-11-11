@@ -23,6 +23,21 @@ others in the world share, and that we build together, like Valheim.
 - **The twist:** every trip is a dive. Deeper means colder, darker, less oxygen, more pressure and stranger life,
   and you always have to plan the way back up.
 
+## Every way to play pays
+In the owner's words (2026-11-11): mining one thing for two hours while watching TV should be totally doable;
+farming low-level pistol shrimp for loot should feel rewarding; and if you want to build, you should feel obliged
+to take part in the activities that the core and rare materials come from.
+
+- **Low-attention gathering is a real way to play.** A gathering spot near home can be worked for hours with
+  little attention: safe enough not to punish a glance away, steady XP and a steady stack. It is slower per minute
+  than an attentive dive (`skills-and-resources.md`), never pointless. "Brutal" lives in the deep, not at the rock
+  you're mining by the burrow.
+- **Every creature's loot stays worth something.** Farming easy creatures you've outgrown still pays: drops that
+  feed crafting, cooking and building at every level, so a relaxed farming session feels good rather than wasted.
+- **Building pulls you into everything else.** Bases, gear and the shared home need core and rare materials that
+  come from different activities: gathering, fighting, diving, digging. No single loop supplies all of them, so a
+  builder goes out into the world, and the world's activities all have a reason to exist.
+
 ## Pillars
 | Pillar | Means | Feels like | Never |
 |---|---|---|---|
