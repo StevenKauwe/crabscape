@@ -206,6 +206,12 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
             kind,
         });
     }
+    let garden = super::lower_canyon::HANGING_GARDEN;
+    landmarks.push(Landmark {
+        name: "hanging garden".into(),
+        rect: Rect::new(garden.x - 60.0, garden.bottom, garden.x + 60.0, garden.top),
+        kind: Kind::Refuge,
+    });
     for spec in super::lower_canyon::specs() {
         let pocket = level.pocket_refs().find(|p| p.name == spec.name);
         landmarks.push(Landmark {

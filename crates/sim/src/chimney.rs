@@ -27,6 +27,7 @@ pub const LONG_SPEED: f32 = 1000.0;
 /// How fast a lane lets go of the crab at its exit.
 pub const EXIT_SPEED: f32 = 240.0;
 pub const SEEP: &str = "seep chimney";
+pub const CATHEDRAL_SEEP: &str = "cathedral seep";
 pub const LONG: &str = "long chimney home";
 /// A refuge farther than this from a lane's exit is not its landing.
 const LANDING_REACH: f32 = 3000.0;
@@ -61,6 +62,21 @@ pub fn lanes_from(landmarks: &[Landmark]) -> Vec<Lane> {
                 speed: SEEP_SPEED,
             }],
             landing: landing(landmarks, Vec2::new(r.center().x, r.max.y)),
+            exit_speed: EXIT_SPEED,
+        });
+    }
+    if let Some(seep) = find(landmarks, "cathedral seep") {
+        let r = seep.rect;
+        lanes.push(Lane {
+            name: CATHEDRAL_SEEP.into(),
+            open: Open::Free,
+            segments: vec![Segment {
+                rect: r,
+                dir: Vec2::X,
+                speed: SEEP_SPEED,
+            }],
+            landing: find(landmarks, "hanging garden")
+                .map(|g| Vec2::new(g.rect.center().x, g.rect.max.y)),
             exit_speed: EXIT_SPEED,
         });
     }
