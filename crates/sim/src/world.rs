@@ -2600,8 +2600,10 @@ impl Sim {
                         deaths: e.deaths,
                     };
                     (e.state == enemy::State::Gone
-                        // An octopus and a jelly leave their ink and mesoglea; a
-                        // monkey leaves nothing.
+                        // An octopus gets away (its ink is given at the win,
+                        // see `fought`'s callers); a jelly leaves its mesoglea;
+                        // a monkey leaves nothing.
+                        && e.octo.is_none()
                         && e.kind != Kind::Monkey
                         && self.shared.there(it, &self.tuning)
                         && !e.hurtbox(&self.tuning).intersect(body).is_empty())
@@ -3748,6 +3750,13 @@ fn fought(m: &mut Mover, dealt: f32, took: combat::Took, kind: Kind, t: &Tuning)
     } else {
         0.0
     };
+    if took.died && kind == Kind::Octopus {
+        // The octopus jets off leaving no body: the crab that beat it keeps
+        // the ink it left behind (an economy drop), room permitting.
+        for item in crate::economy::items::drops_of(kind) {
+            m.take_up(crate::physics::Carry::Item(item), t);
+        }
+    }
     m.earn(Skill::Fighting, dealt * t.fight_xp_per_damage + win, t)
 }
 

@@ -349,8 +349,13 @@ fn the_original_creatures_leave_their_drops_on_the_shell() {
         (Kind::Moray, vec![Item::MorayTooth]),
         (Kind::Triggerfish, vec![Item::TriggerPlate]),
         (Kind::AlarmJelly, vec![Item::JellyMesoglea]),
-        (Kind::Octopus, vec![Item::OctopusInk]),
     ];
+    // The octopus gets away with no body: its ink comes at the win
+    // (`octopus.rs`, at_0_health_it_jets_off_leaving_no_body_and_its_den_open).
+    assert_eq!(
+        crabsim::economy::items::drops_of(Kind::Octopus),
+        vec![Item::OctopusInk]
+    );
     for (kind, drops) in table {
         assert_eq!(crabsim::economy::items::drops_of(kind), drops, "{kind:?}");
         let mut sim = beaten(kind);
@@ -454,4 +459,43 @@ fn slime_twine_and_a_photophore_seed_work_early() {
     assert_eq!(sim.crab(P0).unwrap().stash.count(Item::BraidedCord), 1);
     let sim = make("glow-seed");
     assert_eq!(sim.crab(P0).unwrap().stash.count(Item::Culture), 2);
+}
+
+#[test]
+fn the_crab_that_beats_the_octopus_keeps_its_ink() {
+    use bevy_math::Vec2;
+    let mut sim = crabsim::Sim::with_one_crab(Vec2::new(200.0, 0.0));
+    sim.spawn_enemy(Kind::Octopus, Vec2::new(260.0, 0.0));
+    sim.enemies_mut()[0].octopus_mut().unwrap().revealed = true;
+    let id = sim.crabs()[0].id;
+    sim.crab_mut(id).unwrap().fighter.vitals.health = 100_000.0;
+    let mut inked = false;
+    for i in 0..6000 {
+        if let Some(e) = sim.enemies_mut().first_mut() {
+            e.vitals.health = e.vitals.health.min(1.0);
+        }
+        let jab = i % 30 == 0;
+        let x = sim.crabs()[0].mover.pos.x;
+        let ex = sim.enemies()[0].pos.x;
+        let c = crabsim::Controls {
+            walk: if (ex - x).abs() > 50.0 {
+                (ex - x).signum()
+            } else {
+                0.0
+            },
+            jab_pressed: jab,
+            ..Default::default()
+        };
+        sim.set_controls(id, c);
+        sim.tick();
+        if sim.crabs()[0]
+            .mover
+            .clinging
+            .contains(&Carry::Item(Item::OctopusInk))
+        {
+            inked = true;
+            break;
+        }
+    }
+    assert!(inked, "beating the octopus gives its ink");
 }
