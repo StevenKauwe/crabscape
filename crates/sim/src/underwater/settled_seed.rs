@@ -215,7 +215,7 @@ mod tests {
         }
         let actual = format!("{:x}", hash.finalize());
         assert_eq!(
-            actual, "8c370fbdb6669e2fa79fe563f35e96c92d28d5e3aba680dfd82110bb201d0b7d",
+            actual, "3771838114efd1469b491c2df9ea15bb980c713a1dd5e7b1b8e129a046cc36bc",
             "terrain changed: rebake and update the probe digest; see docs/design/settled-terrain.md"
         );
     }
