@@ -401,3 +401,9 @@ replays a journal page and builds the bell tower (975→895), updating the paint
 The original browser save remains unchanged, with zero mic requests/runtime errors.
 This does not verify physical iPhone behavior, native speech, actual recorded voice
 clips or the unavailable home-server save wrapper/conflict format.
+
+The final two-browser UI fixture also passes explicit original-save import, actual
+armor proposal/Yes/grant, exactly one spender and both riders' team armor, then
+Ready launch, guest movement and higher-epoch host-loss takeover without resetting
+the run. Legacy bytes, microphone and nonlocal-signaling guards remain unchanged.
+Completed votes hide after seven seconds and all vote banners hide during flight.

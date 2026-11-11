@@ -163,7 +163,7 @@ impl AdventureUi {
                     layout.bottom - TAP
                 };
                 let width = (layout.left_width - 3. * GAP) / 4.;
-                for (index, label) in ["←", "→", "↑", "↓"].into_iter().enumerate() {
+                for (index, label) in ["Left", "Right", "Up", "Down"].into_iter().enumerate() {
                     let rect = egui::Rect::from_min_size(
                         egui::pos2(layout.left + index as f32 * (width + GAP), y),
                         egui::vec2(width, TAP),
