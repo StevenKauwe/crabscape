@@ -246,12 +246,24 @@ pub fn spawn_local_crab(
     #[cfg(not(target_arch = "wasm32"))] mut cells_storage: ResMut<
         crate::cell_save::native::Storage,
     >,
+    #[cfg(not(target_arch = "wasm32"))] photo: Option<Res<crate::photo::Photo>>,
 ) {
     let me = me.0;
     // The feel preset first, so the recording starts with it.
     sim.set_feel(lab.feel);
+    // A visit (`--visit`, `photo.rs`) starts fresh beside an animal and never reads the save.
     #[cfg(not(target_arch = "wasm32"))]
-    let saved = if crate::cellular::enabled() {
+    let visit = photo.as_ref().and_then(|p| {
+        p.visit
+            .as_deref()
+            .and_then(|name| crate::photo::visit_spot(&sim, name, p.beside))
+    });
+    #[cfg(target_arch = "wasm32")]
+    let visit: Option<Vec2> = None;
+    #[cfg(not(target_arch = "wasm32"))]
+    let saved = if visit.is_some() {
+        None
+    } else if crate::cellular::enabled() {
         crate::cell_save::native::load(&mut sim, &mut cells_storage)
     } else {
         save::load()
@@ -326,8 +338,11 @@ pub fn spawn_local_crab(
     if player_was_reset {
         spawn_reset_notice(&mut commands);
     }
-    let pos = saved_pos.unwrap_or(SPAWN);
+    let pos = visit.or(saved_pos).unwrap_or(SPAWN);
     sim.add_crab(me, pos);
+    if visit.is_some() {
+        sim.enter_code(me, crabsim::Code::Glow);
+    }
     // What it grew, took and remembers comes back with it.
     if let Some(p) = saved.as_ref().and_then(|s| s.progress.as_ref()) {
         sim.restore_progress(me, p);

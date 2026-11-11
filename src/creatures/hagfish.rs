@@ -47,12 +47,15 @@ struct Cloud(u32);
 #[derive(Component)]
 struct CarcassBone;
 
+/// World units per unit of its art file, the rig drawn at true size (`src/sizes.rs` checks it).
+pub(crate) const ART_SCALE: f32 = 0.5;
+
 fn load(mut commands: Commands, assets: Res<AssetServer>, mut images: ResMut<Assets<Image>>) {
     commands.insert_resource(Art {
-        puppet: CreatureArt::load_ink_only(
+        puppet: CreatureArt::load_scaled(
             include_str!("../../assets/creatures/hagfish-parts.json"),
             "creatures/hagfish-atlas.png",
-            0.5,
+            ART_SCALE,
             &assets,
         ),
         blot: images.add(radial_image(64, |r| ((1.0 - r) / 0.5).min(1.0))),

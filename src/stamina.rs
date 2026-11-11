@@ -271,6 +271,20 @@ fn spawn_skill(mut commands: Commands) {
                         ));
                     });
             }
+            // The pinned goal, last (`wants_ui.rs`): hidden until there is one.
+            column.spawn((
+                crate::wants_ui::GoalLine,
+                Node {
+                    display: Display::None,
+                    ..default()
+                },
+                Text::new(""),
+                TextFont {
+                    font_size: FontSize::Px(11.0),
+                    ..default()
+                },
+                TextColor(Color::srgba(0.85, 0.92, 0.95, 0.75)),
+            ));
         });
 }
 

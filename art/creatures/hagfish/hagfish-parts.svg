@@ -26,7 +26,7 @@
 <linearGradient id="gp-eye5_23" gradientUnits="userSpaceOnUse" x1="298.5" y1="207.4" x2="300.2" y2="214"><stop offset="0" stop-color="#4A3550"/><stop offset=".48" stop-color="#22172A"/><stop offset="1" stop-color="#120A16"/></linearGradient>
 <linearGradient id="gp-pores5_24" gradientUnits="userSpaceOnUse" x1="253" y1="120.6" x2="279.2" y2="225.5"><stop offset="0" stop-color="#F1EAF0"/><stop offset=".48" stop-color="#E2D8E0"/><stop offset="1" stop-color="#CFC2CC"/></linearGradient>
 </defs>
-<!-- Hagfish knot: placeholder rig (six fish in a knot). -->
+<!-- Hagfish knot: rig (six fish in a knot). -->
 <text x="20" y="40" font-family="Nimbus Sans, sans-serif" font-size="22" font-weight="normal" fill="#2A140F" text-anchor="start" >Hagfish knot · rig parts</text>
 <g id="body" data-parent="root" data-pivot="250.1,165.0">
 <g>

@@ -45,7 +45,7 @@ const PARTS: &str = include_str!("../assets/creatures/common-octopus-parts.json"
 const ATLAS: &str = "creatures/common-octopus-atlas.png";
 /// crabrig draws it 2 units to the world unit, and its parts file at twice
 /// that.
-const ART_SCALE: f32 = 1.0 / 4.0;
+pub(crate) const ART_SCALE: f32 = 1.0 / 4.0;
 /// Where the art's pieces join (world units, y up, from its feet; crabrig's
 /// `CROWN`, `WEB_SIZE` and `SEGMENT`).
 const CROWN: Vec2 = Vec2::new(42.0, 56.0);

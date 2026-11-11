@@ -2,13 +2,13 @@
  "comment": "Written by crabrig export (cargo run -p crabrig --profile art -- export) from art/creatures/goliath-grouper/goliath-grouper-parts.svg. Coordinates are SVG units (y down) unless marked px. rect = [x, y, w, h] in atlas px; bbox = the same area in SVG units; z = drawing order (bigger is in front).",
  "atlas": "goliath-grouper-atlas.png",
  "atlas_size": [
-  1024,
+  2048,
   1024
  ],
  "px_per_unit": 0.6,
  "ground": [
   1315.95,
-  914.6
+  910.6
  ],
  "anchors": {},
  "parts": [
@@ -17,19 +17,19 @@
    "parent": "body",
    "pivot": [
     570.6,
-    512.0
+    508.0
    ],
    "bbox": [
     53.3,
-    314.0,
+    313.0,
     550.7,
-    421.5
+    418.5
    ],
    "rect": [
-    125,
-    429,
+    1353,
+    3,
     331,
-    253
+    252
    ],
    "z": 0,
    "members": [
@@ -37,7 +37,11 @@
     "tail-ray-0",
     "tail-ray-1",
     "tail-ray-2",
-    "tail-ray-3"
+    "tail-ray-3",
+    "tail-dot-0",
+    "tail-dot-1",
+    "tail-dot-2",
+    "tail-dot-3"
    ]
   },
   {
@@ -45,19 +49,19 @@
    "parent": "body",
    "pivot": [
     1274.6,
-    196.0
+    192.0
    ],
    "bbox": [
     648.2,
-    94.0,
+    93.2,
     1231.5,
-    265.8
+    262.6
    ],
    "rect": [
     3,
-    713,
+    426,
     739,
-    160
+    158
    ],
    "z": 1,
    "members": [
@@ -66,7 +70,10 @@
     "dorsal-ray-1",
     "dorsal-ray-2",
     "dorsal-ray-3",
-    "dorsal-ray-4"
+    "dorsal-ray-4",
+    "dorsal-dot-0",
+    "dorsal-dot-1",
+    "dorsal-dot-2"
    ]
   },
   {
@@ -74,17 +81,17 @@
    "parent": "body",
    "pivot": [
     1034.6,
-    790.0
+    786.0
    ],
    "bbox": [
     605.5,
-    690.5,
+    686.5,
     454.2,
     230.1
    ],
    "rect": [
     745,
-    713,
+    426,
     273,
     139
    ],
@@ -98,34 +105,42 @@
    "parent": null,
    "pivot": [
     1314.6,
-    512.0
+    508.0
    ],
    "bbox": [
     530.5,
-    157.7,
+    153.7,
     2041.2,
     698.4
    ],
    "rect": [
     3,
-    6,
+    3,
     1225,
     420
    ],
    "z": 3,
    "members": [
     "body",
+    "body-saddle-0",
+    "body-saddle-1",
+    "body-saddle-2",
+    "body-saddle-3",
+    "body-saddle-4",
+    "body-dot-0",
+    "body-dot-1",
+    "body-dot-2",
+    "body-dot-3",
+    "body-dot-4",
+    "body-dot-5",
+    "body-dot-6",
+    "body-dot-7",
+    "body-dot-8",
+    "body-dot-9",
+    "body-dot-10",
     "body-belly",
     "gill",
-    "body-mouth",
-    "body-spot-0",
-    "body-spot-1",
-    "body-spot-2",
-    "body-spot-3",
-    "body-spot-4",
-    "body-spot-5",
-    "body-spot-6",
-    "body-spot-7"
+    "body-mouth"
    ]
   },
   {
@@ -133,21 +148,21 @@
    "parent": "body",
    "pivot": [
     2258.6,
-    644.0
+    640.0
    ],
    "bbox": [
     2247.4,
-    555.0,
+    551.0,
     329.4,
     130.9
    ],
    "rect": [
-    252,
-    876,
+    1270,
+    426,
     198,
     79
    ],
-   "z": 5,
+   "z": 21,
    "members": [
     "mouth-in"
    ]
@@ -157,21 +172,21 @@
    "parent": "body",
    "pivot": [
     2258.6,
-    644.0
+    640.0
    ],
    "bbox": [
     2168.7,
-    562.9,
+    558.9,
     409.9,
     189.8
    ],
    "rect": [
-    3,
-    876,
+    1021,
+    426,
     246,
     114
    ],
-   "z": 6,
+   "z": 22,
    "members": [
     "jaw"
    ]
@@ -181,21 +196,21 @@
    "parent": "body",
    "pivot": [
     2034.6,
-    296.0
+    292.0
    ],
    "bbox": [
     1890.9,
-    288.3,
+    284.3,
     196.9,
     467.4
    ],
    "rect": [
+    1231,
     3,
-    429,
     119,
     281
    ],
-   "z": 8,
+   "z": 24,
    "members": [
     "operculum"
    ]
@@ -205,26 +220,29 @@
    "parent": "body",
    "pivot": [
     1906.6,
-    600.0
+    596.0
    ],
    "bbox": [
     1566.7,
-    505.5,
+    501.5,
     383.0,
     302.4
    ],
    "rect": [
-    459,
-    429,
+    1687,
+    3,
     230,
     182
    ],
-   "z": 9,
+   "z": 25,
    "members": [
     "pectoral",
     "pectoral-ray-0",
     "pectoral-ray-1",
-    "pectoral-ray-2"
+    "pectoral-ray-2",
+    "pectoral-dot-0",
+    "pectoral-dot-1",
+    "pectoral-dot-2"
    ]
   },
   {
@@ -232,21 +250,21 @@
    "parent": "body",
    "pivot": [
     2324.6,
-    416.0
+    412.0
    ],
    "bbox": [
     2273.8,
-    367.2,
+    363.2,
     100.9,
     98.3
    ],
    "rect": [
-    453,
-    876,
+    1471,
+    426,
     61,
     59
    ],
-   "z": 10,
+   "z": 26,
    "members": [
     "eye",
     "eye-pupil",

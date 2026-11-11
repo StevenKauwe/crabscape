@@ -1,187 +1,314 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="699" height="385" viewBox="0 0 699 385">
+<svg xmlns="http://www.w3.org/2000/svg" width="774" height="386" viewBox="0 0 774 386">
 <defs>
-<linearGradient id="gp-cutter-arm_0" gradientUnits="userSpaceOnUse" x1="468.1" y1="196" x2="482.4" y2="253.2"><stop offset="0" stop-color="#A8744C"/><stop offset=".48" stop-color="#744A30"/><stop offset="1" stop-color="#3C2418"/></linearGradient>
-<linearGradient id="gp-cutter-palm_1" gradientUnits="userSpaceOnUse" x1="547.6" y1="188.1" x2="560.1" y2="238.3"><stop offset="0" stop-color="#A8744C"/><stop offset=".48" stop-color="#744A30"/><stop offset="1" stop-color="#3C2418"/></linearGradient>
-<linearGradient id="gp-cutter-finger_2" gradientUnits="userSpaceOnUse" x1="577.6" y1="205.8" x2="585.8" y2="238.6"><stop offset="0" stop-color="#D9B98A"/><stop offset=".48" stop-color="#B08A5C"/><stop offset="1" stop-color="#6B4F30"/></linearGradient>
-<linearGradient id="gp-antenna-a_3" gradientUnits="userSpaceOnUse" x1="263.8" y1="85.5" x2="310.8" y2="273.6"><stop offset="0" stop-color="#A8744C"/><stop offset=".48" stop-color="#744A30"/><stop offset="1" stop-color="#3C2418"/></linearGradient>
-<linearGradient id="gp-antenna-b_4" gradientUnits="userSpaceOnUse" x1="260.6" y1="58.3" x2="314.1" y2="272.5"><stop offset="0" stop-color="#A8744C"/><stop offset=".48" stop-color="#744A30"/><stop offset="1" stop-color="#3C2418"/></linearGradient>
-<linearGradient id="gp-leg-a_5" gradientUnits="userSpaceOnUse" x1="453.4" y1="277.7" x2="466.1" y2="328.4"><stop offset="0" stop-color="#A8744C"/><stop offset=".48" stop-color="#744A30"/><stop offset="1" stop-color="#3C2418"/></linearGradient>
-<linearGradient id="gp-leg-b_6" gradientUnits="userSpaceOnUse" x1="409.4" y1="277.7" x2="422.1" y2="328.4"><stop offset="0" stop-color="#A8744C"/><stop offset=".48" stop-color="#744A30"/><stop offset="1" stop-color="#3C2418"/></linearGradient>
-<linearGradient id="gp-leg-c_7" gradientUnits="userSpaceOnUse" x1="365.4" y1="277.7" x2="378.1" y2="328.4"><stop offset="0" stop-color="#A8744C"/><stop offset=".48" stop-color="#744A30"/><stop offset="1" stop-color="#3C2418"/></linearGradient>
-<linearGradient id="gp-leg-d_8" gradientUnits="userSpaceOnUse" x1="321.4" y1="277.7" x2="334.1" y2="328.4"><stop offset="0" stop-color="#A8744C"/><stop offset=".48" stop-color="#744A30"/><stop offset="1" stop-color="#3C2418"/></linearGradient>
-<linearGradient id="gp-abdomen-a_9" gradientUnits="userSpaceOnUse" x1="233.3" y1="209.7" x2="256.7" y2="303.3"><stop offset="0" stop-color="#9C7B52"/><stop offset=".48" stop-color="#6C5236"/><stop offset="1" stop-color="#37271A"/></linearGradient>
-<linearGradient id="gp-abdomen-b_10" gradientUnits="userSpaceOnUse" x1="157.1" y1="226.3" x2="173.8" y2="292.8"><stop offset="0" stop-color="#9C7B52"/><stop offset=".48" stop-color="#6C5236"/><stop offset="1" stop-color="#37271A"/></linearGradient>
-<linearGradient id="gp-tailfan_11" gradientUnits="userSpaceOnUse" x1="90.2" y1="230.4" x2="108.9" y2="305.4"><stop offset="0" stop-color="#A8744C"/><stop offset=".48" stop-color="#744A30"/><stop offset="1" stop-color="#3C2418"/></linearGradient>
-<linearGradient id="gp-carapace_12" gradientUnits="userSpaceOnUse" x1="377.6" y1="188.9" x2="411.1" y2="322.7"><stop offset="0" stop-color="#9C7B52"/><stop offset=".48" stop-color="#6C5236"/><stop offset="1" stop-color="#37271A"/></linearGradient>
-<linearGradient id="gp-carapace-belly_13" gradientUnits="userSpaceOnUse" x1="376" y1="263.4" x2="389.4" y2="317"><stop offset="0" stop-color="#E8CFA4"/><stop offset=".48" stop-color="#CDAA78"/><stop offset="1" stop-color="#8E6F48"/></linearGradient>
-<linearGradient id="gp-eye_14" gradientUnits="userSpaceOnUse" x1="475.2" y1="220.4" x2="481" y2="243.4"><stop offset="0" stop-color="#4A3550"/><stop offset=".48" stop-color="#22172A"/><stop offset="1" stop-color="#120A16"/></linearGradient>
-<linearGradient id="gp-crusher-arm_15" gradientUnits="userSpaceOnUse" x1="465.4" y1="234.1" x2="482.3" y2="301.5"><stop offset="0" stop-color="#A8744C"/><stop offset=".48" stop-color="#744A30"/><stop offset="1" stop-color="#3C2418"/></linearGradient>
-<linearGradient id="gp-crusher-palm_16" gradientUnits="userSpaceOnUse" x1="554.7" y1="205.5" x2="577.7" y2="297.5"><stop offset="0" stop-color="#A8744C"/><stop offset=".48" stop-color="#744A30"/><stop offset="1" stop-color="#3C2418"/></linearGradient>
-<linearGradient id="gp-crusher-finger_17" gradientUnits="userSpaceOnUse" x1="591.2" y1="246.9" x2="601.9" y2="289.8"><stop offset="0" stop-color="#D9B98A"/><stop offset=".48" stop-color="#B08A5C"/><stop offset="1" stop-color="#6B4F30"/></linearGradient>
+<linearGradient id="gp-cutter-arm_0" gradientUnits="userSpaceOnUse" x1="492" y1="197.2" x2="506.3" y2="254.4"><stop offset="0" stop-color="#9aa26a"/><stop offset=".48" stop-color="#677543"/><stop offset="1" stop-color="#313e28"/></linearGradient>
+<linearGradient id="gp-cutter-palm_1" gradientUnits="userSpaceOnUse" x1="598.4" y1="177.5" x2="615.6" y2="246.6"><stop offset="0" stop-color="#9aa26a"/><stop offset=".48" stop-color="#677543"/><stop offset="1" stop-color="#313e28"/></linearGradient>
+<linearGradient id="gp-cutter-finger_2" gradientUnits="userSpaceOnUse" x1="622.4" y1="202.3" x2="633.3" y2="245.8"><stop offset="0" stop-color="#c4865b"/><stop offset=".48" stop-color="#a75437"/><stop offset="1" stop-color="#5e2d23"/></linearGradient>
+<linearGradient id="gp-antenna-a_3" gradientUnits="userSpaceOnUse" x1="288.1" y1="85.4" x2="335.6" y2="275.6"><stop offset="0" stop-color="#F79A5E"/><stop offset=".48" stop-color="#D0582E"/><stop offset="1" stop-color="#6E2414"/></linearGradient>
+<linearGradient id="gp-antenna-b_4" gradientUnits="userSpaceOnUse" x1="284.9" y1="58.1" x2="338.9" y2="274.3"><stop offset="0" stop-color="#F79A5E"/><stop offset=".48" stop-color="#D0582E"/><stop offset="1" stop-color="#6E2414"/></linearGradient>
+<linearGradient id="gp-leg-a_5" gradientUnits="userSpaceOnUse" x1="477.3" y1="278.9" x2="490" y2="329.6"><stop offset="0" stop-color="#F79A5E"/><stop offset=".48" stop-color="#D0582E"/><stop offset="1" stop-color="#6E2414"/></linearGradient>
+<linearGradient id="gp-leg-b_6" gradientUnits="userSpaceOnUse" x1="433.3" y1="278.9" x2="446" y2="329.6"><stop offset="0" stop-color="#F79A5E"/><stop offset=".48" stop-color="#D0582E"/><stop offset="1" stop-color="#6E2414"/></linearGradient>
+<linearGradient id="gp-leg-c_7" gradientUnits="userSpaceOnUse" x1="389.3" y1="278.9" x2="402" y2="329.6"><stop offset="0" stop-color="#F79A5E"/><stop offset=".48" stop-color="#D0582E"/><stop offset="1" stop-color="#6E2414"/></linearGradient>
+<linearGradient id="gp-leg-d_8" gradientUnits="userSpaceOnUse" x1="345.3" y1="278.9" x2="358" y2="329.6"><stop offset="0" stop-color="#F79A5E"/><stop offset=".48" stop-color="#D0582E"/><stop offset="1" stop-color="#6E2414"/></linearGradient>
+<linearGradient id="gp-abdomen-a_9" gradientUnits="userSpaceOnUse" x1="257.2" y1="210.9" x2="280.6" y2="304.4"><stop offset="0" stop-color="#B4BA6A"/><stop offset=".48" stop-color="#727E3A"/><stop offset="1" stop-color="#2E3618"/></linearGradient>
+<linearGradient id="gp-abdomen-a--pleuron_10" gradientUnits="userSpaceOnUse" x1="266" y1="266.1" x2="274" y2="298.1"><stop offset="0" stop-color="#F79A5E"/><stop offset=".48" stop-color="#D0582E"/><stop offset="1" stop-color="#6E2414"/></linearGradient>
+<linearGradient id="gp-abdomen-b_11" gradientUnits="userSpaceOnUse" x1="181" y1="227.5" x2="197.7" y2="294"><stop offset="0" stop-color="#B4BA6A"/><stop offset=".48" stop-color="#727E3A"/><stop offset="1" stop-color="#2E3618"/></linearGradient>
+<linearGradient id="gp-abdomen-b--pleuron_12" gradientUnits="userSpaceOnUse" x1="186.7" y1="268.9" x2="193.3" y2="295.3"><stop offset="0" stop-color="#F79A5E"/><stop offset=".48" stop-color="#D0582E"/><stop offset="1" stop-color="#6E2414"/></linearGradient>
+<linearGradient id="gp-tailfan_13" gradientUnits="userSpaceOnUse" x1="99.4" y1="220" x2="123.8" y2="317.6"><stop offset="0" stop-color="#B4BA6A"/><stop offset=".48" stop-color="#727E3A"/><stop offset="1" stop-color="#2E3618"/></linearGradient>
+<linearGradient id="gp-carapace_14" gradientUnits="userSpaceOnUse" x1="401.5" y1="190.1" x2="435" y2="323.9"><stop offset="0" stop-color="#B4BA6A"/><stop offset=".48" stop-color="#727E3A"/><stop offset="1" stop-color="#2E3618"/></linearGradient>
+<linearGradient id="gp-carapace-belly_15" gradientUnits="userSpaceOnUse" x1="399.9" y1="264.6" x2="413.3" y2="318.2"><stop offset="0" stop-color="#FBE6C0"/><stop offset=".48" stop-color="#E8C496"/><stop offset="1" stop-color="#A47A50"/></linearGradient>
+<linearGradient id="gp-carapace--spine-0_16" gradientUnits="userSpaceOnUse" x1="355.9" y1="206.9" x2="360.1" y2="223.9"><stop offset="0" stop-color="#F79A5E"/><stop offset=".48" stop-color="#D0582E"/><stop offset="1" stop-color="#6E2414"/></linearGradient>
+<linearGradient id="gp-carapace--spine-1_17" gradientUnits="userSpaceOnUse" x1="391.9" y1="205.9" x2="396.1" y2="222.8"><stop offset="0" stop-color="#F79A5E"/><stop offset=".48" stop-color="#D0582E"/><stop offset="1" stop-color="#6E2414"/></linearGradient>
+<linearGradient id="gp-carapace--spine-2_18" gradientUnits="userSpaceOnUse" x1="427.9" y1="206.5" x2="432.1" y2="223.4"><stop offset="0" stop-color="#F79A5E"/><stop offset=".48" stop-color="#D0582E"/><stop offset="1" stop-color="#6E2414"/></linearGradient>
+<linearGradient id="gp-carapace--spine-3_19" gradientUnits="userSpaceOnUse" x1="463.9" y1="207.5" x2="468.1" y2="224.5"><stop offset="0" stop-color="#F79A5E"/><stop offset=".48" stop-color="#D0582E"/><stop offset="1" stop-color="#6E2414"/></linearGradient>
+<linearGradient id="gp-carapace--rostrum_20" gradientUnits="userSpaceOnUse" x1="521.1" y1="229.3" x2="526.9" y2="252.9"><stop offset="0" stop-color="#F79A5E"/><stop offset=".48" stop-color="#D0582E"/><stop offset="1" stop-color="#6E2414"/></linearGradient>
+<linearGradient id="gp-eye_21" gradientUnits="userSpaceOnUse" x1="499.1" y1="221.6" x2="504.9" y2="244.6"><stop offset="0" stop-color="#4A3550"/><stop offset=".48" stop-color="#22172A"/><stop offset="1" stop-color="#120A16"/></linearGradient>
+<linearGradient id="gp-eye--glint_22" gradientUnits="userSpaceOnUse" x1="497.5" y1="225.3" x2="499.5" y2="233.3"><stop offset="0" stop-color="#FFF8EC"/><stop offset=".48" stop-color="#FFF3DE"/><stop offset="1" stop-color="#EFE2C8"/></linearGradient>
+<linearGradient id="gp-eye--glint2_23" gradientUnits="userSpaceOnUse" x1="505.4" y1="235.1" x2="506.2" y2="238.3"><stop offset="0" stop-color="#FFF8EC"/><stop offset=".48" stop-color="#FFF3DE"/><stop offset="1" stop-color="#EFE2C8"/></linearGradient>
+<linearGradient id="gp-crusher-arm_24" gradientUnits="userSpaceOnUse" x1="489.3" y1="235.3" x2="506.2" y2="302.7"><stop offset="0" stop-color="#BEC072"/><stop offset=".48" stop-color="#7A843E"/><stop offset="1" stop-color="#323A1A"/></linearGradient>
+<linearGradient id="gp-crusher-palm_25" gradientUnits="userSpaceOnUse" x1="606.5" y1="190" x2="635.7" y2="306.7"><stop offset="0" stop-color="#BEC072"/><stop offset=".48" stop-color="#7A843E"/><stop offset="1" stop-color="#323A1A"/></linearGradient>
+<linearGradient id="gp-crusher-finger_26" gradientUnits="userSpaceOnUse" x1="638.9" y1="245.9" x2="653.1" y2="302.6"><stop offset="0" stop-color="#F79A5E"/><stop offset=".48" stop-color="#D0582E"/><stop offset="1" stop-color="#6E2414"/></linearGradient>
+<linearGradient id="gp-crusher-palm--molar-0_27" gradientUnits="userSpaceOnUse" x1="616.4" y1="254.7" x2="619.6" y2="267.4"><stop offset="0" stop-color="#FBE6C0"/><stop offset=".48" stop-color="#E8C496"/><stop offset="1" stop-color="#A47A50"/></linearGradient>
+<linearGradient id="gp-crusher-palm--molar-1_28" gradientUnits="userSpaceOnUse" x1="636.4" y1="254.7" x2="639.6" y2="267.4"><stop offset="0" stop-color="#FBE6C0"/><stop offset=".48" stop-color="#E8C496"/><stop offset="1" stop-color="#A47A50"/></linearGradient>
+<linearGradient id="gp-crusher-palm--molar-2_29" gradientUnits="userSpaceOnUse" x1="656.4" y1="254.7" x2="659.6" y2="267.4"><stop offset="0" stop-color="#FBE6C0"/><stop offset=".48" stop-color="#E8C496"/><stop offset="1" stop-color="#A47A50"/></linearGradient>
+<linearGradient id="gp-crusher-palm--molar-3_30" gradientUnits="userSpaceOnUse" x1="676.4" y1="254.7" x2="679.6" y2="267.4"><stop offset="0" stop-color="#FBE6C0"/><stop offset=".48" stop-color="#E8C496"/><stop offset="1" stop-color="#A47A50"/></linearGradient>
+<linearGradient id="gp-crusher-palm--knob-0_31" gradientUnits="userSpaceOnUse" x1="564.8" y1="222.2" x2="567.2" y2="232"><stop offset="0" stop-color="#F79A5E"/><stop offset=".48" stop-color="#D0582E"/><stop offset="1" stop-color="#6E2414"/></linearGradient>
+<linearGradient id="gp-crusher-palm--knob-1_32" gradientUnits="userSpaceOnUse" x1="592.8" y1="216.2" x2="595.2" y2="226"><stop offset="0" stop-color="#F79A5E"/><stop offset=".48" stop-color="#D0582E"/><stop offset="1" stop-color="#6E2414"/></linearGradient>
+<linearGradient id="gp-crusher-palm--knob-2_33" gradientUnits="userSpaceOnUse" x1="620.8" y1="218.2" x2="623.2" y2="228"><stop offset="0" stop-color="#F79A5E"/><stop offset=".48" stop-color="#D0582E"/><stop offset="1" stop-color="#6E2414"/></linearGradient>
+<linearGradient id="gp-crusher-palm--knob-3_34" gradientUnits="userSpaceOnUse" x1="648.8" y1="224.2" x2="651.2" y2="234"><stop offset="0" stop-color="#F79A5E"/><stop offset=".48" stop-color="#D0582E"/><stop offset="1" stop-color="#6E2414"/></linearGradient>
+<linearGradient id="gp-crusher-palm--knob-4_35" gradientUnits="userSpaceOnUse" x1="576.8" y1="238.2" x2="579.2" y2="248"><stop offset="0" stop-color="#F79A5E"/><stop offset=".48" stop-color="#D0582E"/><stop offset="1" stop-color="#6E2414"/></linearGradient>
+<linearGradient id="gp-crusher-palm--knob-5_36" gradientUnits="userSpaceOnUse" x1="608.8" y1="234.2" x2="611.2" y2="244"><stop offset="0" stop-color="#F79A5E"/><stop offset=".48" stop-color="#D0582E"/><stop offset="1" stop-color="#6E2414"/></linearGradient>
 </defs>
 <!-- American lobster: Rust-authored cut-out puppet (bestiary lane). -->
 <text x="20" y="40" font-family="Nimbus Sans, sans-serif" font-size="22" font-weight="normal" fill="#2A140F" text-anchor="start" >American lobster · rig parts</text>
-<g id="cutter-arm" data-parent="carapace" data-pivot="442.1,233.9">
+<g id="cutter-arm" data-parent="carapace" data-pivot="466.0,235.1">
 <g>
-<path id="p-cutter-arm_0" d="M442.2 244.6L450 243L459.8 237.3L470.2 230.8L480.4 226.7L490.1 224.4L500.2 223.3L509 223.4L514.9 221.8L517.9 218.2L519.6 213.3L517.7 208.4L513.4 205.5L506.5 204.2L496.9 205.3L486.3 207.3L475.8 209.1L464.6 212.3L452.3 216.1L441.1 219.5L434.1 223.7L431.8 229.3L432.2 236.3L436.3 242.1Z" fill="url(#gp-cutter-arm_0)"/>
-<path d="M442.2 244.6L450 243L459.8 237.3L470.2 230.8L480.4 226.7L490.1 224.4L500.2 223.3L509 223.4L514.9 221.8L517.9 218.2L519.6 213.3L517.7 208.4L513.4 205.5L506.5 204.2L496.9 205.3L486.3 207.3L475.8 209.1L464.6 212.3L452.3 216.1L441.1 219.5L434.1 223.7L431.8 229.3L432.2 236.3L436.3 242.1Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
-<path d="M436.3 242.1L442.2 244.6L450 243L459.8 237.3L470.2 230.8L480.4 226.7L490.1 224.4L500.2 223.3L509 223.4L514.9 221.8L517.9 218.2" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="p-cutter-arm_0" d="M466.1 245.8L473.9 244.2L483.7 238.5L494.1 232L504.3 227.9L514 225.6L524.1 224.5L532.9 224.6L538.8 223L541.8 219.4L543.5 214.5L541.6 209.6L537.3 206.7L530.4 205.4L520.8 206.5L510.2 208.5L499.7 210.3L488.5 213.4L476.2 217.3L465 220.7L458 224.9L455.7 230.5L456.1 237.5L460.2 243.3Z" fill="url(#gp-cutter-arm_0)"/>
+<path d="M466.1 245.8L473.9 244.2L483.7 238.5L494.1 232L504.3 227.9L514 225.6L524.1 224.5L532.9 224.6L538.8 223L541.8 219.4L543.5 214.5L541.6 209.6L537.3 206.7L530.4 205.4L520.8 206.5L510.2 208.5L499.7 210.3L488.5 213.4L476.2 217.3L465 220.7L458 224.9L455.7 230.5L456.1 237.5L460.2 243.3Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M460.2 243.3L466.1 245.8L473.9 244.2L483.7 238.5L494.1 232L504.3 227.9L514 225.6L524.1 224.5L532.9 224.6L538.8 223L541.8 219.4" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
 </g>
 </g>
-<g id="cutter-palm" data-parent="cutter-arm" data-pivot="514.1,213.9">
+<g id="cutter-palm" data-parent="cutter-arm" data-pivot="538.0,215.1">
 <g>
-<path id="p-cutter-palm_1" d="M510.7 202.8L518.1 200.6L529.1 198.8L541.8 199.1L554.1 199.8L567.6 200.9L582.3 204.6L595 208.3L602.6 211.2L602.3 214.2L597.4 215.7L590 217.8L581.9 218.9L573.1 220.6L562.8 223.2L552 224.6L542.1 226L532.9 228L523.6 228.5L515.6 228.3L509.5 226.6L506.9 221L505.9 214L506.6 207Z" fill="url(#gp-cutter-palm_1)"/>
-<path d="M510.7 202.8L518.1 200.6L529.1 198.8L541.8 199.1L554.1 199.8L567.6 200.9L582.3 204.6L595 208.3L602.6 211.2L602.3 214.2L597.4 215.7L590 217.8L581.9 218.9L573.1 220.6L562.8 223.2L552 224.6L542.1 226L532.9 228L523.6 228.5L515.6 228.3L509.5 226.6L506.9 221L505.9 214L506.6 207Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
-<path d="M602.3 214.2L597.4 215.7L590 217.8L581.9 218.9L573.1 220.6L562.8 223.2L552 224.6L542.1 226L532.9 228L523.6 228.5L515.6 228.3L509.5 226.6" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="p-cutter-palm_1" d="M534.8 204.3L542.8 201.1L554.3 197.4L568 195.6L582 195.5L596.6 195.6L612.5 197.2L628.1 200.9L642.2 204.4L656.5 207.4L670.7 212L681.3 216.9L685.3 219.1L681.5 219.8L670.5 219.2L656.2 219L642 220.6L627.8 222.3L612.2 223.8L596.6 226.6L582.1 228.7L568.1 229.1L554.3 229.7L542.2 230.2L533.7 227.7L530.1 222.1L528.7 215.6L530 208.8Z" fill="url(#gp-cutter-palm_1)"/>
+<path d="M534.8 204.3L542.8 201.1L554.3 197.4L568 195.6L582 195.5L596.6 195.6L612.5 197.2L628.1 200.9L642.2 204.4L656.5 207.4L670.7 212L681.3 216.9L685.3 219.1L681.5 219.8L670.5 219.2L656.2 219L642 220.6L627.8 222.3L612.2 223.8L596.6 226.6L582.1 228.7L568.1 229.1L554.3 229.7L542.2 230.2L533.7 227.7L530.1 222.1L528.7 215.6L530 208.8Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M681.5 219.8L670.5 219.2L656.2 219L642 220.6L627.8 222.3L612.2 223.8L596.6 226.6L582.1 228.7L568.1 229.1L554.3 229.7L542.2 230.2L533.7 227.7" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
 </g>
 </g>
-<g id="cutter-finger" data-parent="cutter-palm" data-pivot="546.1,217.9">
+<g id="cutter-finger" data-parent="cutter-palm" data-pivot="570.0,219.1">
 <g>
-<path id="p-cutter-finger_2" d="M545.9 215.1L553.2 215.3L563.7 215.3L575.5 215L586.1 216L596.7 218.6L608.1 222.2L616.7 226.9L619.4 229.9L616.5 229.4L607.5 228.6L596.3 227L586.1 226.5L576.5 226.8L566.2 226.3L556.9 225.6L550.2 225.4L545.9 223.7L543.3 220.9L542.5 217.5Z" fill="url(#gp-cutter-finger_2)"/>
-<path d="M545.9 215.1L553.2 215.3L563.7 215.3L575.5 215L586.1 216L596.7 218.6L608.1 222.2L616.7 226.9L619.4 229.9L616.5 229.4L607.5 228.6L596.3 227L586.1 226.5L576.5 226.8L566.2 226.3L556.9 225.6L550.2 225.4L545.9 223.7L543.3 220.9L542.5 217.5Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
-<path d="M616.5 229.4L607.5 228.6L596.3 227L586.1 226.5L576.5 226.8L566.2 226.3L556.9 225.6L550.2 225.4L545.9 223.7" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="p-cutter-finger_2" d="M569.8 216L578.7 217.1L591.5 217.9L606.5 218.1L622 219.3L641.1 221.3L663.7 224L682.3 228.2L689 231.1L682.1 230.6L663.3 230.7L640.8 229.8L622 229.9L607.5 230.1L594 228.6L582.5 227L574.2 226.4L568.7 224.7L565.7 221.9L565.2 218.2Z" fill="url(#gp-cutter-finger_2)"/>
+<path d="M569.8 216L578.7 217.1L591.5 217.9L606.5 218.1L622 219.3L641.1 221.3L663.7 224L682.3 228.2L689 231.1L682.1 230.6L663.3 230.7L640.8 229.8L622 229.9L607.5 230.1L594 228.6L582.5 227L574.2 226.4L568.7 224.7L565.7 221.9L565.2 218.2Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M682.1 230.6L663.3 230.7L640.8 229.8L622 229.9L607.5 230.1L594 228.6L582.5 227L574.2 226.4L568.7 224.7" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
 </g>
 </g>
-<g id="antenna-a" data-parent="carapace" data-pivot="478.1,229.9">
+<g id="antenna-a" data-parent="carapace" data-pivot="502.0,231.1">
 <g>
-<path id="p-antenna-a_3" d="M482.2 228.2L450.5 165.4L358.3 128.2L217.5 135.1L94.2 182.1L94.8 184L218 137.5L357.9 131.6L447.6 168.9L476.2 230.6Z" fill="url(#gp-antenna-a_3)"/>
-<path d="M482.2 228.2L450.5 165.4L358.3 128.2L217.5 135.1L94.2 182.1L94.8 184L218 137.5L357.9 131.6L447.6 168.9L476.2 230.6Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
-<path d="M94.8 184L218 137.5L357.9 131.6L447.6 168.9" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="p-antenna-a_3" d="M507.6 228.8L475.3 165.5L382.4 128.2L241.3 135.3L117.8 182.5L119 185.9L242.1 139.6L381.6 134L470.6 171.2L498.6 232.4Z" fill="url(#gp-antenna-a_3)"/>
+<path d="M507.6 228.8L475.3 165.5L382.4 128.2L241.3 135.3L117.8 182.5L119 185.9L242.1 139.6L381.6 134L470.6 171.2L498.6 232.4Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M119 185.9L242.1 139.6L381.6 134L470.6 171.2" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
 </g>
 </g>
-<g id="antenna-b" data-parent="carapace" data-pivot="478.1,229.9">
+<g id="antenna-b" data-parent="carapace" data-pivot="502.0,231.1">
 <g>
-<path id="p-antenna-b_4" d="M481.5 228.9L451.3 136.8L358.1 102.1L217.5 118.8L93.2 171.5L94.6 174.7L218.2 121.6L358.1 101.7L447.5 140.3L474 231.2Z" fill="url(#gp-antenna-b_4)"/>
-<path d="M481.5 228.9L451.3 136.8L358.1 102.1L217.5 118.8L93.2 171.5L94.6 174.7L218.2 121.6L358.1 101.7L447.5 140.3L474 231.2Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
-<path d="M94.6 174.7L218.2 121.6L358.1 101.7L447.5 140.3" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="p-antenna-b_4" d="M506.9 229.6L476.2 137L382.1 102.1L241.1 119L116.8 172L118.8 176.7L242.4 123.8L381.9 104.1L470.4 142.4L496.4 232.9Z" fill="url(#gp-antenna-b_4)"/>
+<path d="M506.9 229.6L476.2 137L382.1 102.1L241.1 119L116.8 172L118.8 176.7L242.4 123.8L381.9 104.1L470.4 142.4L496.4 232.9Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M118.8 176.7L242.4 123.8L381.9 104.1L470.4 142.4" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
 </g>
 </g>
-<g id="leg-a" data-parent="carapace" data-pivot="442.1,285.9">
+<g id="leg-a" data-parent="carapace" data-pivot="466.0,287.1">
 <g>
-<path id="p-leg-a_5" d="M436 289.8L450.4 307.2L468.3 318.6L481 324.2L483.4 319.5L471.9 313L457.5 300.6L447.9 282Z" fill="url(#gp-leg-a_5)"/>
-<path d="M436 289.8L450.4 307.2L468.3 318.6L481 324.2L483.4 319.5L471.9 313L457.5 300.6L447.9 282Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
-<path d="M450.4 307.2L468.3 318.6L481 324.2" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="p-leg-a_5" d="M459.9 291L474.4 308.4L492.2 319.8L504.9 325.4L507.3 320.7L495.8 314.2L481.4 301.8L471.8 283.2Z" fill="url(#gp-leg-a_5)"/>
+<path d="M459.9 291L474.4 308.4L492.2 319.8L504.9 325.4L507.3 320.7L495.8 314.2L481.4 301.8L471.8 283.2Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M474.4 308.4L492.2 319.8L504.9 325.4" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
 </g>
 </g>
-<g id="leg-b" data-parent="carapace" data-pivot="398.1,285.9">
+<g id="leg-b" data-parent="carapace" data-pivot="422.0,287.1">
 <g>
-<path id="p-leg-b_6" d="M392.1 289.8L406.5 307.2L423.9 319.3L437 323.8L439.6 319.4L428.2 312.6L414.5 299.8L403.8 282.2Z" fill="url(#gp-leg-b_6)"/>
-<path d="M392.1 289.8L406.5 307.2L423.9 319.3L437 323.8L439.6 319.4L428.2 312.6L414.5 299.8L403.8 282.2Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
-<path d="M406.5 307.2L423.9 319.3L437 323.8" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="p-leg-b_6" d="M416 291L430.4 308.4L447.8 320.5L460.9 325L463.5 320.6L452.1 313.8L438.4 301L427.7 283.4Z" fill="url(#gp-leg-b_6)"/>
+<path d="M416 291L430.4 308.4L447.8 320.5L460.9 325L463.5 320.6L452.1 313.8L438.4 301L427.7 283.4Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M430.4 308.4L447.8 320.5L460.9 325" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
 </g>
 </g>
-<g id="leg-c" data-parent="carapace" data-pivot="354.1,285.9">
+<g id="leg-c" data-parent="carapace" data-pivot="378.0,287.1">
 <g>
-<path id="p-leg-c_7" d="M347.8 289.8L362.3 307.4L379.8 319.5L393 324.2L394.7 320.1L384.7 311.9L370 300.2L359.7 282.5Z" fill="url(#gp-leg-c_7)"/>
-<path d="M347.8 289.8L362.3 307.4L379.8 319.5L393 324.2L394.7 320.1L384.7 311.9L370 300.2L359.7 282.5Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
-<path d="M362.3 307.4L379.8 319.5L393 324.2" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="p-leg-c_7" d="M371.7 291L386.2 308.6L403.7 320.7L416.9 325.4L418.6 321.3L408.6 313.1L393.9 301.4L383.6 283.7Z" fill="url(#gp-leg-c_7)"/>
+<path d="M371.7 291L386.2 308.6L403.7 320.7L416.9 325.4L418.6 321.3L408.6 313.1L393.9 301.4L383.6 283.7Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M386.2 308.6L403.7 320.7L416.9 325.4" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
 </g>
 </g>
-<g id="leg-d" data-parent="carapace" data-pivot="310.1,285.9">
+<g id="leg-d" data-parent="carapace" data-pivot="334.0,287.1">
 <g>
-<path id="p-leg-d_8" d="M304.8 289.7L318.4 307.3L335.8 319.5L349 324.5L351.2 319.7L339.8 313.1L326.2 300L316.3 281.3Z" fill="url(#gp-leg-d_8)"/>
-<path d="M304.8 289.7L318.4 307.3L335.8 319.5L349 324.5L351.2 319.7L339.8 313.1L326.2 300L316.3 281.3Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
-<path d="M318.4 307.3L335.8 319.5L349 324.5" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="p-leg-d_8" d="M328.7 290.9L342.3 308.5L359.7 320.7L372.9 325.7L375.1 320.8L363.7 314.3L350.2 301.2L340.2 282.5Z" fill="url(#gp-leg-d_8)"/>
+<path d="M328.7 290.9L342.3 308.5L359.7 320.7L372.9 325.7L375.1 320.8L363.7 314.3L350.2 301.2L340.2 282.5Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M342.3 308.5L359.7 320.7L372.9 325.7" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
 </g>
 </g>
-<g id="abdomen-a" data-parent="carapace" data-pivot="294.1,255.9">
+<g id="abdomen-a" data-parent="carapace" data-pivot="318.0,257.1">
 <g>
-<path id="p-abdomen-a_9" d="M294.2 225.8L285.6 220.6L273 219.2L259.1 221.4L246.1 223.5L233 224.2L219.4 226.4L207.4 229.7L198.5 234.3L193.6 243.6L190.8 255.9L189.9 268.4L193.9 278L203.1 283.9L216.6 288.2L232 289.6L246.1 290.2L259.4 291.9L273.3 292L285.3 290.2L293.7 285.6L297.6 273.3L299.1 255.8L298.8 238.1Z" fill="url(#gp-abdomen-a_9)"/>
-<path d="M294.2 225.8L285.6 220.6L273 219.2L259.1 221.4L246.1 223.5L233 224.2L219.4 226.4L207.4 229.7L198.5 234.3L193.6 243.6L190.8 255.9L189.9 268.4L193.9 278L203.1 283.9L216.6 288.2L232 289.6L246.1 290.2L259.4 291.9L273.3 292L285.3 290.2L293.7 285.6L297.6 273.3L299.1 255.8L298.8 238.1Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
-<path d="M193.9 278L203.1 283.9L216.6 288.2L232 289.6L246.1 290.2L259.4 291.9L273.3 292L285.3 290.2L293.7 285.6L297.6 273.3" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="p-abdomen-a_9" d="M318.2 227L309.5 221.8L296.9 220.4L283 222.6L270 224.7L256.9 225.4L243.3 227.6L231.3 230.9L222.4 235.5L217.6 244.8L214.7 257.1L213.8 269.6L217.9 279.2L227 285.1L240.5 289.4L255.9 290.8L270 291.4L283.4 293.1L297.2 293.2L309.2 291.4L317.6 286.8L321.5 274.5L323.1 257L322.7 239.3Z" fill="url(#gp-abdomen-a_9)"/>
+<path d="M318.2 227L309.5 221.8L296.9 220.4L283 222.6L270 224.7L256.9 225.4L243.3 227.6L231.3 230.9L222.4 235.5L217.6 244.8L214.7 257.1L213.8 269.6L217.9 279.2L227 285.1L240.5 289.4L255.9 290.8L270 291.4L283.4 293.1L297.2 293.2L309.2 291.4L317.6 286.8L321.5 274.5L323.1 257L322.7 239.3Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M217.9 279.2L227 285.1L240.5 289.4L255.9 290.8L270 291.4L283.4 293.1L297.2 293.2L309.2 291.4L317.6 286.8L321.5 274.5" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
 </g>
 </g>
-<g id="abdomen-b" data-parent="abdomen-a" data-pivot="202.1,257.9">
+<g id="abdomen-a--pleuron" data-parent="abdomen-a">
 <g>
-<path id="p-abdomen-b_10" d="M202.6 235.3L193.9 234.8L182.4 238.2L169.4 242.2L158.3 246.4L148.5 249.5L138.7 252.4L130.9 256.9L125.9 261.8L123.6 267L124.6 272.6L126.9 277.5L130.2 281.8L136.8 283.9L146.1 284.9L156.4 285.5L166.1 284.3L175.9 283.4L186.3 283.3L195.3 281.3L201.5 277.5L206.1 268.8L207.7 255.9L206.6 243.5Z" fill="url(#gp-abdomen-b_10)"/>
-<path d="M202.6 235.3L193.9 234.8L182.4 238.2L169.4 242.2L158.3 246.4L148.5 249.5L138.7 252.4L130.9 256.9L125.9 261.8L123.6 267L124.6 272.6L126.9 277.5L130.2 281.8L136.8 283.9L146.1 284.9L156.4 285.5L166.1 284.3L175.9 283.4L186.3 283.3L195.3 281.3L201.5 277.5L206.1 268.8L207.7 255.9L206.6 243.5Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
-<path d="M130.2 281.8L136.8 283.9L146.1 284.9L156.4 285.5L166.1 284.3L175.9 283.4L186.3 283.3L195.3 281.3L201.5 277.5L206.1 268.8" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="p-abdomen-a--pleuron_10" d="M309.9 275.1L305.5 275.3L294.9 278.3L282 282.6L270 283.2L258.2 281.1L245.1 278.3L234.2 276.8L230.1 275.1L234.1 278.3L244.9 282.8L258.4 286.2L270 289L282 287.6L295.1 282.8L305.2 276.9Z" fill="url(#gp-abdomen-a--pleuron_10)"/>
 </g>
 </g>
-<g id="tailfan" data-parent="abdomen-b" data-pivot="134.1,269.9">
+<g id="abdomen-b" data-parent="abdomen-a" data-pivot="226.0,259.1">
 <g>
-<path id="p-tailfan_11" d="M134.4 259.6L127 253L116.3 246.3L104.3 241.5L94 238.7L84.8 238.6L75.6 241.4L67.8 245.6L62 249.9L59.4 255.9L60 263.5L61.9 271.3L65.2 278.5L70.8 284.5L78 290.3L85.7 295.4L94.1 297.5L104 295.9L115.6 292.9L126.6 288.8L133.9 283.7L137.9 278.6L140 272.4L138.7 265.7Z" fill="url(#gp-tailfan_11)"/>
-<path d="M134.4 259.6L127 253L116.3 246.3L104.3 241.5L94 238.7L84.8 238.6L75.6 241.4L67.8 245.6L62 249.9L59.4 255.9L60 263.5L61.9 271.3L65.2 278.5L70.8 284.5L78 290.3L85.7 295.4L94.1 297.5L104 295.9L115.6 292.9L126.6 288.8L133.9 283.7L137.9 278.6L140 272.4L138.7 265.7Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
-<path d="M70.8 284.5L78 290.3L85.7 295.4L94.1 297.5L104 295.9L115.6 292.9L126.6 288.8L133.9 283.7L137.9 278.6" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="p-abdomen-b_11" d="M226.5 236.4L217.8 236L206.3 239.4L193.3 243.4L182.2 247.6L172.4 250.7L162.6 253.6L154.8 258L149.8 263L147.5 268.2L148.5 273.8L150.8 278.7L154.1 283L160.7 285.1L170 286.1L180.3 286.7L190 285.5L199.8 284.6L210.2 284.5L219.2 282.5L225.4 278.6L230 270L231.6 257.1L230.5 244.6Z" fill="url(#gp-abdomen-b_11)"/>
+<path d="M226.5 236.4L217.8 236L206.3 239.4L193.3 243.4L182.2 247.6L172.4 250.7L162.6 253.6L154.8 258L149.8 263L147.5 268.2L148.5 273.8L150.8 278.7L154.1 283L160.7 285.1L170 286.1L180.3 286.7L190 285.5L199.8 284.6L210.2 284.5L219.2 282.5L225.4 278.6L230 270L231.6 257.1L230.5 244.6Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M154.1 283L160.7 285.1L170 286.1L180.3 286.7L190 285.5L199.8 284.6L210.2 284.5L219.2 282.5L225.4 278.6L230 270" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="abdomen-b--pleuron" data-parent="abdomen-b">
+<g>
+<path id="p-abdomen-b--pleuron_12" d="M217.8 275.1L215.1 276.5L207.6 278.9L198.3 281.7L190 282.2L181.7 281.5L172.3 279.4L165 276.2L162.1 275.1L164.7 278.2L172.2 283L181.9 286.5L190 288.6L198.2 286.9L207.6 282.7L215.4 278.4Z" fill="url(#gp-abdomen-b--pleuron_12)"/>
+</g>
+</g>
+<g id="tailfan" data-parent="abdomen-b" data-pivot="158.0,271.1">
+<g>
+<path id="p-tailfan_13" d="M158.3 260.8L150.4 252.7L138.9 243.6L125.7 236.2L113.8 232L103.1 230.8L92.2 231.9L82.4 235.4L74.6 239.9L68.1 245.2L62.9 252.5L60.1 261L59.6 269.1L60.9 277.4L64.6 286.1L70.7 293.6L78.1 299L86.5 303.1L96.7 306.2L107.5 306.9L117.8 305.8L128.6 302.9L140.4 297.9L150.7 291.3L157.8 284.9L162.3 279.6L164.5 273.6L162.9 267.2Z" fill="url(#gp-tailfan_13)"/>
+<path d="M158.3 260.8L150.4 252.7L138.9 243.6L125.7 236.2L113.8 232L103.1 230.8L92.2 231.9L82.4 235.4L74.6 239.9L68.1 245.2L62.9 252.5L60.1 261L59.6 269.1L60.9 277.4L64.6 286.1L70.7 293.6L78.1 299L86.5 303.1L96.7 306.2L107.5 306.9L117.8 305.8L128.6 302.9L140.4 297.9L150.7 291.3L157.8 284.9L162.3 279.6L164.5 273.6L162.9 267.2Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M70.7 293.6L78.1 299L86.5 303.1L96.7 306.2L107.5 306.9L117.8 305.8L128.6 302.9L140.4 297.9L150.7 291.3L157.8 284.9L162.3 279.6" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
 </g>
 </g>
 <g id="tailfan-rib-a" data-parent="tailfan">
 <g>
-<path d="M126.1 269.9L70.1 245.9" fill="none" stroke="#2A140F" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M150 271.1L82 243.1" fill="none" stroke="#2A140F" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
 </g>
 </g>
 <g id="tailfan-rib-b" data-parent="tailfan">
 <g>
-<path d="M126.1 271.9L70.1 285.9" fill="none" stroke="#2A140F" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M150 273.1L86 299.1" fill="none" stroke="#2A140F" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
 </g>
 </g>
-<g id="carapace" data-parent="root" data-pivot="378.1,261.9">
+<g id="carapace" data-parent="root" data-pivot="402.0,263.1">
 <g>
-<path id="p-carapace_12" d="M286.6 222.7L299.4 218.7L317.7 216.8L338.3 215.6L358.1 214.3L377.6 212.8L397.9 212.2L417.5 213.2L434.5 216.1L447.9 221.3L458.7 227.7L468.3 233.9L477.7 238.8L488.2 242.3L498.5 245.4L506.3 248.3L508.8 249.7L505.9 251.8L497.2 255.3L487 259.3L479.6 263.6L476.5 268.9L474.4 276.4L470.5 283.9L461.8 289.2L445.6 292.7L424 295.2L400.4 296.5L378.1 296.7L356.4 296.2L333.9 295.4L313.5 293.9L297.6 291.1L287.5 285.2L282.7 276.4L281.8 267L281.8 257.9L280.7 248.4L279.6 238.4L280.7 229.4Z" fill="url(#gp-carapace_12)"/>
-<path d="M286.6 222.7L299.4 218.7L317.7 216.8L338.3 215.6L358.1 214.3L377.6 212.8L397.9 212.2L417.5 213.2L434.5 216.1L447.9 221.3L458.7 227.7L468.3 233.9L477.7 238.8L488.2 242.3L498.5 245.4L506.3 248.3L508.8 249.7L505.9 251.8L497.2 255.3L487 259.3L479.6 263.6L476.5 268.9L474.4 276.4L470.5 283.9L461.8 289.2L445.6 292.7L424 295.2L400.4 296.5L378.1 296.7L356.4 296.2L333.9 295.4L313.5 293.9L297.6 291.1L287.5 285.2L282.7 276.4L281.8 267L281.8 257.9L280.7 248.4L279.6 238.4L280.7 229.4Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
-<path d="M505.9 251.8L497.2 255.3L487 259.3L479.6 263.6L476.5 268.9L474.4 276.4L470.5 283.9L461.8 289.2L445.6 292.7L424 295.2L400.4 296.5L378.1 296.7L356.4 296.2L333.9 295.4L313.5 293.9L297.6 291.1L287.5 285.2" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="p-carapace_14" d="M310.5 223.9L323.4 219.9L341.6 218L362.2 216.8L382 215.5L401.5 214L421.8 213.4L441.4 214.4L458.4 217.3L471.8 222.5L482.6 228.9L492.2 235.1L501.6 240L512.1 243.5L522.5 246.6L530.2 249.5L532.7 250.9L529.8 253L521.1 256.5L510.9 260.5L503.5 264.8L500.4 270.1L498.3 277.6L494.4 285.1L485.7 290.4L469.5 293.9L447.9 296.4L424.3 297.7L402 297.9L380.3 297.4L357.8 296.6L337.4 295.1L321.5 292.2L311.4 286.4L306.6 277.6L305.7 268.2L305.7 259.1L304.6 249.6L303.5 239.6L304.6 230.6Z" fill="url(#gp-carapace_14)"/>
+<path d="M310.5 223.9L323.4 219.9L341.6 218L362.2 216.8L382 215.5L401.5 214L421.8 213.4L441.4 214.4L458.4 217.3L471.8 222.5L482.6 228.9L492.2 235.1L501.6 240L512.1 243.5L522.5 246.6L530.2 249.5L532.7 250.9L529.8 253L521.1 256.5L510.9 260.5L503.5 264.8L500.4 270.1L498.3 277.6L494.4 285.1L485.7 290.4L469.5 293.9L447.9 296.4L424.3 297.7L402 297.9L380.3 297.4L357.8 296.6L337.4 295.1L321.5 292.2L311.4 286.4L306.6 277.6L305.7 268.2L305.7 259.1L304.6 249.6L303.5 239.6L304.6 230.6Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M529.8 253L521.1 256.5L510.9 260.5L503.5 264.8L500.4 270.1L498.3 277.6L494.4 285.1L485.7 290.4L469.5 293.9L447.9 296.4L424.3 297.7L402 297.9L380.3 297.4L357.8 296.6L337.4 295.1L321.5 292.2L311.4 286.4" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
 </g>
 </g>
 <g id="carapace-groove" data-parent="carapace">
 <g>
-<path d="M386.1 217.9L384.6 222.2L382.3 228.2L379.9 235.3L378.3 242.7L378.1 249.9L380 257.4L383.5 265.7L387.7 273.9L391.5 280.9L394.1 285.9" fill="none" stroke="#2A140F" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M410 219.1L408.5 223.4L406.2 229.4L403.9 236.5L402.2 243.9L402 251.1L403.9 258.6L407.4 266.9L411.6 275.1L415.4 282.1L418 287.1" fill="none" stroke="#2A140F" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
 </g>
 </g>
 <g id="carapace-belly" data-parent="carapace">
 <g>
-<path id="p-carapace-belly_13" d="M301.9 281.5L311.8 281.2L331.7 282.8L355.7 287.3L378.1 288.6L400.1 288L423.7 285.1L444.4 281.1L458.1 281.2L464.1 283.2L462.2 286.9L456 289.6L446 293.5L428.7 295.5L404.9 299L379.6 299.6L358.1 297.9L338.8 294.5L320.4 288.1L306.2 284.5Z" fill="url(#gp-carapace-belly_13)"/>
+<path id="p-carapace-belly_15" d="M325.8 282.7L335.7 282.4L355.7 284L379.6 288.5L402 289.8L424 289.2L447.6 286.3L468.3 282.3L482.1 282.4L488 284.4L486.1 288.1L479.9 290.8L469.9 294.7L452.6 296.7L428.8 300.2L403.5 300.8L382 299.1L362.7 295.7L344.3 289.3L330.1 285.7Z" fill="url(#gp-carapace-belly_15)"/>
 </g>
 </g>
-<g id="eye" data-parent="carapace" data-pivot="474.1,237.9">
+<g id="carapace--spine-0" data-parent="carapace">
 <g>
-<path id="p-eye_14" d="M488.2 231.9L487.1 236.2L484 239.3L480.2 241.1L475.8 241.8L471.7 239.9L468.7 236.4L467.7 231.9L469.4 227.7L472.1 224.4L475.9 222.4L480.3 222.4L484.6 223.7L487.6 227.3Z" fill="url(#gp-eye_14)"/>
-<path d="M488.2 231.9L487.1 236.2L484 239.3L480.2 241.1L475.8 241.8L471.7 239.9L468.7 236.4L467.7 231.9L469.4 227.7L472.1 224.4L475.9 222.4L480.3 222.4L484.6 223.7L487.6 227.3Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
-<path d="M487.1 236.2L484 239.3L480.2 241.1L475.8 241.8L471.7 239.9" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="p-carapace--spine-0_16" d="M350.3 222.4L364 208.8L365.6 222Z" fill="url(#gp-carapace--spine-0_16)"/>
+<path d="M350.3 222.4L364 208.8L365.6 222Z" fill="none" stroke="#2A140F" stroke-width="1.3" stroke-linejoin="round"/>
 </g>
 </g>
-<g id="crusher-arm" data-parent="carapace" data-pivot="434.1,273.9">
+<g id="carapace--spine-1" data-parent="carapace">
 <g>
-<path id="p-crusher-arm_15" d="M433.6 289.7L441.4 291.5L452.9 289.3L465.1 284.6L476.7 280.4L488.7 278.1L501.5 276.1L512.8 274L520.8 271.1L524.6 264.9L523.8 256.9L519.9 250.3L515.4 246L507.5 244L495.9 245.1L483.3 248.5L471.4 251.4L459.2 252.5L446.1 253L434.7 254L426.6 256.8L423.1 264.5L424.4 274.9L428.8 284.1Z" fill="url(#gp-crusher-arm_15)"/>
-<path d="M433.6 289.7L441.4 291.5L452.9 289.3L465.1 284.6L476.7 280.4L488.7 278.1L501.5 276.1L512.8 274L520.8 271.1L524.6 264.9L523.8 256.9L519.9 250.3L515.4 246L507.5 244L495.9 245.1L483.3 248.5L471.4 251.4L459.2 252.5L446.1 253L434.7 254L426.6 256.8L423.1 264.5L424.4 274.9L428.8 284.1Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
-<path d="M433.6 289.7L441.4 291.5L452.9 289.3L465.1 284.6L476.7 280.4L488.7 278.1L501.5 276.1L512.8 274L520.8 271.1L524.6 264.9" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="p-carapace--spine-1_17" d="M385.5 221.4L400 207.6L401.8 221.2Z" fill="url(#gp-carapace--spine-1_17)"/>
+<path d="M385.5 221.4L400 207.6L401.8 221.2Z" fill="none" stroke="#2A140F" stroke-width="1.3" stroke-linejoin="round"/>
 </g>
 </g>
-<g id="crusher-palm" data-parent="crusher-arm" data-pivot="518.1,255.9">
+<g id="carapace--spine-2" data-parent="carapace">
 <g>
-<path id="p-crusher-palm_16" d="M514.4 226.2L523.1 221.4L535 218.3L548.7 216.5L562.3 216.8L576.1 220.2L590.6 226.2L603.9 232.6L613.8 238.4L619.5 243.3L622.6 248L623.8 252.9L623.1 258.3L619.7 263.7L613.6 268.3L606.1 272.5L597.8 277L586.7 281.5L572.8 284.8L558.4 286.1L546.1 285.9L535.9 285.6L526.9 285.1L519.7 282.9L514.4 277.8L510.3 267L508 251.9L509.2 236.7Z" fill="url(#gp-crusher-palm_16)"/>
-<path d="M514.4 226.2L523.1 221.4L535 218.3L548.7 216.5L562.3 216.8L576.1 220.2L590.6 226.2L603.9 232.6L613.8 238.4L619.5 243.3L622.6 248L623.8 252.9L623.1 258.3L619.7 263.7L613.6 268.3L606.1 272.5L597.8 277L586.7 281.5L572.8 284.8L558.4 286.1L546.1 285.9L535.9 285.6L526.9 285.1L519.7 282.9L514.4 277.8L510.3 267L508 251.9L509.2 236.7Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
-<path d="M623.1 258.3L619.7 263.7L613.6 268.3L606.1 272.5L597.8 277L586.7 281.5L572.8 284.8L558.4 286.1L546.1 285.9L535.9 285.6L526.9 285.1L519.7 282.9" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="p-carapace--spine-2_18" d="M422.4 221.9L436 208.4L438.2 222.1Z" fill="url(#gp-carapace--spine-2_18)"/>
+<path d="M422.4 221.9L436 208.4L438.2 222.1Z" fill="none" stroke="#2A140F" stroke-width="1.3" stroke-linejoin="round"/>
 </g>
 </g>
-<g id="crusher-finger" data-parent="crusher-palm" data-pivot="562.1,269.9">
+<g id="carapace--spine-3" data-parent="carapace">
 <g>
-<path id="p-crusher-finger_17" d="M558.6 264.8L567.5 261.2L581.9 258.1L597.4 256.2L610.1 255.5L620.4 257L629.5 261.1L635.6 266.3L637.6 269.9L635.2 272.1L628.5 274.1L619.4 275.5L610 277.4L599.4 279.7L586.9 281.3L574.9 281.4L566 280.3L559.8 277.4L556.1 272.5L555.9 268Z" fill="url(#gp-crusher-finger_17)"/>
-<path d="M558.6 264.8L567.5 261.2L581.9 258.1L597.4 256.2L610.1 255.5L620.4 257L629.5 261.1L635.6 266.3L637.6 269.9L635.2 272.1L628.5 274.1L619.4 275.5L610 277.4L599.4 279.7L586.9 281.3L574.9 281.4L566 280.3L559.8 277.4L556.1 272.5L555.9 268Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
-<path d="M635.2 272.1L628.5 274.1L619.4 275.5L610 277.4L599.4 279.7L586.9 281.3L574.9 281.4L566 280.3L559.8 277.4" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="p-carapace--spine-3_19" d="M457.9 223L472 208.7L474 223Z" fill="url(#gp-carapace--spine-3_19)"/>
+<path d="M457.9 223L472 208.7L474 223Z" fill="none" stroke="#2A140F" stroke-width="1.3" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="carapace--rostrum" data-parent="carapace">
+<g>
+<path id="p-carapace--rostrum_20" d="M497.9 234.7L549.8 239.1L502 246.9Z" fill="url(#gp-carapace--rostrum_20)"/>
+<path d="M497.9 234.7L549.8 239.1L502 246.9Z" fill="none" stroke="#2A140F" stroke-width="1.6" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="eye" data-parent="carapace" data-pivot="498.0,239.1">
+<g>
+<path id="p-eye_21" d="M512.1 233.1L511 237.4L507.9 240.5L504.1 242.3L499.7 243L495.6 241.1L492.6 237.6L491.6 233.1L493.3 228.9L496 225.6L499.8 223.6L504.2 223.6L508.5 224.9L511.5 228.5Z" fill="url(#gp-eye_21)"/>
+<path d="M512.1 233.1L511 237.4L507.9 240.5L504.1 242.3L499.7 243L495.6 241.1L492.6 237.6L491.6 233.1L493.3 228.9L496 225.6L499.8 223.6L504.2 223.6L508.5 224.9L511.5 228.5Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M511 237.4L507.9 240.5L504.1 242.3L499.7 243L495.6 241.1" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="eye--glint" data-parent="eye">
+<g>
+<path id="p-eye--glint_22" d="M501.3 228.3L501.5 230L501.2 231.8L499.9 233.1L498.1 232.8L496.5 231.9L496 230.2L495.4 228.6L495.8 226.8L497.2 225.7L499 225.5L500.3 226.9Z" fill="url(#gp-eye--glint_22)"/>
+</g>
+</g>
+<g id="eye--glint2" data-parent="eye">
+<g>
+<path id="p-eye--glint2_23" d="M507.2 236.7L507 237.6L506.3 238.4L505.5 237.7L504.9 237.4L504.6 236.7L504.3 235.6L505.4 235.3L506.2 235.4L506.5 236.1Z" fill="url(#gp-eye--glint2_23)" fill-opacity="0.7"/>
+</g>
+</g>
+<g id="crusher-arm" data-parent="carapace" data-pivot="458.0,275.1">
+<g>
+<path id="p-crusher-arm_24" d="M457.5 290.9L465.4 292.7L476.8 290.5L489 285.8L500.6 281.6L512.6 279.3L525.4 277.3L536.7 275.2L544.7 272.3L548.6 266.1L547.7 258.1L543.8 251.5L539.3 247.2L531.4 245.2L519.8 246.3L507.2 249.7L495.3 252.6L483.1 253.7L470 254.2L458.6 255.2L450.5 258L447 265.7L448.3 276.1L452.7 285.3Z" fill="url(#gp-crusher-arm_24)"/>
+<path d="M457.5 290.9L465.4 292.7L476.8 290.5L489 285.8L500.6 281.6L512.6 279.3L525.4 277.3L536.7 275.2L544.7 272.3L548.6 266.1L547.7 258.1L543.8 251.5L539.3 247.2L531.4 245.2L519.8 246.3L507.2 249.7L495.3 252.6L483.1 253.7L470 254.2L458.6 255.2L450.5 258L447 265.7L448.3 276.1L452.7 285.3Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M457.5 290.9L465.4 292.7L476.8 290.5L489 285.8L500.6 281.6L512.6 279.3L525.4 277.3L536.7 275.2L544.7 272.3L548.6 266.1" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="crusher-palm" data-parent="crusher-arm" data-pivot="542.0,257.1">
+<g>
+<path id="p-crusher-palm_25" d="M538.5 227.4L548.1 221.2L561 216.2L575.6 211.8L589.9 208.4L604.1 207L618.9 208.3L633.1 211.3L645.9 215.3L657.2 220.1L667.6 226L677.1 232.2L685.6 237.7L694.6 242.4L703.5 246.7L710.2 250.7L711.2 256.1L704 258.2L692.4 258.2L678.7 258.1L665.8 259.3L654 261.5L641.8 263.9L629.8 266.1L618.4 268.4L607.7 272.3L597.4 277.8L587.6 283.2L577.8 286.4L567 287.3L555.6 286.9L545.3 284.5L537.6 279.4L532.7 268.7L530.7 253.7L532.6 238.6Z" fill="url(#gp-crusher-palm_25)"/>
+<path d="M538.5 227.4L548.1 221.2L561 216.2L575.6 211.8L589.9 208.4L604.1 207L618.9 208.3L633.1 211.3L645.9 215.3L657.2 220.1L667.6 226L677.1 232.2L685.6 237.7L694.6 242.4L703.5 246.7L710.2 250.7L711.2 256.1L704 258.2L692.4 258.2L678.7 258.1L665.8 259.3L654 261.5L641.8 263.9L629.8 266.1L618.4 268.4L607.7 272.3L597.4 277.8L587.6 283.2L577.8 286.4L567 287.3L555.6 286.9L545.3 284.5L537.6 279.4L532.7 268.7L530.7 253.7L532.6 238.6Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M711.2 256.1L704 258.2L692.4 258.2L678.7 258.1L665.8 259.3L654 261.5L641.8 263.9L629.8 266.1L618.4 268.4L607.7 272.3L597.4 277.8L587.6 283.2L577.8 286.4L567 287.3L555.6 286.9L545.3 284.5L537.6 279.4" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="crusher-finger" data-parent="crusher-palm" data-pivot="586.0,271.1">
+<g>
+<path id="p-crusher-finger_26" d="M582.5 266.4L592.1 263.9L606.8 262.1L623.2 261.3L638 261.2L651 261.2L663.8 261.4L675.8 262L686.3 263.7L696.1 266.4L705.2 269.8L711.7 273L713.5 274.9L709.7 277.3L700.8 279.8L689.4 282L677.8 283.9L665.8 285.8L652.3 287.6L638.5 288.5L626 288.2L614.3 287.1L602.9 285.8L593 284.2L585.7 281.7L580.9 277.6L578.7 272.7L579.2 269.1Z" fill="url(#gp-crusher-finger_26)"/>
+<path d="M582.5 266.4L592.1 263.9L606.8 262.1L623.2 261.3L638 261.2L651 261.2L663.8 261.4L675.8 262L686.3 263.7L696.1 266.4L705.2 269.8L711.7 273L713.5 274.9L709.7 277.3L700.8 279.8L689.4 282L677.8 283.9L665.8 285.8L652.3 287.6L638.5 288.5L626 288.2L614.3 287.1L602.9 285.8L593 284.2L585.7 281.7L580.9 277.6L578.7 272.7L579.2 269.1Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M713.5 274.9L709.7 277.3L700.8 279.8L689.4 282L677.8 283.9L665.8 285.8L652.3 287.6L638.5 288.5L626 288.2L614.3 287.1L602.9 285.8L593 284.2L585.7 281.7L580.9 277.6" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
 </g>
 </g>
 <g id="crusher-palm-teeth" data-parent="crusher-palm">
 <g>
-<path d="M574.1 253.9L577.4 254.6L582.2 255.6L587.6 256.7L593.2 257.5L598.1 257.9L602.7 257.5L607.3 256.7L611.7 255.6L615.4 254.6L618.1 253.9" fill="none" stroke="#2A140F" stroke-width="2.9" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M614 261.1L618.4 261.3L624.5 261.6L631.7 261.9L639.1 262.1L646 262.1L652.9 261.9L660.3 261.4L667.5 260.9L673.6 260.4L678 260.1" fill="none" stroke="#2A140F" stroke-width="2.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="crusher-palm--molar-0" data-parent="crusher-palm">
+<g>
+<path id="p-crusher-palm--molar-0_27" d="M625.4 261.1L624.2 264.5L620.2 266L615.9 265.4L612.2 264.1L610.3 261.1L612 257.9L615.8 256.3L620.2 256.4L623.7 258.2Z" fill="url(#gp-crusher-palm--molar-0_27)"/>
+<path d="M625.4 261.1L624.2 264.5L620.2 266L615.9 265.4L612.2 264.1L610.3 261.1L612 257.9L615.8 256.3L620.2 256.4L623.7 258.2Z" fill="none" stroke="#2A140F" stroke-width="1.3" stroke-linejoin="round"/>
+<path d="M624.2 264.5L620.2 266L615.9 265.4L612.2 264.1" fill="none" stroke="#2A140F" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="crusher-palm--molar-1" data-parent="crusher-palm">
+<g>
+<path id="p-crusher-palm--molar-1_28" d="M645.4 261.1L644.2 264.5L640.2 265.8L635.8 265.8L632.4 263.9L630.4 261.1L632 257.9L635.8 256.1L640.1 256.7L643.8 258.1Z" fill="url(#gp-crusher-palm--molar-1_28)"/>
+<path d="M645.4 261.1L644.2 264.5L640.2 265.8L635.8 265.8L632.4 263.9L630.4 261.1L632 257.9L635.8 256.1L640.1 256.7L643.8 258.1Z" fill="none" stroke="#2A140F" stroke-width="1.3" stroke-linejoin="round"/>
+<path d="M644.2 264.5L640.2 265.8L635.8 265.8L632.4 263.9" fill="none" stroke="#2A140F" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="crusher-palm--molar-2" data-parent="crusher-palm">
+<g>
+<path id="p-crusher-palm--molar-2_29" d="M664.9 261.1L663.9 264.2L660.3 266.5L655.9 265.6L652 264.3L651.1 261.1L652.1 258L655.7 255.7L660.1 256.6L664 257.9Z" fill="url(#gp-crusher-palm--molar-2_29)"/>
+<path d="M664.9 261.1L663.9 264.2L660.3 266.5L655.9 265.6L652 264.3L651.1 261.1L652.1 258L655.7 255.7L660.1 256.6L664 257.9Z" fill="none" stroke="#2A140F" stroke-width="1.3" stroke-linejoin="round"/>
+<path d="M663.9 264.2L660.3 266.5L655.9 265.6L652 264.3" fill="none" stroke="#2A140F" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="crusher-palm--molar-3" data-parent="crusher-palm">
+<g>
+<path id="p-crusher-palm--molar-3_30" d="M685.2 261.1L684.2 264.6L680.2 265.9L675.8 265.8L672.5 263.8L670.4 261.1L672 257.9L675.7 255.9L680.1 256.7L683.7 258.1Z" fill="url(#gp-crusher-palm--molar-3_30)"/>
+<path d="M685.2 261.1L684.2 264.6L680.2 265.9L675.8 265.8L672.5 263.8L670.4 261.1L672 257.9L675.7 255.9L680.1 256.7L683.7 258.1Z" fill="none" stroke="#2A140F" stroke-width="1.3" stroke-linejoin="round"/>
+<path d="M684.2 264.6L680.2 265.9L675.8 265.8L672.5 263.8" fill="none" stroke="#2A140F" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="crusher-palm--knob-0" data-parent="crusher-palm">
+<g>
+<path id="p-crusher-palm--knob-0_31" d="M571 227.1L569.1 229.6L566 231.1L562.5 230.1L561 227.1L562.7 224.4L566 223.5L569.7 223.9Z" fill="url(#gp-crusher-palm--knob-0_31)"/>
+</g>
+</g>
+<g id="crusher-palm--knob-1" data-parent="crusher-palm">
+<g>
+<path id="p-crusher-palm--knob-1_32" d="M598.4 221.1L597.5 224.1L594 225L590.6 223.9L588.8 221.1L590.9 218.7L594 217L597.6 218Z" fill="url(#gp-crusher-palm--knob-1_32)"/>
+</g>
+</g>
+<g id="crusher-palm--knob-2" data-parent="crusher-palm">
+<g>
+<path id="p-crusher-palm--knob-2_33" d="M626.6 223.1L625.2 225.7L622 227.4L618.4 226.2L617.7 223.1L618.7 220.4L622 218.7L625.4 220.2Z" fill="url(#gp-crusher-palm--knob-2_33)"/>
+</g>
+</g>
+<g id="crusher-palm--knob-3" data-parent="crusher-palm">
+<g>
+<path id="p-crusher-palm--knob-3_34" d="M654.3 229.1L653.5 232L650 233.6L646.7 231.8L645.7 229.1L646.5 226.2L650 224.6L653.3 226.3Z" fill="url(#gp-crusher-palm--knob-3_34)"/>
+</g>
+</g>
+<g id="crusher-palm--knob-4" data-parent="crusher-palm">
+<g>
+<path id="p-crusher-palm--knob-4_35" d="M582.5 243.1L581.4 246L578 247.1L575 245.5L572.9 243.1L574.6 240.3L578 239.1L581.7 239.8Z" fill="url(#gp-crusher-palm--knob-4_35)"/>
+</g>
+</g>
+<g id="crusher-palm--knob-5" data-parent="crusher-palm">
+<g>
+<path id="p-crusher-palm--knob-5_36" d="M615.4 239.1L613.2 241.7L610 243.4L607 241.5L605 239.1L606.9 236.6L610 234.6L613.2 236.4Z" fill="url(#gp-crusher-palm--knob-5_36)"/>
 </g>
 </g>
 <g id="pivots" style="display:none">
-<circle cx="442.1" cy="233.9" r="3" fill="#00A0FF"><title>cutter-arm</title></circle>
-<circle cx="514.1" cy="213.9" r="3" fill="#00A0FF"><title>cutter-palm</title></circle>
-<circle cx="546.1" cy="217.9" r="3" fill="#00A0FF"><title>cutter-finger</title></circle>
-<circle cx="478.1" cy="229.9" r="3" fill="#00A0FF"><title>antenna-a</title></circle>
-<circle cx="478.1" cy="229.9" r="3" fill="#00A0FF"><title>antenna-b</title></circle>
-<circle cx="442.1" cy="285.9" r="3" fill="#00A0FF"><title>leg-a</title></circle>
-<circle cx="398.1" cy="285.9" r="3" fill="#00A0FF"><title>leg-b</title></circle>
-<circle cx="354.1" cy="285.9" r="3" fill="#00A0FF"><title>leg-c</title></circle>
-<circle cx="310.1" cy="285.9" r="3" fill="#00A0FF"><title>leg-d</title></circle>
-<circle cx="294.1" cy="255.9" r="3" fill="#00A0FF"><title>abdomen-a</title></circle>
-<circle cx="202.1" cy="257.9" r="3" fill="#00A0FF"><title>abdomen-b</title></circle>
-<circle cx="134.1" cy="269.9" r="3" fill="#00A0FF"><title>tailfan</title></circle>
-<circle cx="378.1" cy="261.9" r="3" fill="#00A0FF"><title>carapace</title></circle>
-<circle cx="474.1" cy="237.9" r="3" fill="#00A0FF"><title>eye</title></circle>
-<circle cx="434.1" cy="273.9" r="3" fill="#00A0FF"><title>crusher-arm</title></circle>
-<circle cx="518.1" cy="255.9" r="3" fill="#00A0FF"><title>crusher-palm</title></circle>
-<circle cx="562.1" cy="269.9" r="3" fill="#00A0FF"><title>crusher-finger</title></circle>
+<circle cx="466.0" cy="235.1" r="3" fill="#00A0FF"><title>cutter-arm</title></circle>
+<circle cx="538.0" cy="215.1" r="3" fill="#00A0FF"><title>cutter-palm</title></circle>
+<circle cx="570.0" cy="219.1" r="3" fill="#00A0FF"><title>cutter-finger</title></circle>
+<circle cx="502.0" cy="231.1" r="3" fill="#00A0FF"><title>antenna-a</title></circle>
+<circle cx="502.0" cy="231.1" r="3" fill="#00A0FF"><title>antenna-b</title></circle>
+<circle cx="466.0" cy="287.1" r="3" fill="#00A0FF"><title>leg-a</title></circle>
+<circle cx="422.0" cy="287.1" r="3" fill="#00A0FF"><title>leg-b</title></circle>
+<circle cx="378.0" cy="287.1" r="3" fill="#00A0FF"><title>leg-c</title></circle>
+<circle cx="334.0" cy="287.1" r="3" fill="#00A0FF"><title>leg-d</title></circle>
+<circle cx="318.0" cy="257.1" r="3" fill="#00A0FF"><title>abdomen-a</title></circle>
+<circle cx="226.0" cy="259.1" r="3" fill="#00A0FF"><title>abdomen-b</title></circle>
+<circle cx="158.0" cy="271.1" r="3" fill="#00A0FF"><title>tailfan</title></circle>
+<circle cx="402.0" cy="263.1" r="3" fill="#00A0FF"><title>carapace</title></circle>
+<circle cx="498.0" cy="239.1" r="3" fill="#00A0FF"><title>eye</title></circle>
+<circle cx="458.0" cy="275.1" r="3" fill="#00A0FF"><title>crusher-arm</title></circle>
+<circle cx="542.0" cy="257.1" r="3" fill="#00A0FF"><title>crusher-palm</title></circle>
+<circle cx="586.0" cy="271.1" r="3" fill="#00A0FF"><title>crusher-finger</title></circle>
 </g>
 </svg>

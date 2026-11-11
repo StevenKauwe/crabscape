@@ -3,12 +3,12 @@
  "atlas": "american-lobster-atlas.png",
  "atlas_size": [
   1024,
-  128
+  256
  ],
  "px_per_unit": 0.6,
  "ground": [
-  348.5,
-  324.5
+  386.55,
+  325.7
  ],
  "anchors": {},
  "parts": [
@@ -16,18 +16,18 @@
    "name": "cutter-arm",
    "parent": "carapace",
    "pivot": [
-    442.1,
-    233.9
+    466.0,
+    235.1
    ],
    "bbox": [
-    425.8,
-    198.2,
+    449.7,
+    199.4,
     99.8,
     52.4
    ],
    "rect": [
-    159,
-    91,
+    231,
+    92,
     60,
     32
    ],
@@ -40,20 +40,20 @@
    "name": "cutter-palm",
    "parent": "cutter-arm",
    "pivot": [
-    514.1,
-    213.9
+    538.0,
+    215.1
    ],
    "bbox": [
-    499.9,
-    192.8,
-    108.7,
-    41.7
+    522.7,
+    189.5,
+    168.6,
+    46.7
    ],
    "rect": [
-    222,
-    91,
-    66,
-    26
+    294,
+    92,
+    102,
+    29
    ],
    "z": 1,
    "members": [
@@ -64,19 +64,19 @@
    "name": "cutter-finger",
    "parent": "cutter-palm",
    "pivot": [
-    546.1,
-    217.9
+    570.0,
+    219.1
    ],
    "bbox": [
-    536.5,
-    209.0,
-    88.9,
-    26.9
+    559.2,
+    210.0,
+    135.8,
+    27.1
    ],
    "rect": [
-    374,
-    91,
-    54,
+    514,
+    92,
+    82,
     17
    ],
    "z": 2,
@@ -88,20 +88,20 @@
    "name": "antenna-a",
    "parent": "carapace",
    "pivot": [
-    478.1,
-    229.9
+    502.0,
+    231.1
    ],
    "bbox": [
-    88.2,
+    111.8,
     122.2,
-    400.0,
-    114.4
+    401.8,
+    116.2
    ],
    "rect": [
-    247,
+    248,
     3,
-    240,
-    69
+    242,
+    70
    ],
    "z": 3,
    "members": [
@@ -112,20 +112,20 @@
    "name": "antenna-b",
    "parent": "carapace",
    "pivot": [
-    478.1,
-    229.9
+    502.0,
+    231.1
    ],
    "bbox": [
-    87.2,
-    95.7,
-    400.3,
-    141.5
+    110.8,
+    96.1,
+    402.1,
+    142.8
    ],
    "rect": [
     3,
     3,
-    241,
-    85
+    242,
+    86
    ],
    "z": 4,
    "members": [
@@ -136,18 +136,18 @@
    "name": "leg-a",
    "parent": "carapace",
    "pivot": [
-    442.1,
-    285.9
+    466.0,
+    287.1
    ],
    "bbox": [
-    430.0,
-    276.0,
+    453.9,
+    277.2,
     59.4,
     54.2
    ],
    "rect": [
-    42,
-    91,
+    114,
+    92,
     36,
     33
    ],
@@ -160,18 +160,18 @@
    "name": "leg-b",
    "parent": "carapace",
    "pivot": [
-    398.1,
-    285.9
+    422.0,
+    287.1
    ],
    "bbox": [
-    386.1,
-    276.2,
+    410.0,
+    277.4,
     59.5,
     53.6
    ],
    "rect": [
-    120,
-    91,
+    192,
+    92,
     36,
     33
    ],
@@ -184,18 +184,18 @@
    "name": "leg-c",
    "parent": "carapace",
    "pivot": [
-    354.1,
-    285.9
+    378.0,
+    287.1
    ],
    "bbox": [
-    341.8,
-    276.5,
+    365.7,
+    277.7,
     58.9,
     53.7
    ],
    "rect": [
-    81,
-    91,
+    153,
+    92,
     36,
     33
    ],
@@ -208,18 +208,18 @@
    "name": "leg-d",
    "parent": "carapace",
    "pivot": [
-    310.1,
-    285.9
+    334.0,
+    287.1
    ],
    "bbox": [
-    298.8,
-    275.3,
+    322.7,
+    276.5,
     58.4,
     55.2
    ],
    "rect": [
-    3,
-    91,
+    75,
+    92,
     36,
     34
    ],
@@ -232,70 +232,72 @@
    "name": "abdomen-a",
    "parent": "carapace",
    "pivot": [
-    294.1,
-    255.9
+    318.0,
+    257.1
    ],
    "bbox": [
-    183.9,
-    213.2,
-    121.2,
+    207.8,
+    214.4,
+    121.3,
     84.8
    ],
    "rect": [
-    638,
+    844,
     3,
     73,
     51
    ],
    "z": 9,
    "members": [
-    "abdomen-a"
+    "abdomen-a",
+    "abdomen-a--pleuron"
    ]
   },
   {
    "name": "abdomen-b",
    "parent": "abdomen-a",
    "pivot": [
-    202.1,
-    257.9
+    226.0,
+    259.1
    ],
    "bbox": [
-    117.6,
-    228.8,
+    141.5,
+    230.0,
     96.1,
-    62.7
+    64.6
    ],
    "rect": [
-    853,
+    920,
     3,
     58,
-    38
+    39
    ],
-   "z": 10,
+   "z": 11,
    "members": [
-    "abdomen-b"
+    "abdomen-b",
+    "abdomen-b--pleuron"
    ]
   },
   {
    "name": "tailfan",
    "parent": "abdomen-b",
    "pivot": [
-    134.1,
-    269.9
+    158.0,
+    271.1
    ],
    "bbox": [
-    53.4,
-    232.6,
-    92.6,
-    70.9
+    53.6,
+    224.8,
+    116.9,
+    88.1
    ],
    "rect": [
-    794,
+    770,
     3,
-    56,
-    43
+    71,
+    53
    ],
-   "z": 11,
+   "z": 13,
    "members": [
     "tailfan",
     "tailfan-rib-a",
@@ -306,72 +308,79 @@
    "name": "carapace",
    "parent": null,
    "pivot": [
-    378.1,
-    261.9
+    402.0,
+    263.1
    ],
    "bbox": [
-    273.6,
-    206.2,
-    241.2,
-    99.4
+    297.5,
+    201.6,
+    258.3,
+    105.2
    ],
    "rect": [
-    490,
+    493,
     3,
-    145,
-    60
+    155,
+    64
    ],
-   "z": 14,
+   "z": 16,
    "members": [
     "carapace",
     "carapace-groove",
-    "carapace-belly"
+    "carapace-belly",
+    "carapace--spine-0",
+    "carapace--spine-1",
+    "carapace--spine-2",
+    "carapace--spine-3",
+    "carapace--rostrum"
    ]
   },
   {
    "name": "eye",
    "parent": "carapace",
    "pivot": [
-    474.1,
-    237.9
+    498.0,
+    239.1
    ],
    "bbox": [
-    461.7,
-    216.4,
+    485.6,
+    217.6,
     32.5,
     31.4
    ],
    "rect": [
-    351,
-    91,
+    491,
+    92,
     20,
     19
    ],
-   "z": 17,
+   "z": 24,
    "members": [
-    "eye"
+    "eye",
+    "eye--glint",
+    "eye--glint2"
    ]
   },
   {
    "name": "crusher-arm",
    "parent": "carapace",
    "pivot": [
-    434.1,
-    273.9
+    458.0,
+    275.1
    ],
    "bbox": [
-    417.1,
-    238.0,
-    113.5,
+    441.0,
+    239.2,
+    113.6,
     59.5
    ],
    "rect": [
-    914,
     3,
+    92,
     69,
     36
    ],
-   "z": 18,
+   "z": 27,
    "members": [
     "crusher-arm"
    ]
@@ -380,47 +389,57 @@
    "name": "crusher-palm",
    "parent": "crusher-arm",
    "pivot": [
-    518.1,
-    255.9
+    542.0,
+    257.1
    ],
    "bbox": [
-    502.0,
-    210.5,
-    127.8,
-    81.6
+    524.7,
+    201.0,
+    192.5,
+    92.3
    ],
    "rect": [
-    714,
+    651,
     3,
-    77,
-    49
+    116,
+    56
    ],
-   "z": 19,
+   "z": 28,
    "members": [
     "crusher-palm",
-    "crusher-palm-teeth"
+    "crusher-palm-teeth",
+    "crusher-palm--molar-0",
+    "crusher-palm--molar-1",
+    "crusher-palm--molar-2",
+    "crusher-palm--molar-3",
+    "crusher-palm--knob-0",
+    "crusher-palm--knob-1",
+    "crusher-palm--knob-2",
+    "crusher-palm--knob-3",
+    "crusher-palm--knob-4",
+    "crusher-palm--knob-5"
    ]
   },
   {
    "name": "crusher-finger",
    "parent": "crusher-palm",
    "pivot": [
-    562.1,
-    269.9
+    586.0,
+    271.1
    ],
    "bbox": [
-    549.9,
-    249.5,
-    93.7,
-    37.9
+    572.7,
+    255.2,
+    146.8,
+    39.3
    ],
    "rect": [
-    291,
-    91,
-    57,
-    23
+    399,
+    92,
+    89,
+    24
    ],
-   "z": 20,
+   "z": 29,
    "members": [
     "crusher-finger"
    ]

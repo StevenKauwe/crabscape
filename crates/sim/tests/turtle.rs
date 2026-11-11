@@ -179,10 +179,12 @@ fn a_refuge_is_not_even_noticed() {
 
 #[test]
 fn getting_into_a_refuge_during_the_dive_breaks_it_off() {
-    let mut sim = Sim::with_one_crab(Vec2::new(300.0, 0.0));
+    // Far enough from the wall at x 0 that a 90 cm turtle's way down to the
+    // crab is clear of it (its body is 656 long).
+    let mut sim = Sim::with_one_crab(Vec2::new(700.0, 0.0));
     sim.level.rocks.clear();
     sim.level.climbs.clear();
-    let id = sim.spawn_enemy(Kind::LoggerheadTurtle, Vec2::new(300.0, 1400.0));
+    let id = sim.spawn_enemy(Kind::LoggerheadTurtle, Vec2::new(700.0, 1400.0));
     assert!(until(&mut sim, id, State::Tell, 3000, Controls::default()));
     let h = health(&sim);
     // Walk home (left) and wait in the refuge.

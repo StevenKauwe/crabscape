@@ -177,6 +177,11 @@ jobs:
           cargo run --locked -q -p crabrig --profile art -- export --creature queen-triggerfish
           cargo run --locked -q -p crabrig --profile art -- parts --creature alarm-jelly
           cargo run --locked -q -p crabrig --profile art -- export --creature alarm-jelly
+          for c in loggerhead-turtle humboldt-squid viperfish goliath-grouper american-lobster hermit-crab \
+            bobbit-worm giant-isopod hagfish amphipod-swarm; do
+            cargo run --locked -q -p crabrig --profile art -- parts --creature "$c"
+            cargo run --locked -q -p crabrig --profile art -- export --creature "$c"
+          done
           tools/paint-oil.sh
       - name: The committed art/crab, assets/crab, art/creatures and assets/creatures match
         run: |
