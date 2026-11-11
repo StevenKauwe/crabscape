@@ -255,13 +255,14 @@ pub fn summary(c: &Character, sim: &Sim) -> String {
     let p = c.save.progress.clone().unwrap_or_default();
     let skills = Skill::ALL
         .map(|s| {
-            let xp = match s {
-                Skill::Climbing => p.climb_xp,
-                Skill::Swimming => p.swim_xp,
-                Skill::Fighting => p.fight_xp,
-                Skill::DataDriven => p.data_xp,
+            let level = match s {
+                Skill::Climbing => skills::level(p.climb_xp, s.step(&sim.tuning)),
+                Skill::Swimming => skills::level(p.swim_xp, s.step(&sim.tuning)),
+                Skill::Fighting => skills::level(p.fight_xp, s.step(&sim.tuning)),
+                Skill::DataDriven => skills::level(p.data_xp, s.step(&sim.tuning)),
+                economy => crabsim::economy::xp::level_for(p.econ.skills.get(economy)),
             };
-            format!("{} {}", s.name(), skills::level(xp, s.step(&sim.tuning)))
+            format!("{} {level}", s.name())
         })
         .join(", ");
     let eaten = p.eaten.iter().filter(|e| **e).count();

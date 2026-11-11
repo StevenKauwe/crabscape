@@ -257,7 +257,7 @@ impl Sim {
                 if !(1..=crate::skills::MAX_LEVEL).contains(&level) {
                     return false;
                 }
-                Some(crate::skills::xp_for(level, skill.step(&self.tuning)))
+                Some(skill.xp_at(level, &self.tuning))
             }
             _ => None,
         };
@@ -304,6 +304,7 @@ impl Sim {
                     crate::skills::Skill::Swimming => m.swim_xp = xp,
                     crate::skills::Skill::Fighting => m.fight_xp = xp,
                     crate::skills::Skill::DataDriven => m.data_xp = xp,
+                    economy => crab.econ.skills.set(economy, xp as u32),
                 }
             }
             Code::Glow => m.glow = !m.glow,

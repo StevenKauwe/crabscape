@@ -44,6 +44,9 @@ pub enum Thing {
     Midden(usize),
     /// The body of creature `enemy`, beaten for the `deaths`-th time.
     Body { enemy: u32, deaths: u32 },
+    /// The economy's gathering node `.0` (its index in
+    /// [`crate::Sim::placed_nodes`]).
+    Node(usize),
 }
 
 impl Thing {
@@ -53,8 +56,23 @@ impl Thing {
             Thing::Clam(_) => Some(Carry::Clam),
             Thing::Grit(_) | Thing::Midden(_) => Some(Carry::Grit),
             Thing::Body { .. } => None,
+            // Placed nodes keep the order of `economy::place::SPOTS`.
+            Thing::Node(i) => crate::economy::place::SPOTS
+                .get(i)
+                .and_then(|s| s.kind.def().yields)
+                .map(Carry::Item),
         }
     }
+}
+
+/// The state of one gathering node (shared world state: the host's clock
+/// regrows it).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NodeState {
+    /// Gathers left before it is spent.
+    pub charges: u8,
+    /// Ticks until a spent node regrows all its charges (0: not growing).
+    pub regrow: u32,
 }
 
 /// The shared things of the world, as this device has them: its own world
@@ -72,6 +90,9 @@ pub struct Shared {
     /// The bodies eaten (creature id, its deaths), while they still lie
     /// there.
     pub bodies_eaten: Vec<(u32, u32)>,
+    /// Each gathering node (`economy::place::nodes`, in order).
+    #[serde(default)]
+    pub nodes: Vec<NodeState>,
 }
 
 impl Shared {
@@ -82,6 +103,13 @@ impl Shared {
             grit_taken: vec![false; level.grit.len()],
             midden_taken: Vec::new(),
             bodies_eaten: Vec::new(),
+            nodes: crate::economy::place::nodes(level)
+                .iter()
+                .map(|n| NodeState {
+                    charges: n.kind.def().charges,
+                    regrow: 0,
+                })
+                .collect(),
         }
     }
 
@@ -94,6 +122,7 @@ impl Shared {
                 i < t.octopus.den.midden as usize && !self.midden_taken.get(i).is_some_and(|&x| x)
             }
             Thing::Body { enemy, deaths } => !self.bodies_eaten.contains(&(enemy, deaths)),
+            Thing::Node(i) => self.nodes.get(i).is_some_and(|n| n.charges > 0),
         }
     }
 
@@ -121,6 +150,11 @@ impl Shared {
             Thing::Body { enemy, deaths } => {
                 if !self.bodies_eaten.contains(&(enemy, deaths)) {
                     self.bodies_eaten.push((enemy, deaths));
+                }
+            }
+            Thing::Node(i) => {
+                if let Some(n) = self.nodes.get_mut(i) {
+                    n.charges = n.charges.saturating_sub(1);
                 }
             }
         }

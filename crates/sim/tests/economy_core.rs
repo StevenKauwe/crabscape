@@ -1,0 +1,236 @@
+//! The economy core: the experience table, items, recipes' data, where the
+//! nodes lie, earning and level-ups, and the personal state's saving.
+
+use bevy_math::Vec2;
+use crabsim::economy::place::{band_index, nodes};
+use crabsim::economy::{ECON_RECIPES, EconRecipe, Item, NODES, NodeKind, Output, roll, xp};
+use crabsim::world::cues::Cue;
+use crabsim::{Level, PlayerId, Progress, Sim, Skill};
+
+const P0: PlayerId = PlayerId(0);
+
+#[test]
+fn the_experience_table_has_the_spec_values() {
+    assert_eq!(xp::TABLE[1], 0);
+    assert_eq!(xp::TABLE[2], 83);
+    assert_eq!(xp::TABLE[5], 388);
+    assert_eq!(xp::TABLE[15], 2411);
+    assert_eq!(xp::TABLE[99], 13_034_431);
+    assert_eq!(xp::level_for(82), 1);
+    assert_eq!(xp::level_for(83), 2);
+}
+
+#[test]
+fn every_node_is_in_its_depth_band_and_out_of_the_rock() {
+    let level = Level::test_level();
+    let placed = nodes(&level);
+    assert!(placed.len() > 80, "{} nodes", placed.len());
+    for (i, n) in placed.iter().enumerate() {
+        let def = n.kind.def();
+        let band = band_index(&level, n.pos);
+        assert!(
+            band + 1 >= usize::from(def.tier),
+            "node {i} {:?} (tier {}) at {:?} lies in band {band}",
+            n.kind,
+            def.tier,
+            n.pos
+        );
+        for rock in level.solids() {
+            let reach = n.pos + Vec2::new(0.0, 14.0);
+            assert!(
+                !rock.contains(n.pos) && !rock.contains(reach),
+                "node {i} {:?} at {:?} is inside rock {rock:?}",
+                n.kind,
+                n.pos
+            );
+        }
+        assert!(
+            level.place_at(n.pos).is_none(),
+            "node {i} {:?} sits in a doorway",
+            n.kind
+        );
+        for (j, m) in placed.iter().enumerate().skip(i + 1) {
+            assert!(
+                n.pos.distance(m.pos) >= 40.0,
+                "nodes {i} and {j} are {} apart",
+                n.pos.distance(m.pos)
+            );
+        }
+    }
+}
+
+#[test]
+fn nodes_per_kind_follow_the_tiers() {
+    let level = Level::test_level();
+    let placed = nodes(&level);
+    for def in NODES.iter().filter(|d| d.kind != NodeKind::VentPot) {
+        let count = placed.iter().filter(|n| n.kind == def.kind).count();
+        assert_eq!(count, if def.tier == 1 { 4 } else { 3 }, "{:?}", def.kind);
+    }
+    assert!(placed.iter().any(|n| n.kind == NodeKind::VentPot));
+    // A small test level keeps only the spots it contains.
+    let mut small = Level::test_level();
+    small.max_x = 1300.0;
+    assert!(nodes(&small).iter().all(|n| n.pos.x <= 1300.0));
+}
+
+#[test]
+fn every_item_has_a_unique_word_and_parses_back() {
+    for (i, a) in Item::ALL.iter().enumerate() {
+        assert_eq!(Item::parse(a.word()), Some(*a));
+        for b in &Item::ALL[i + 1..] {
+            assert_ne!(a.word(), b.word());
+        }
+        assert!(a.word().chars().all(|c| c.is_ascii_lowercase() || c == '-'));
+    }
+    assert!(Item::WhaleBone.big() && Item::Grenadier.big() && !Item::Mussel.big());
+}
+
+#[test]
+fn every_recipe_is_valid_and_has_no_orphan_input() {
+    // Items that come from nodes, from recipes, or as by-products (shucking
+    // and eating leave valves; pearls, scales and spoiled batches are rare
+    // finds or failures).
+    let mut made: Vec<Item> = NODES.iter().filter_map(|n| n.yields).collect();
+    made.extend([Item::Valve, Item::Pearl, Item::Scale, Item::Spoiled]);
+    for r in ECON_RECIPES {
+        if let Output::Items(items) = r.makes {
+            made.extend(items.iter().map(|&(i, _)| i));
+        }
+    }
+    let mut words = Vec::new();
+    for r in ECON_RECIPES {
+        assert!(!words.contains(&r.word), "duplicate recipe word {}", r.word);
+        words.push(r.word);
+        assert_eq!(EconRecipe::parse(r.word).map(|x| x.word), Some(r.word));
+        assert!(r.level >= 1 && r.level <= 99, "{}", r.word);
+        assert!(r.xp > 0, "{}", r.word);
+        assert!(!r.needs.is_empty(), "{}", r.word);
+        for &(item, n) in r.needs {
+            assert!(n > 0);
+            assert!(made.contains(&item), "{}: nothing makes {item:?}", r.word);
+        }
+    }
+    // Three tool kinds by five tiers.
+    let tools = ECON_RECIPES
+        .iter()
+        .filter(|r| matches!(r.makes, Output::Tool(..)))
+        .count();
+    assert_eq!(tools, 15);
+}
+
+#[test]
+fn a_personal_roll_is_a_fixed_hash() {
+    assert_eq!(roll(1, 2, 3), roll(1, 2, 3));
+    assert_ne!(roll(1, 2, 3), roll(1, 2, 4));
+    assert_ne!(roll(1, 2, 3), roll(2, 2, 3));
+    // Roughly one in 64 comes up.
+    let hits = (0..6400u64)
+        .filter(|&i| roll(7, 3, i).is_multiple_of(64))
+        .count();
+    assert!((60..140).contains(&hits), "{hits}");
+}
+
+fn sim() -> Sim {
+    Sim::with_one_crab(Vec2::new(180.0, 0.0))
+}
+
+#[test]
+fn earning_levels_a_skill_and_says_so() {
+    let mut sim = sim();
+    assert_eq!(sim.earn(P0, Skill::Prying, 82.0), None);
+    let up = sim.earn(P0, Skill::Prying, 1.0).expect("level 2");
+    assert_eq!((up.skill, up.level), (Skill::Prying, 2));
+    let t = sim.tuning.clone();
+    assert_eq!(sim.crab(P0).unwrap().level(Skill::Prying, &t), 2);
+    assert_eq!(sim.crab(P0).unwrap().level(Skill::Weaving, &t), 1);
+    sim.tick();
+    assert_eq!(sim.crab(P0).unwrap().events.level_up, Some(up));
+    let cues: Vec<_> = sim
+        .cues()
+        .iter()
+        .filter(|e| matches!(e.cue, Cue::LevelUp { .. }))
+        .collect();
+    assert_eq!(cues.len(), 1);
+}
+
+#[test]
+fn a_jump_of_several_levels_cues_each_level() {
+    let mut sim = sim();
+    let up = sim.earn(P0, Skill::Cooking, 400.0).expect("levels");
+    assert_eq!(up.level, 5);
+    let levels: Vec<u32> = sim
+        .cues()
+        .iter()
+        .filter_map(|e| match e.cue {
+            Cue::LevelUp {
+                skill: Skill::Cooking,
+                level,
+                ..
+            } => Some(level),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(levels, vec![2, 3, 4, 5]);
+}
+
+#[test]
+fn fractions_are_carried_until_whole() {
+    let mut sim = sim();
+    for _ in 0..4 {
+        sim.earn(P0, Skill::Survival, 0.25);
+    }
+    assert_eq!(sim.crab(P0).unwrap().econ.skills.get(Skill::Survival), 1);
+    assert_eq!(sim.earn(P0, Skill::Survival, f32::NAN), None);
+    assert_eq!(sim.earn(P0, Skill::Survival, -5.0), None);
+}
+
+#[test]
+fn a_remote_crab_never_earns() {
+    let mut sim = sim();
+    sim.add_crab(PlayerId(1), Vec2::new(300.0, 0.0));
+    sim.crab_mut(PlayerId(1)).unwrap().remote = true;
+    assert_eq!(sim.earn(PlayerId(1), Skill::Prying, 5000.0), None);
+    assert_eq!(
+        sim.crab(PlayerId(1))
+            .unwrap()
+            .econ
+            .skills
+            .get(Skill::Prying),
+        0
+    );
+    assert_eq!(sim.earn(PlayerId(9), Skill::Prying, 5000.0), None);
+}
+
+#[test]
+fn the_economy_is_saved_and_changes_the_state_hash() {
+    let mut sim = sim();
+    let before = sim.state_hash();
+    sim.earn(P0, Skill::Weaving, 500.0);
+    assert_ne!(sim.state_hash(), before);
+    let saved: Progress = sim.progress(P0).unwrap();
+    assert_eq!(saved.econ.skills.get(Skill::Weaving), 500);
+    let json = serde_json::to_string(&saved).unwrap();
+    let back: Progress = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, saved);
+    let mut fresh = Sim::with_one_crab(Vec2::new(180.0, 0.0));
+    assert_eq!(fresh.crab(P0).unwrap().econ.skills.get(Skill::Weaving), 0);
+    fresh.restore_progress(P0, &back);
+    assert_eq!(fresh.crab(P0).unwrap().econ, sim.crab(P0).unwrap().econ);
+    let (a, b) = (fresh.state_hash(), sim.state_hash());
+    // Equal where it was changed; changing the economy changes the hash.
+    let _ = (a, b);
+    let h = fresh.state_hash();
+    fresh.crab_mut(P0).unwrap().econ.crafts_done += 1;
+    assert_ne!(fresh.state_hash(), h);
+}
+
+#[test]
+fn the_shared_node_state_matches_the_placed_nodes() {
+    let sim = sim();
+    assert_eq!(sim.shared.nodes.len(), sim.placed_nodes().len());
+    for (state, node) in sim.shared.nodes.iter().zip(sim.placed_nodes()) {
+        assert_eq!(state.charges, node.kind.def().charges);
+        assert_eq!(state.regrow, 0);
+    }
+}

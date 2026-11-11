@@ -1,0 +1,852 @@
+//! Every economy recipe, as data (the spec's "Crafting": processing
+//! chains, tools, gear, stations, foods, repairs and bed planting). The
+//! runtime that makes them is the crafting code; this is only the table.
+
+use super::food::Food;
+use super::gear::{Gear, Station, ToolKind};
+use super::items::Item;
+use crate::skills::Skill;
+
+/// Where a recipe is made.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Bench {
+    /// The workbench, always there.
+    Workbench,
+    /// A built station.
+    At(Station),
+    /// The vent pot node in the vent field (ingredients are on the shell).
+    VentPot,
+}
+
+/// What a tool or plating repair mends.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Repairs {
+    /// A fitted tool of this tier (any kind).
+    Tool(u8),
+    /// Cracked body plating of this tier.
+    Plating(u8),
+}
+
+/// What a recipe makes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Output {
+    /// Items into the bank.
+    Items(&'static [(Item, u32)]),
+    /// A fitted tool of this kind and tier.
+    Tool(ToolKind, u8),
+    Gear(Gear),
+    /// Prepared portions.
+    Portions(Food, u8),
+    /// A station built into the home (a culture bed: the next one).
+    Station(Station),
+    /// A strain planted in a free culture bed.
+    Bed(Item),
+    Repair(Repairs),
+}
+
+/// One row of the economy recipe list.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EconRecipe {
+    /// The word a replay writes (`craft=kelp-cord`).
+    pub word: &'static str,
+    pub name: &'static str,
+    /// The skill that makes it, and earns its XP.
+    pub skill: Skill,
+    pub level: u32,
+    pub at: Bench,
+    pub needs: &'static [(Item, u32)],
+    pub makes: Output,
+    pub xp: u32,
+}
+
+impl EconRecipe {
+    /// The recipe a replay names, if it is one.
+    pub fn parse(word: &str) -> Option<&'static EconRecipe> {
+        let word = word.trim();
+        ECON_RECIPES.iter().find(|r| r.word == word)
+    }
+
+    /// Curing and fermenting can spoil a batch.
+    pub fn spoils(&self) -> bool {
+        matches!(self.makes, Output::Portions(..))
+            && matches!(
+                self.at,
+                Bench::At(Station::BrinePot) | Bench::At(Station::Crock)
+            )
+    }
+
+    /// Spoil chance in percent at Cooking `level`: `max(0, 30 - 2*(level - req))`.
+    pub fn spoil_percent(&self, level: u32) -> u32 {
+        if !self.spoils() {
+            return 0;
+        }
+        30u32.saturating_sub(2 * level.saturating_sub(self.level))
+    }
+
+    /// Does it take a clam from the larder (not from the bank)?
+    pub fn from_larder(&self) -> bool {
+        matches!(
+            self.makes,
+            Output::Portions(Food::ShellFood | Food::ReserveFood, _)
+        )
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+const fn r(
+    word: &'static str,
+    name: &'static str,
+    skill: Skill,
+    level: u32,
+    at: Bench,
+    needs: &'static [(Item, u32)],
+    makes: Output,
+    xp: u32,
+) -> EconRecipe {
+    EconRecipe {
+        word,
+        name,
+        skill,
+        level,
+        at,
+        needs,
+        makes,
+        xp,
+    }
+}
+
+use Bench::{At, VentPot, Workbench};
+use Item as I;
+use Skill::{Building, Cooking, Culturing, Shellcraft, Weaving};
+
+/// A culture strain: how it is planted and harvested (the spec's table).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StrainDef {
+    pub item: Item,
+    pub level: u32,
+    pub grow_secs: u32,
+    pub plant_xp: u32,
+    pub harvest_xp: u32,
+}
+
+pub const STRAINS: [StrainDef; 5] = [
+    StrainDef {
+        item: Item::ShoreStrain,
+        level: 1,
+        grow_secs: 120,
+        plant_xp: 5,
+        harvest_xp: 20,
+    },
+    StrainDef {
+        item: Item::Culture,
+        level: 15,
+        grow_secs: 240,
+        plant_xp: 12,
+        harvest_xp: 50,
+    },
+    StrainDef {
+        item: Item::TwilightStrain,
+        level: 30,
+        grow_secs: 360,
+        plant_xp: 25,
+        harvest_xp: 100,
+    },
+    StrainDef {
+        item: Item::SulfurMat,
+        level: 45,
+        grow_secs: 540,
+        plant_xp: 45,
+        harvest_xp: 180,
+    },
+    StrainDef {
+        item: Item::VentMat,
+        level: 60,
+        grow_secs: 720,
+        plant_xp: 80,
+        harvest_xp: 300,
+    },
+];
+
+impl StrainDef {
+    /// The row for a strain item.
+    pub fn of(item: Item) -> Option<&'static StrainDef> {
+        STRAINS.iter().find(|s| s.item == item)
+    }
+
+    /// How many a harvest gives at Culturing `level`: `3 + level/20`.
+    pub fn harvest_count(level: u32) -> u32 {
+        3 + level / 20
+    }
+}
+
+/// Every economy recipe: processing chains, tools (3 kinds by 5 tiers),
+/// gear, stations, foods, repairs and bed planting.
+pub const ECON_RECIPES: &[EconRecipe] = &[
+    // Processing chains.
+    r(
+        "kelp-cord",
+        "Kelp cord",
+        Weaving,
+        1,
+        Workbench,
+        &[(I::Kelp, 2)],
+        Output::Items(&[(I::KelpCord, 1)]),
+        8,
+    ),
+    r(
+        "braided-cord",
+        "Braided cord",
+        Weaving,
+        20,
+        At(Station::Loom),
+        &[(I::KelpCord, 3)],
+        Output::Items(&[(I::BraidedCord, 1)]),
+        30,
+    ),
+    r(
+        "shell-blank",
+        "Shell blank",
+        Shellcraft,
+        1,
+        Workbench,
+        &[(I::Valve, 2), (I::Grit, 1)],
+        Output::Items(&[(I::ShellBlank, 1)]),
+        12,
+    ),
+    r(
+        "quill-rod",
+        "Quill rod",
+        Shellcraft,
+        15,
+        Workbench,
+        &[(I::Quill, 2)],
+        Output::Items(&[(I::QuillRod, 1)]),
+        28,
+    ),
+    r(
+        "spicule-bundle",
+        "Spicule bundle",
+        Shellcraft,
+        30,
+        At(Station::Grindstone),
+        &[(I::Glass, 2), (I::KelpCord, 1)],
+        Output::Items(&[(I::SpiculeBundle, 1)]),
+        55,
+    ),
+    r(
+        "bone-splint",
+        "Bone splint",
+        Shellcraft,
+        45,
+        At(Station::Grindstone),
+        &[(I::WhaleBone, 1)],
+        Output::Items(&[(I::BoneSplint, 2)]),
+        100,
+    ),
+    r(
+        "nodule-plate",
+        "Nodule plate",
+        Shellcraft,
+        60,
+        At(Station::Grindstone),
+        &[(I::Nodule, 2), (I::Grit, 1)],
+        Output::Items(&[(I::NodulePlate, 1)]),
+        170,
+    ),
+    r(
+        "scale-plate",
+        "Scale plate",
+        Shellcraft,
+        70,
+        At(Station::Grindstone),
+        &[(I::Scale, 3)],
+        Output::Items(&[(I::ScalePlate, 1)]),
+        220,
+    ),
+    r(
+        "scale-plate-foot",
+        "Scale plate (from scaly-foot)",
+        Shellcraft,
+        70,
+        At(Station::Grindstone),
+        &[(I::ScalyFoot, 2)],
+        Output::Items(&[(I::ScalePlate, 1)]),
+        220,
+    ),
+    // Tools: shell, quill (workbench); glass, bone, nodule (grindstone).
+    r(
+        "pry-shell",
+        "Shell pry tip",
+        Shellcraft,
+        1,
+        Workbench,
+        &[(I::ShellBlank, 1), (I::KelpCord, 1)],
+        Output::Tool(ToolKind::Pry, 1),
+        40,
+    ),
+    r(
+        "pry-quill",
+        "Quill pry tip",
+        Shellcraft,
+        15,
+        Workbench,
+        &[(I::QuillRod, 1), (I::KelpCord, 1)],
+        Output::Tool(ToolKind::Pry, 2),
+        100,
+    ),
+    r(
+        "pry-glass",
+        "Glass pry tip",
+        Shellcraft,
+        30,
+        At(Station::Grindstone),
+        &[(I::SpiculeBundle, 1), (I::BraidedCord, 1)],
+        Output::Tool(ToolKind::Pry, 3),
+        200,
+    ),
+    r(
+        "pry-bone",
+        "Bone pry tip",
+        Shellcraft,
+        45,
+        At(Station::Grindstone),
+        &[(I::BoneSplint, 1), (I::BraidedCord, 1)],
+        Output::Tool(ToolKind::Pry, 4),
+        400,
+    ),
+    r(
+        "pry-nodule",
+        "Nodule pry tip",
+        Shellcraft,
+        60,
+        At(Station::Grindstone),
+        &[(I::NodulePlate, 1), (I::BraidedCord, 1)],
+        Output::Tool(ToolKind::Pry, 5),
+        700,
+    ),
+    r(
+        "scoop-shell",
+        "Shell scoop",
+        Shellcraft,
+        1,
+        Workbench,
+        &[(I::ShellBlank, 1), (I::KelpCord, 1)],
+        Output::Tool(ToolKind::Scoop, 1),
+        40,
+    ),
+    r(
+        "scoop-quill",
+        "Quill scoop",
+        Shellcraft,
+        15,
+        Workbench,
+        &[(I::QuillRod, 1), (I::KelpCord, 1)],
+        Output::Tool(ToolKind::Scoop, 2),
+        100,
+    ),
+    r(
+        "scoop-glass",
+        "Glass scoop",
+        Shellcraft,
+        30,
+        At(Station::Grindstone),
+        &[(I::SpiculeBundle, 1), (I::BraidedCord, 1)],
+        Output::Tool(ToolKind::Scoop, 3),
+        200,
+    ),
+    r(
+        "scoop-bone",
+        "Bone scoop",
+        Shellcraft,
+        45,
+        At(Station::Grindstone),
+        &[(I::BoneSplint, 1), (I::BraidedCord, 1)],
+        Output::Tool(ToolKind::Scoop, 4),
+        400,
+    ),
+    r(
+        "scoop-nodule",
+        "Nodule scoop",
+        Shellcraft,
+        60,
+        At(Station::Grindstone),
+        &[(I::NodulePlate, 1), (I::BraidedCord, 1)],
+        Output::Tool(ToolKind::Scoop, 5),
+        700,
+    ),
+    r(
+        "cutter-shell",
+        "Shell cutter",
+        Shellcraft,
+        1,
+        Workbench,
+        &[(I::ShellBlank, 1), (I::KelpCord, 1)],
+        Output::Tool(ToolKind::Cutter, 1),
+        40,
+    ),
+    r(
+        "cutter-quill",
+        "Quill cutter",
+        Shellcraft,
+        15,
+        Workbench,
+        &[(I::QuillRod, 1), (I::KelpCord, 1)],
+        Output::Tool(ToolKind::Cutter, 2),
+        100,
+    ),
+    r(
+        "cutter-glass",
+        "Glass cutter",
+        Shellcraft,
+        30,
+        At(Station::Grindstone),
+        &[(I::SpiculeBundle, 1), (I::BraidedCord, 1)],
+        Output::Tool(ToolKind::Cutter, 3),
+        200,
+    ),
+    r(
+        "cutter-bone",
+        "Bone cutter",
+        Shellcraft,
+        45,
+        At(Station::Grindstone),
+        &[(I::BoneSplint, 1), (I::BraidedCord, 1)],
+        Output::Tool(ToolKind::Cutter, 4),
+        400,
+    ),
+    r(
+        "cutter-nodule",
+        "Nodule cutter",
+        Shellcraft,
+        60,
+        At(Station::Grindstone),
+        &[(I::NodulePlate, 1), (I::BraidedCord, 1)],
+        Output::Tool(ToolKind::Cutter, 5),
+        700,
+    ),
+    // Gear.
+    r(
+        "kelp-sack",
+        "Kelp sack",
+        Weaving,
+        8,
+        Workbench,
+        &[(I::KelpCord, 4)],
+        Output::Gear(Gear::KelpSack),
+        80,
+    ),
+    r(
+        "woven-pack",
+        "Woven pack",
+        Weaving,
+        35,
+        At(Station::Loom),
+        &[(I::BraidedCord, 3), (I::Quill, 2)],
+        Output::Gear(Gear::WovenPack),
+        300,
+    ),
+    r(
+        "coral-pack",
+        "Coral-ribbed pack",
+        Weaving,
+        62,
+        At(Station::Loom),
+        &[(I::BraidedCord, 4), (I::BambooCoral, 2)],
+        Output::Gear(Gear::CoralPack),
+        900,
+    ),
+    r(
+        "shell-plating",
+        "Shell plating",
+        Shellcraft,
+        5,
+        Workbench,
+        &[(I::ShellBlank, 3), (I::KelpCord, 1)],
+        Output::Gear(Gear::ShellPlating),
+        120,
+    ),
+    r(
+        "quill-plating",
+        "Quill-ribbed plating",
+        Shellcraft,
+        20,
+        Workbench,
+        &[(I::QuillRod, 3), (I::BraidedCord, 1)],
+        Output::Gear(Gear::QuillPlating),
+        320,
+    ),
+    r(
+        "bone-plating",
+        "Bone plating",
+        Shellcraft,
+        50,
+        At(Station::Grindstone),
+        &[(I::BoneSplint, 3), (I::BraidedCord, 1)],
+        Output::Gear(Gear::BonePlating),
+        800,
+    ),
+    r(
+        "nodule-plating",
+        "Nodule plating",
+        Shellcraft,
+        65,
+        At(Station::Grindstone),
+        &[(I::NodulePlate, 3), (I::BraidedCord, 1)],
+        Output::Gear(Gear::NodulePlating),
+        1400,
+    ),
+    r(
+        "scale-mail",
+        "Scale mail",
+        Shellcraft,
+        80,
+        At(Station::Grindstone),
+        &[(I::ScalePlate, 4), (I::BraidedCord, 1)],
+        Output::Gear(Gear::ScaleMail),
+        2200,
+    ),
+    r(
+        "coral-tips",
+        "Black-coral claw tips",
+        Shellcraft,
+        55,
+        At(Station::Grindstone),
+        &[(I::BlackCoral, 2), (I::BoneSplint, 1)],
+        Output::Gear(Gear::BlackCoralTips),
+        900,
+    ),
+    // Stations (Building XP = 40 x level / 5, at least 40).
+    r(
+        "bed-1",
+        "Culture bed 1",
+        Building,
+        5,
+        Workbench,
+        &[(I::Grit, 3), (I::Valve, 2)],
+        Output::Station(Station::CultureBed),
+        40,
+    ),
+    r(
+        "bed-2",
+        "Culture bed 2",
+        Building,
+        20,
+        Workbench,
+        &[(I::Clay, 3), (I::Grit, 3)],
+        Output::Station(Station::CultureBed),
+        160,
+    ),
+    r(
+        "bed-3",
+        "Culture bed 3",
+        Building,
+        40,
+        Workbench,
+        &[(I::WhaleBone, 1), (I::Clay, 3)],
+        Output::Station(Station::CultureBed),
+        320,
+    ),
+    r(
+        "bed-4",
+        "Culture bed 4",
+        Building,
+        60,
+        Workbench,
+        &[(I::Nodule, 2), (I::Clay, 4)],
+        Output::Station(Station::CultureBed),
+        480,
+    ),
+    r(
+        "loom",
+        "Loom",
+        Building,
+        12,
+        Workbench,
+        &[(I::Quill, 4), (I::KelpCord, 4)],
+        Output::Station(Station::Loom),
+        96,
+    ),
+    r(
+        "brine-pot",
+        "Brine pot",
+        Building,
+        10,
+        Workbench,
+        &[(I::Clay, 3), (I::Valve, 2)],
+        Output::Station(Station::BrinePot),
+        80,
+    ),
+    r(
+        "grindstone",
+        "Grindstone",
+        Building,
+        18,
+        Workbench,
+        &[(I::Grit, 6), (I::Clay, 2)],
+        Output::Station(Station::Grindstone),
+        144,
+    ),
+    r(
+        "crock",
+        "Fermenting crock",
+        Building,
+        30,
+        Workbench,
+        &[(I::Clay, 6), (I::Glass, 1)],
+        Output::Station(Station::Crock),
+        240,
+    ),
+    // Foods (two portions a batch).
+    r(
+        "shell-food",
+        "Shell food",
+        Cooking,
+        1,
+        Workbench,
+        &[(I::Clam, 1)],
+        Output::Portions(Food::ShellFood, 2),
+        12,
+    ),
+    r(
+        "reserve-food",
+        "Reserve food",
+        Cooking,
+        1,
+        Workbench,
+        &[(I::Clam, 1)],
+        Output::Portions(Food::ReserveFood, 2),
+        12,
+    ),
+    r(
+        "shucked-mussels",
+        "Shucked mussels",
+        Cooking,
+        1,
+        Workbench,
+        &[(I::Mussel, 2)],
+        Output::Portions(Food::ShuckedMussels, 2),
+        10,
+    ),
+    r(
+        "snail-wrap",
+        "Snail and kelp wrap",
+        Cooking,
+        5,
+        Workbench,
+        &[(I::Snail, 2), (I::Kelp, 1)],
+        Output::Portions(Food::SnailWrap, 2),
+        16,
+    ),
+    r(
+        "worm-paste",
+        "Worm paste",
+        Cooking,
+        12,
+        At(Station::BrinePot),
+        &[(I::Worm, 2), (I::Kelp, 1)],
+        Output::Portions(Food::WormPaste, 2),
+        30,
+    ),
+    r(
+        "cured-scallop",
+        "Clay-cured scallop",
+        Cooking,
+        28,
+        At(Station::BrinePot),
+        &[(I::Scallop, 2), (I::Clay, 1)],
+        Output::Portions(Food::CuredScallop, 2),
+        55,
+    ),
+    r(
+        "fermented-lanternfish",
+        "Fermented lanternfish",
+        Cooking,
+        35,
+        At(Station::Crock),
+        &[(I::Lanternfish, 2), (I::ShoreStrain, 1)],
+        Output::Portions(Food::FermentedLanternfish, 2),
+        70,
+    ),
+    r(
+        "grenadier-ferment",
+        "Grenadier ferment",
+        Cooking,
+        45,
+        At(Station::Crock),
+        &[(I::Grenadier, 1), (I::SulfurMat, 1)],
+        Output::Portions(Food::GrenadierFerment, 2),
+        95,
+    ),
+    r(
+        "vent-poached-seep-mussels",
+        "Vent-poached seep mussels",
+        Cooking,
+        50,
+        VentPot,
+        &[(I::SeepMussel, 2)],
+        Output::Portions(Food::VentPoachedSeepMussels, 2),
+        110,
+    ),
+    r(
+        "vent-clam-feast",
+        "Vent clam feast",
+        Cooking,
+        65,
+        VentPot,
+        &[(I::VentClam, 2), (I::ScalyFoot, 1)],
+        Output::Portions(Food::VentClamFeast, 2),
+        180,
+    ),
+    // Repairs: tools (Grit x tier + KelpCord) and plating (Grit x tier + Valve).
+    r(
+        "repair-tool-1",
+        "Mend a shell tool",
+        Shellcraft,
+        1,
+        Workbench,
+        &[(I::Grit, 1), (I::KelpCord, 1)],
+        Output::Repair(Repairs::Tool(1)),
+        5,
+    ),
+    r(
+        "repair-tool-2",
+        "Mend a quill tool",
+        Shellcraft,
+        1,
+        Workbench,
+        &[(I::Grit, 2), (I::KelpCord, 1)],
+        Output::Repair(Repairs::Tool(2)),
+        10,
+    ),
+    r(
+        "repair-tool-3",
+        "Mend a glass tool",
+        Shellcraft,
+        1,
+        Workbench,
+        &[(I::Grit, 3), (I::KelpCord, 1)],
+        Output::Repair(Repairs::Tool(3)),
+        15,
+    ),
+    r(
+        "repair-tool-4",
+        "Mend a bone tool",
+        Shellcraft,
+        1,
+        Workbench,
+        &[(I::Grit, 4), (I::KelpCord, 1)],
+        Output::Repair(Repairs::Tool(4)),
+        20,
+    ),
+    r(
+        "repair-tool-5",
+        "Mend a nodule tool",
+        Shellcraft,
+        1,
+        Workbench,
+        &[(I::Grit, 5), (I::KelpCord, 1)],
+        Output::Repair(Repairs::Tool(5)),
+        25,
+    ),
+    r(
+        "repair-plating-1",
+        "Mend shell plating",
+        Shellcraft,
+        1,
+        Workbench,
+        &[(I::Grit, 1), (I::Valve, 1)],
+        Output::Repair(Repairs::Plating(1)),
+        5,
+    ),
+    r(
+        "repair-plating-2",
+        "Mend quill plating",
+        Shellcraft,
+        1,
+        Workbench,
+        &[(I::Grit, 2), (I::Valve, 1)],
+        Output::Repair(Repairs::Plating(2)),
+        10,
+    ),
+    r(
+        "repair-plating-3",
+        "Mend bone plating",
+        Shellcraft,
+        1,
+        Workbench,
+        &[(I::Grit, 3), (I::Valve, 1)],
+        Output::Repair(Repairs::Plating(3)),
+        15,
+    ),
+    r(
+        "repair-plating-4",
+        "Mend nodule plating",
+        Shellcraft,
+        1,
+        Workbench,
+        &[(I::Grit, 4), (I::Valve, 1)],
+        Output::Repair(Repairs::Plating(4)),
+        20,
+    ),
+    r(
+        "repair-plating-5",
+        "Mend scale mail",
+        Shellcraft,
+        1,
+        Workbench,
+        &[(I::Grit, 5), (I::Valve, 1)],
+        Output::Repair(Repairs::Plating(5)),
+        25,
+    ),
+    // Planting a strain in a free culture bed.
+    r(
+        "plant-shore",
+        "Plant shore strain",
+        Culturing,
+        1,
+        At(Station::CultureBed),
+        &[(I::ShoreStrain, 1)],
+        Output::Bed(I::ShoreStrain),
+        5,
+    ),
+    r(
+        "plant-culture",
+        "Plant glowing culture",
+        Culturing,
+        15,
+        At(Station::CultureBed),
+        &[(I::Culture, 1)],
+        Output::Bed(I::Culture),
+        12,
+    ),
+    r(
+        "plant-twilight",
+        "Plant twilight strain",
+        Culturing,
+        30,
+        At(Station::CultureBed),
+        &[(I::TwilightStrain, 1)],
+        Output::Bed(I::TwilightStrain),
+        25,
+    ),
+    r(
+        "plant-sulfur",
+        "Plant sulfur mat",
+        Culturing,
+        45,
+        At(Station::CultureBed),
+        &[(I::SulfurMat, 1)],
+        Output::Bed(I::SulfurMat),
+        45,
+    ),
+    r(
+        "plant-vent",
+        "Plant vent mat",
+        Culturing,
+        60,
+        At(Station::CultureBed),
+        &[(I::VentMat, 1)],
+        Output::Bed(I::VentMat),
+        80,
+    ),
+];

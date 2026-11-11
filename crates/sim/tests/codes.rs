@@ -551,14 +551,15 @@ fn setting_a_level_changes_only_that_saved_skill_and_can_lower_it() {
         for level in [99, 25, 1] {
             assert!(sim.enter_code(P0, Code::Level { skill, level }));
             let crab = sim.crab(P0).unwrap();
-            assert_eq!(crab.mover.level(skill, &sim.tuning), level);
+            assert_eq!(crab.level(skill, &sim.tuning), level);
             let mut expected = before.clone();
-            let xp = crabsim::skills::xp_for(level, skill.step(&sim.tuning));
+            let xp = skill.xp_at(level, &sim.tuning);
             match skill {
                 Skill::Climbing => expected.climb_xp = xp,
                 Skill::Swimming => expected.swim_xp = xp,
                 Skill::Fighting => expected.fight_xp = xp,
                 Skill::DataDriven => expected.data_xp = xp,
+                economy => expected.econ.skills.set(economy, xp as u32),
             }
             let saved = sim.progress(P0).unwrap();
             assert_eq!(

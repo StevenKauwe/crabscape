@@ -16,6 +16,8 @@
 pub mod cell_session;
 #[path = "cues.rs"]
 pub mod cues;
+#[path = "economy/sim.rs"]
+mod econ;
 pub mod regions;
 
 #[path = "watcher.rs"]
@@ -24,7 +26,8 @@ use bevy_math::{Rect, Vec2};
 use serde::Serialize;
 
 use crate::combat::{self, Fighter, Hit, Outcome, Source};
-use crate::craft::{Material, Stash};
+use crate::craft::Stash;
+use crate::economy::Item;
 use crate::enemy::{self, Enemy, Kind};
 use crate::feel::Feel;
 use crate::hash::fnv1a;
@@ -133,6 +136,9 @@ pub struct SimCrab {
     /// What it keeps at its workbench at home to make things from (see
     /// [`crate::craft`]); it stays there through death, like the larder.
     pub stash: Stash,
+    /// Its skills, tools, gear, stations and beds (see [`crate::economy`]).
+    #[serde(default)]
+    pub econ: crate::economy::Economy,
     /// Events from between ticks (a hit from outside, a moult, something
     /// made), added to the next tick's.
     pub(crate) pending: StepEvents,
@@ -229,6 +235,9 @@ pub struct Sim {
     /// What lies in the world for everyone: clams, shell grit, bodies (see
     /// [`crate::shared`]). Ghost nets and brittle rock are in the level.
     pub shared: Shared,
+    /// The gathering nodes in the level (`shared.nodes[i]` is the state of
+    /// `placed_nodes[i]`), placed when the world is made.
+    placed_nodes: Vec<crate::economy::PlacedNode>,
     /// Bounded authored shellwash site, present in cellular worlds.
     pub salvage: Option<crate::salvage::Shellwash>,
     /// Fixed-capacity renewable Canyon Drift anchor.
@@ -375,6 +384,7 @@ impl Sim {
             sound_cues: cues::Cues::default(),
             watchers: watcher::Watchers::default(),
             shared: Shared::new(&level),
+            placed_nodes: crate::economy::place::nodes(&level),
             salvage: None,
             canyon: None,
             level,
@@ -998,6 +1008,7 @@ impl Sim {
             cast_offs: Vec::new(),
             pickup: PickupPreferences::default(),
             stash: Stash::default(),
+            econ: crate::economy::Economy::default(),
             pending: StepEvents::default(),
             resting: 0,
             wakes_at: None,
@@ -2308,6 +2319,8 @@ impl Sim {
             strain::step(crab, &self.tuning.strain);
             // Time passes for food whatever the crab is doing.
             food_timers(crab, &self.tuning, &mut ev);
+            crab.econ.tick(self.tick + 1);
+            crab.sync_econ();
             crate::moult::harden(crab, &self.tuning, &mut ev);
             // Hit-stop: frozen for a moment as a blow lands. Presses wait.
             let f = &mut crab.fighter;
@@ -2651,17 +2664,17 @@ impl Sim {
                 let load = m.carrying.take().into_iter();
                 for thing in load.chain(std::mem::take(&mut m.clinging)) {
                     match thing {
-                        Carry::Clam if crab.larder < larder => {
+                        Carry::Clam | Carry::Item(Item::Clam) if crab.larder < larder => {
                             crab.larder += 1;
                             crab.events.stored = true;
                         }
                         // No room: it stays on the shell.
-                        Carry::Clam => {
-                            m.clinging.push(Carry::Clam);
+                        Carry::Clam | Carry::Item(Item::Clam) => {
+                            m.clinging.push(thing);
                             crab.events.larder_full |= crab.events.tucked_in;
                         }
                         thing => {
-                            if let Some(kept) = Material::kept(thing) {
+                            if let Some(kept) = Item::kept(thing) {
                                 crab.stash.add(kept, 1);
                                 crab.events.put_away = true;
                             }
@@ -2699,7 +2712,7 @@ impl Sim {
                     crab.events.ate_clam = true;
                     // Its two empty valves go to the workbench.
                     let valves = self.tuning.craft.valves_per_clam;
-                    crab.stash.add(Material::Valve, valves);
+                    crab.stash.add(Item::Valve, valves);
                     if deep_meal {
                         crab.adapt_deeper(1500.0);
                     }

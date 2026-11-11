@@ -108,6 +108,9 @@ pub enum Carry {
     /// A dead glass sponge's skeleton: its glass points fitted to the leg
     /// tips at home, making glass grips.
     Glass,
+    /// Any of the economy's items (`crate::economy`): small unless the item
+    /// is big (a whale bone, a grenadier).
+    Item(crate::economy::Item),
 }
 
 impl Carry {
@@ -115,7 +118,11 @@ impl Carry {
     /// several at once, like a decorator crab's trimmings; big finds (a
     /// culture, a tooth) ride on its back, one at a time.
     pub fn small(self) -> bool {
-        matches!(self, Carry::Clam | Carry::Grit | Carry::Valve)
+        match self {
+            Carry::Clam | Carry::Grit | Carry::Valve => true,
+            Carry::Item(item) => !item.big(),
+            Carry::Culture | Carry::Tooth | Carry::Glass => false,
+        }
     }
 }
 
@@ -150,6 +157,10 @@ pub struct Mover {
     /// order it took them: up to [`Mover::carries`] at once (more on a
     /// bigger shell), besides the big find on its back.
     pub clinging: Vec<Carry>,
+    /// What the crab's economy gives its body, copied here each tick so the
+    /// movement and combat rules can read it (see [`crate::economy::Mirror`]).
+    #[serde(default)]
+    pub econ: crate::economy::Mirror,
     /// Prepared food occupies the same small carrying space.
     pub prepared_food: crate::prepared_food::PreparedFood,
     /// Scissor claws: a shed tooth's edges fitted along both fingers of its
@@ -288,6 +299,7 @@ impl Mover {
             upgrades: 0,
             carrying: None,
             clinging: Vec::new(),
+            econ: crate::economy::Mirror::default(),
             prepared_food: crate::prepared_food::PreparedFood::default(),
             scissor_claw: false,
             glass_grips: false,
@@ -534,6 +546,8 @@ pub struct StepEvents {
     pub delivered: bool,
     /// A skill went up a level: which one.
     pub levelled: Option<Skill>,
+    /// ...or any skill, by [`crate::Sim::earn`] (the last level crossed).
+    pub level_up: Option<crate::economy::LevelUp>,
     /// A skill's proving moment, just done: its feat is ready.
     pub proven: Option<Skill>,
     /// Started a flip (dodge in the water).
@@ -644,6 +658,9 @@ impl StepEvents {
         self.rested |= other.rested;
         self.delivered |= other.delivered;
         self.levelled = self.levelled.or(other.levelled);
+        if other.level_up.is_some() {
+            self.level_up = other.level_up;
+        }
         self.proven = self.proven.or(other.proven);
         self.flipped |= other.flipped;
         self.found_clue = self.found_clue.or(other.found_clue);
@@ -709,6 +726,7 @@ impl StepEvents {
             (self.rested, "rested"),
             (self.delivered, "delivered"),
             (self.levelled.is_some(), "levelled"),
+            (self.level_up.is_some(), "level up"),
             (self.proven.is_some(), "proven"),
             (self.flipped, "flipped"),
             (self.found_clue.is_some(), "found a clue"),

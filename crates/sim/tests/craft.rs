@@ -8,8 +8,8 @@
 
 use bevy_math::Vec2;
 use crabsim::{
-    CantMake, Carry, Controls, Hit, Material, Outcome, PlayerId, Progress, RECIPES, Recipe, Sim,
-    Stash,
+    CantMake, Carry, Controls, Hit, Item, Material, Outcome, PlayerId, Progress, RECIPES, Recipe,
+    Sim, Stash,
 };
 
 const P0: PlayerId = PlayerId(0);
@@ -58,13 +58,13 @@ fn at_home_with(stash: Stash) -> Sim {
 
 /// Enough of everything to make anything once.
 fn plenty() -> Stash {
-    Stash {
-        cultures: 3,
-        teeth: 3,
-        grit: 3,
-        valves: 6,
-        glass: 2,
-    }
+    Stash::of(&[
+        (Item::Culture, 3),
+        (Item::Tooth, 3),
+        (Item::Grit, 3),
+        (Item::Valve, 6),
+        (Item::Glass, 2),
+    ])
 }
 
 #[test]
@@ -105,7 +105,10 @@ fn a_clam_still_goes_into_the_larder_and_eating_it_leaves_two_valves() {
     assert!(ate, "hungry at home: it eats the clam");
     let crab = sim.crab(P0).unwrap();
     assert_eq!(crab.larder, 0);
-    assert_eq!(crab.stash.valves, sim.tuning.craft.valves_per_clam);
+    assert_eq!(
+        crab.stash.count(Item::Valve),
+        sim.tuning.craft.valves_per_clam
+    );
     assert_eq!(sim.tuning.craft.valves_per_clam, 2, "a clam has two valves");
 }
 
@@ -194,10 +197,7 @@ fn nothing_is_made_without_what_it_needs() {
         );
     }
     // One valve short of the guards.
-    let mut sim = at_home_with(Stash {
-        valves: 1,
-        ..Stash::default()
-    });
+    let mut sim = at_home_with(Stash::of(&[(Item::Valve, 1)]));
     assert_eq!(sim.make(P0, Recipe::ClamGuards), Err(CantMake::Missing));
 }
 
@@ -216,7 +216,11 @@ fn gear_is_made_once_and_the_rest_again_and_again() {
     assert_eq!(sim.make(P0, Recipe::Lantern), Err(CantMake::Missing));
     let crab = sim.crab(P0).unwrap();
     assert_eq!(crab.mover.lantern, 3);
-    assert_eq!(crab.stash.teeth, 2, "a second tooth stays put away");
+    assert_eq!(
+        crab.stash.count(Item::Tooth),
+        2,
+        "a second tooth stays put away"
+    );
 }
 
 #[test]
@@ -286,11 +290,7 @@ fn clam_shell_guards_halve_what_a_block_lets_through() {
 fn a_replay_with_something_made_plays_the_same() {
     let mut live = by_home();
     let mut saved = live.progress(P0).unwrap();
-    saved.stash = Stash {
-        cultures: 1,
-        valves: 2,
-        ..Stash::default()
-    };
+    saved.stash = Stash::of(&[(Item::Culture, 1), (Item::Valve, 2)]);
     live.restore_progress(P0, &saved);
     live.start_recording();
     walk_home(&mut live);
@@ -324,7 +324,7 @@ fn what_was_made_and_put_away_comes_back_after_a_reload() {
     let text = serde_json::to_string(&saved).unwrap();
     let saved: Progress = serde_json::from_str(&text).unwrap();
     assert!(saved.clam_guards && saved.scissor_claw);
-    assert_eq!(saved.stash.valves, 4);
+    assert_eq!(saved.stash.count(Item::Valve), 4);
 
     let mut fresh = by_home();
     fresh.restore_progress(P0, &saved);

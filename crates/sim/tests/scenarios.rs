@@ -892,7 +892,7 @@ fn the_crab_backs_into_its_home_shell_rests_there_and_walks_out() {
     assert_eq!((inside.count("rested"), inside.count("put away")), (1, 1));
     assert_eq!((inside.crab().reserve, inside.crab().stamina), (1.0, 2.0));
     assert_eq!(inside.crab().carrying, None);
-    assert_eq!(inside.sim.crabs()[0].stash.cultures, 1);
+    assert_eq!(inside.sim.crabs()[0].stash.count(crabsim::Item::Culture), 1);
     // Walking right, it comes back out through the doorway quickly, still
     // moving, and walks on (it doesn't go back in).
     let out = play("t=0 walk=left; t=1 walk=right", 2.0);
@@ -953,7 +953,7 @@ fn a_culture_from_the_pit_bottom_goes_home_into_the_lantern() {
     assert_eq!(home.count("put away"), 1);
     assert_eq!(home.crab().carrying, None);
     assert_eq!(home.crab().lantern, 0, "not by itself");
-    assert_eq!(home.sim.crabs()[0].stash.cultures, 1);
+    assert_eq!(home.sim.crabs()[0].stash.count(crabsim::Item::Culture), 1);
     assert_eq!(home.sim.make(PlayerId(0), crabsim::Recipe::Lantern), Ok(()));
     assert_eq!(home.sim.crab(PlayerId(0)).unwrap().mover.lantern, 1);
 }
@@ -1539,7 +1539,7 @@ fn dying_leaves_what_it_carried_in_its_cast_off_shell_to_dive_back_for() {
         );
         sim.tick();
     }
-    assert_eq!(sim.crab(P0).unwrap().stash.cultures, 1);
+    assert_eq!(sim.crab(P0).unwrap().stash.count(crabsim::Item::Culture), 1);
 }
 
 /// The status of the crab on each tick of a script, as `--dump` shows it.

@@ -30,6 +30,7 @@ fn set_level(sim: &mut Sim, skill: Skill, level: u32) {
         Skill::Swimming => m.swim_xp = xp,
         Skill::Fighting => m.fight_xp = xp,
         Skill::DataDriven => m.data_xp = xp,
+        _ => unreachable!("only the skills with feats are set here"),
     }
 }
 

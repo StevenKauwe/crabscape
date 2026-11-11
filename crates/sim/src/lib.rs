@@ -34,6 +34,8 @@
 //!   player's own
 //! - [`codes`]: codes a player types (`hulk`, `feast`, `glow`)
 //! - [`craft`]: the workbench at home: what it keeps, and the recipes
+//! - [`economy`]: items, the experience table, nodes, recipes and gear: the
+//!   skills-and-resources loop
 //! - [`replay`]: recording controls, and the little text format for replays
 //!   and input scripts
 //! - [`hash`]: a fixed hash for fingerprints
@@ -59,6 +61,7 @@ pub mod chimney;
 pub mod codes;
 pub mod combat;
 pub mod craft;
+pub mod economy;
 pub mod enemy;
 pub mod feel;
 pub mod hash;
@@ -87,6 +90,7 @@ pub mod world;
 pub use codes::Code;
 pub use combat::{Claw, Fighter, Hit, Outcome, Source, Vitals};
 pub use craft::{CantMake, Material, RECIPES, Recipe, RecipeDef, Stash};
+pub use economy::{Economy, Item, LevelUp};
 pub use enemy::{Enemy, Kind};
 pub use feel::Feel;
 pub use home::Shelter;

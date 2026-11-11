@@ -895,9 +895,11 @@ pub fn crab_defends(
         if m.clam_guards {
             share *= t.craft.guard_share;
         }
-        let took = f
-            .vitals
-            .take(hit.damage * share, poise_felt(m, hit, t), &t.crab);
+        let took = f.vitals.take(
+            hit.damage * share * m.econ.damage_factor,
+            poise_felt(m, hit, t),
+            &t.crab,
+        );
         f.armour_break = f.armour_break.max(hit.armour_break);
         knock(m, hit.knockback * t.block_knockback);
         f.vitals.hitstop = f.vitals.hitstop.max(t.block_hitstop_ticks);
@@ -933,7 +935,11 @@ pub fn crab_takes(
     if f.dead.is_some() || m.tucked_in() {
         return None;
     }
-    let took = f.vitals.take(hit.damage, poise_felt(m, hit, t), &t.crab);
+    let took = f.vitals.take(
+        hit.damage * m.econ.damage_factor,
+        poise_felt(m, hit, t),
+        &t.crab,
+    );
     ev.hurt = true;
     if hit.venom {
         f.venom.push(t.venom.ticks);
