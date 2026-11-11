@@ -112,6 +112,11 @@ routes per invocation (six ascents per version, 135 samples each):
 - Samples over 16.667 ms: 3 per baseline ascent, 1 per candidate ascent.
 - Every stage position and complete state hash matches the baseline exactly.
 
+The original A/B/B/A sequence paused known competing workers, but did not verify
+whole-machine quiescence. A fresh repeat with operating-system CPU/process checks
+remains pending because unrelated compiler work continued on the Mac. The stable
+comparative native results above remain evidence, with that reliability limit.
+
 The tail CPU cost drops approximately 23%; one over-budget CPU sample still
 remains before adding rendering. This improves the reported symptom but does not
 establish smooth phone frame pacing or close the separate border-paging issue.

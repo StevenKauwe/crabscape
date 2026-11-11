@@ -32,8 +32,8 @@ five read-deadline, five publication-gate and two read-priority tests, as well a
 save compatibility, reset and replay coverage. Native all-target Clippy passes.
 The earlier standalone helper tests also passed; they are superseded by this
 real-crate test run. This is filtered coverage, not the entire workspace suite.
-After the later rebase onto `e0d4090` (#557), the filtered run is being repeated;
-cloud CI remains required.
+After the later rebase onto `e0d4090` (#557), all 47 filtered tests pass again,
+as do native all-target and Wasm Clippy. Cloud CI remains required.
 
 The actual production `page_validation_probe` passes all eight injected cases in
 a disposable browser profile with synthetic saves and no clipboard permission:
@@ -65,4 +65,7 @@ relying on wall-clock timing or counting unrelated startup/autosave connections.
 The separate `connection_probe` measures a fixed synthetic IndexedDB workload;
 it explicitly does not implement production epoch/revision validation. It can
 isolate repeated-open cost but cannot establish phone FPS or terrain correctness.
-No performance result is claimed until a coordinated quiet measurement completes.
+Timing remains deferred because whole-machine compiler contention persisted
+despite pausing our workers. No numeric boundary-latency or FPS improvement is
+claimed. Controlled timing still requires a fresh operating-system-verified
+quiet window.
