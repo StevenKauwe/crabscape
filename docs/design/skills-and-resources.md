@@ -461,6 +461,44 @@ Never two packages on the same file at once: P2 and P3 both need `world.rs`/`cra
 P2/P3 need (`SimCrab::econ`, `econ.tick(dt)` called from `Sim::tick`, `Sim::gather_speed(id)`, `Sim::damage_taken_factor`)
 and P3 never edits `world.rs`; P2 never edits `craft.rs`.
 
+## Pick a want (data and rules: `economy/wants.rs`; H1 of #617)
+The home asks "what do you want to make?" before it asks anything else (`core-loop.md`, beats 0 to 2).
+- **`Sim::wants(id)`** lists every recipe the crab meets the level and station for, or is within 3 levels of (`soon`),
+  whose inputs (bank plus what clings to the shell) are short by exactly one kind of thing, any count. Fewest missing
+  first, then the higher recipe level; the `soon` ones last. A larder recipe (clam food) and a recipe with no inputs
+  are never wants.
+- **Where it comes from** (`Want::sources`) is read from data: the nodes that yield it, the creatures that drop it
+  (`drops_of`), the recipe that makes it. A node source carries `remembered_at`, the nearest node of that kind the
+  crab has *seen* (its node memory), or None: there is no omniscient map. `band` is the depth band that kind grows in.
+- **`Sim::next_unlocks(id)`** names up to three skills within a tenth of their next level and what that level opens;
+  `Sim::level_up_tasks` is the level-up text plus a "New task: make X" line for each recipe the level makes a want.
+- **The pinned goal** is personal (`Economy::pinned`, saved in `Progress`): `pin_want(id, word)`, `unpin(id)`,
+  `pinned_status(id)` (the want, and `have_all`). A replay writes `pin=<word>` / `pin=none`. When it becomes `have_all`
+  while the crab is away from home, `StepEvents::goal_ready` is set for one tick (once; losing a part re-arms it; being
+  home needs no word). Making the recipe unpins it.
+
+## Home pieces (data: `economy/home.rs`; H1 of #617)
+Pieces built into the home change it for everyone in that home's world. Eight, each built once per world:
+| Piece | Building | Needs | Does |
+|---|---|---|---|
+| Kelp curtain | 3 | Kelp x6, Kelp cord x2 | a swaying curtain (looks) |
+| Glass lamp | 8 | Glass x4, Kelp cord x1 | a warm glow (looks) |
+| Shell mosaic | 15 | Valve x8, Grit x4, Pearl x1 | a pattern on the wall (looks) |
+| Whelk door | 20 | Whelk shell x1, Clay x2 | a door for the doorway (looks) |
+| Bone arch | 35 | Whale bone x2, Clay x3, Mantis club x1 | ribs over the home (looks) |
+| Photophore string | 40 | Photophore x3, Slime thread x2 | cold light on the roof (looks) |
+| Coral garden | 55 | Black coral x2, Bamboo coral x1, Clay x4 | beside the door (looks) |
+| Nodule hearth | 70 | Nodule x4, Scale plate x1, Clay x4 | warm vent-stone, no fire: the shell mends in half the wait |
+- Every piece gives the builder Building XP: `40 x level / 5`, at least 40. The builder pays from its **own** bank;
+  the piece is shared. It is built tucked in at home (`can_build_piece` / `build_piece`; a replay writes
+  `craft=<piece word>`). Every piece draws on at least two activities from Building 10 up (tested).
+- **Shared state.** `Shared::home_pieces`, host-authoritative exactly like a taken clam: it is a `Thing::Piece`, so a guest's
+  request is `Msg::Take`, the host builds it once and answers `Msg::Taken` to everyone, and the guest pays and earns only
+  on that word (a second crab asking for the same piece is refused and pays nothing). `Msg::World` carries the set to
+  a joining guest. `Sim::home_pieces()` is what `src/` draws.
+- **Saved** with the world part of `Progress` (`Progress::home_pieces`, next to `clams`): in solo and on the host the
+  crab's own world is its home. A guest visiting saves its own world's set, not the host's.
+
 ## Hidden rules (from the world build; they apply here)
 - Only `underwater*`, `physics/consts.rs`, `level/coral_rise.rs` and the level's floor and rocks force the ~9-minute
   rebake; the probe digest test says "rebake" if terrain behaviour changes. This economy changes none of them.
@@ -473,6 +511,9 @@ and P3 never edits `world.rs`; P2 never edits `craft.rs`.
 - CI flake: `cell_save::native` on Linux (#482): rerun the failed job.
 
 ## Where things stand
+- **H1 (#617), sim side:** pick a want, the pinned goal and eight shared home pieces are in `crates/sim`
+  (`economy/wants.rs`, `economy/home.rs`, tests in `home_wants.rs`); the board, the HUD line and drawing the pieces are
+  presentation work in `src/`. See "Pick a want" and "Home pieces".
 2026-11-11 (lead designer). Read this first if you are continuing without the lead.
 - **Merged:** P0 spec (#573), P1 core + P2 gathering (#596).
 - **In the big PR (branch `issue-567-economy-loop`):** P3 crafting chains, P4 presentation (skills panel `K`, level-up juice, XP drops,

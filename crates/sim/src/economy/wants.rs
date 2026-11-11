@@ -27,26 +27,6 @@ pub const NEAR_NEXT: f32 = 0.9;
 /// How many upcoming unlocks are listed.
 pub const NEXT_UNLOCKS: usize = 3;
 
-/// The creatures that leave something behind (the sources of drops).
-const DROPPERS: [Kind; 16] = [
-    Kind::Snapper,
-    Kind::Mantis,
-    Kind::Moray,
-    Kind::Triggerfish,
-    Kind::AlarmJelly,
-    Kind::Octopus,
-    Kind::LoggerheadTurtle,
-    Kind::HumboldtSquid,
-    Kind::Viperfish,
-    Kind::GoliathGrouper,
-    Kind::Lobster,
-    Kind::HermitCrab,
-    Kind::BobbitWorm,
-    Kind::GiantIsopod,
-    Kind::Hagfish,
-    Kind::AmphipodSwarm,
-];
-
 /// Where a missing thing can come from.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Source {
@@ -104,7 +84,7 @@ pub fn sources_of(sim: &Sim, crab: Option<&SimCrab>, item: Item) -> Vec<Source> 
             band: kind_band(sim, n.kind),
         });
     }
-    for &kind in &DROPPERS {
+    for kind in crate::enemy::KINDS {
         if items::drops_of(kind).contains(&item) {
             out.push(Source::Creature(kind));
         }
@@ -164,7 +144,7 @@ impl Sim {
             .iter()
             .filter_map(|&(item, n)| {
                 let got = have.get(&item).copied().unwrap_or(0);
-                (got < n).then_some((item, n - got))
+                n.checked_sub(got).filter(|d| *d > 0).map(|d| (item, d))
             })
             .collect();
         let mut sources = Vec::new();
