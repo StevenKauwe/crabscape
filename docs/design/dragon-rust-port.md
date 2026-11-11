@@ -245,8 +245,10 @@ oracle compares 500 countdown frames, including interrupted readiness. The UI al
 supports explicit start/join without waiting for every connected rider.
 
 An isolated headless root build has rendered the physical rooftop dragon, entered
-Valmora, selected a slot and traversed both builder steps without requesting a
-microphone. Full create/save/return/reload journey validation is still in progress.
+Valmora, selected a slot, traversed both builder steps, created a durable checkpoint,
+returned to the castle, and reloaded the same saved opening story without requesting
+a microphone. Read-only `data-valmora` stage assertions verify the actual transitions.
+Mission gameplay/rendering and full co-op journey validation are still in progress.
 The dark source palette now covers the root world/HUD while in Valmora menus.
 Imported unbuilt profiles keep their rider identity when completing the builder.
 Browser/native interoperability, mobile controls/performance, remaining presentation,
