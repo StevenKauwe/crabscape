@@ -293,7 +293,7 @@ fn the_shark_never_enters_a_tunnel_mouth_or_refuge() {
     let mut last = State::Idle;
     for i in 0..400 * SECOND {
         // The crab alternates between the open and the cover.
-        let spot = if (i / (40 * SECOND)) % 2 == 0 {
+        let spot = if (i / (40 * SECOND)).is_multiple_of(2) {
             at
         } else {
             Vec2::new(at.x, at.y + 600.0)

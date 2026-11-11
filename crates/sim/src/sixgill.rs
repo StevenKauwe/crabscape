@@ -361,7 +361,18 @@ fn glide(e: &mut Enemy, s: &State, level: &Level, dir: Vec2, speed: f32) {
     let had = overlap(s, level, e.pos, aim);
     // Straight on, else round whatever is in the way (to either side).
     for angle in [
-        0.0_f32, 0.5, -0.5, 1.0, -1.0, 1.57, -1.57, 2.1, -2.1, 2.6, -2.6, 3.14,
+        0.0_f32,
+        0.5,
+        -0.5,
+        1.0,
+        -1.0,
+        1.57,
+        -1.57,
+        2.1,
+        -2.1,
+        2.6,
+        -2.6,
+        std::f32::consts::PI,
     ] {
         let step = Vec2::from_angle(angle).rotate(dir.normalize_or_zero()) * speed * STEP;
         if step == Vec2::ZERO {
@@ -475,7 +486,7 @@ fn idle(e: &mut Enemy, s: &mut State, crabs: &[SimCrab], t: &Tuning, level: &Lev
     // Drift between waypoints in its water.
     let swim = rect(s.swim);
     let goal = Vec2::from(s.waypoint);
-    if e.pos.distance(goal) < 80.0 || e.state_tick % 1200 == 0 {
+    if e.pos.distance(goal) < 80.0 || e.state_tick.is_multiple_of(1200) {
         let fx = rng.range(0, 1001) as f32 / 1000.0;
         let fy = rng.range(0, 1001) as f32 / 1000.0;
         s.waypoint = [
