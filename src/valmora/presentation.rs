@@ -6,7 +6,9 @@ use serde::{Deserialize, Serialize};
 
 pub const MAX_PEERS: usize = 5;
 pub const TTL: f64 = 3.;
+#[allow(dead_code)] // Standalone adventure has no Crabscape transport.
 pub const PREFIX: &[u8] = b"\xffcrabscape travel ";
+#[allow(dead_code)] // Standalone adventure has no Crabscape transport.
 const MAX_BYTES: usize = 384;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -44,6 +46,7 @@ pub fn connection(value: &str) -> bool {
         })
 }
 impl Note {
+    #[allow(dead_code)] // Standalone adventure has no Crabscape transport.
     pub fn valid(&self, room: &str, build: &str) -> bool {
         !room.is_empty()
             && room.len() <= 16
@@ -54,6 +57,7 @@ impl Note {
             && self.x.is_finite()
             && (35. ..=1285.).contains(&self.x)
     }
+    #[allow(dead_code)] // Standalone adventure has no Crabscape transport.
     pub fn encode(&self) -> Option<Vec<u8>> {
         let mut bytes = PREFIX.to_vec();
         bytes.extend(serde_json::to_vec(self).ok()?);
@@ -61,6 +65,7 @@ impl Note {
     }
 }
 /// Recognized malformed envelopes are consumed, never forwarded to simulation.
+#[allow(dead_code)] // Standalone adventure has no Crabscape transport.
 pub fn receive(
     previous: &mut Option<Received>,
     bytes: &[u8],

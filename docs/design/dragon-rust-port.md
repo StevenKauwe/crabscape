@@ -55,6 +55,14 @@ cleanup. It checks original source bytes and castle positions, blocks microphone
 and public sockets, and uses empty ICE-server lists. The separate source rider
 identities still own their original progression; visual/transport integration does
 not merge their inventories with Crabscape's inventory.
+A follow-up two-client phone-layout sample verified ANGLE Metal on M2 Max: both
+landing and shared flight recorded 601 frame intervals in ten seconds each,
+median/p95 16.7 ms, worst 16.8 ms, and no intervals over 25 ms. Both remote
+identity/rig observations stayed live throughout. Forced SwiftShader instead
+saturated two software GPU processes and ran near 13–15 Hz; that harness mode
+is not a hardware-device performance result. These captures used the functional
+artifact before the final companion-only fallback guard, not an exact-head
+physical-phone certification.
 
 ## Run
 

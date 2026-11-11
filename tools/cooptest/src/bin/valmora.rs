@@ -316,6 +316,10 @@ fn phone_cadence(b: &mut Chrome, other: &mut Chrome, scene: &str, profiles: &Pat
     let result = b.eval(&format!(
         r#"new Promise(done=>{{
             const deltas=[];let start=null,last=null,valid=0,frames=0;
+            const canvas=document.getElementById('crabscape'),gl=canvas.getContext('webgl2')||canvas.getContext('webgl');
+            const debug=gl?.getExtension('WEBGL_debug_renderer_info');
+            const gpu=gl?{{renderer:gl.getParameter(debug?debug.UNMASKED_RENDERER_WEBGL:gl.RENDERER),
+                vendor:gl.getParameter(debug?debug.UNMASKED_VENDOR_WEBGL:gl.VENDOR),version:gl.getParameter(gl.VERSION)}}:null;
             const tick=t=>{{
                 if(start===null) start=t;
                 if(last!==null&&deltas.length<4096) deltas.push(t-last);
@@ -328,7 +332,7 @@ fn phone_cadence(b: &mut Chrome, other: &mut Chrome, scene: &str, profiles: &Pat
                     mean_ms:deltas.reduce((a,b)=>a+b,0)/deltas.length,
                     median_ms:q(.5),p95_ms:q(.95),p99_ms:q(.99),worst_ms:sorted.at(-1),
                     over_25_ms:deltas.filter(x=>x>25).length,over_50_ms:deltas.filter(x=>x>50).length,
-                    width:innerWidth,height:innerHeight,dpr:devicePixelRatio,visibility:document.visibilityState,
+                    width:innerWidth,height:innerHeight,dpr:devicePixelRatio,visibility:document.visibilityState,gpu,
                     deltas_ms:deltas}});
             }};requestAnimationFrame(tick);
         }})"#
