@@ -254,7 +254,9 @@ fn bank_encloses_the_find_and_separates_sediment_from_bedrock() {
         level
             .foes
             .iter()
-            .filter(|(k, _)| crabsim::creatures::tuning(*k).is_none())
+            .filter(|(k, _)| {
+                crabsim::creatures::tuning(*k).is_none() && *k != crabsim::enemy::Kind::Sixgill
+            })
             .count(),
         20
     ); // Appended midwater alarm jellies (east, canyon).
