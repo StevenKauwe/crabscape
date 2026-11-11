@@ -170,8 +170,7 @@ fn build_specs() -> Vec<Frame> {
     // The warren is the westmost: no walking hunter's leash may reach a
     // tunnel's door, and the mantis guarding Coral Rise stands east of it.
     // Its roof lies below the lowest floor a walking hunter's leash reaches;
-    // the door is a short water shaft up through the step's sand, with a rock
-    // casing each side so the sand cannot slump in.
+    // the door is a short water shaft up through the step's sand.
     let warren = Rect::new(15840.0, -5500.0, 16040.0, -5120.0);
     let mut den = full(
         "pebble warren",
@@ -180,7 +179,7 @@ fn build_specs() -> Vec<Frame> {
         vec![top(warren, 15940.0, W, true), right(warren, -5300.0, true)],
     );
     den.voids
-        .push(Rect::new(15880.0, -5090.0, 16000.0, -5004.0));
+        .push(Rect::new(15880.0, -5100.0, 16000.0, -5004.0));
     out.push(den);
     let cath = Rect::new(16080.0, -5800.0, 16480.0, -5020.0);
     out.push(Frame {
@@ -360,11 +359,6 @@ pub(super) fn shape(level: &mut Level) {
     for spec in specs() {
         frame(level, spec);
     }
-    // The pebble warren's door casing, each side of its short shaft.
-    level.rocks.extend([
-        Rect::new(15864.0, -5090.0, 15880.0, -4985.0),
-        Rect::new(16000.0, -5090.0, 16016.0, -4985.0),
-    ]);
     // The warm seam sits behind a crust that only a full crusher charge
     // cracks; the long chimney's crust plug caps its top (see `frame`).
     level.brittle.push(Brittle {
