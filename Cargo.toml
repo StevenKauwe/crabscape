@@ -52,6 +52,8 @@ crabsim = { path = "crates/sim", features = ["bevy"] }
 bevy = { version = "0.20.0", default-features = false, features = [
     "std",
     "async_executor",    # runs Bevy's background tasks
+    "bevy_audio",
+    "wav",
     "bevy_asset",        # meshes and materials are "assets"
     "bevy_log",          # info!/warn! messages (the browser console on the web)
     "bevy_winit",        # windows and the event loop (a <canvas> on the web)

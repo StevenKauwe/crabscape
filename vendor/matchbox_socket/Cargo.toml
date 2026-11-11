@@ -146,16 +146,18 @@ version = "0.3"
 version = "0.2"
 default-features = false
 
+# Use maintained rustls through Tokio; async-tls pins vulnerable rustls 0.21.
+# Native signaling futures use async-compat just like the WebRTC futures.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.async-tungstenite]
 version = "0.32"
 features = [
-    "async-std-runtime",
-    "async-tls",
+    "tokio-runtime",
+    "tokio-rustls-webpki-roots",
 ]
 default-features = false
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.webrtc]
-version = "0.17"
+version = "0.17.3"
 default-features = false
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.futures-timer]
