@@ -22,7 +22,10 @@ fn seeps(sim: &Sim) -> usize {
 #[test]
 fn every_pulse_has_a_1_5s_tell() {
     assert_eq!(TELL, 180, "1.5 s at 120 ticks a second");
-    let mut sim = Sim::with_one_crab(Vec2::new(500.0, 0.0));
+    // A crab in earshot: the hiss is only cued for a crab near the hall.
+    let level = Level::test_level();
+    let (_, haze) = real_hall(&level);
+    let mut sim = Sim::with_one_crab(haze.center() + Vec2::new(0.0, 900.0));
     let (mut hisses, mut starts) = (Vec::new(), Vec::new());
     let mut was_on = false;
     for _ in 0..FIRST + PERIOD * 3 + PULSE {
@@ -39,6 +42,12 @@ fn every_pulse_has_a_1_5s_tell() {
     }
     println!("hisses {hisses:?} pulse starts {starts:?}");
     assert_eq!(starts.len(), 4);
+    // Far away, nothing is cued at all.
+    let mut far = Sim::with_one_crab(Vec2::new(500.0, 0.0));
+    for _ in 0..FIRST + PULSE {
+        far.tick();
+        assert_eq!(seeps(&far), 0);
+    }
     assert_eq!(hisses.len(), starts.len(), "one hiss per pulse");
     for (hiss, start) in hisses.iter().zip(&starts) {
         assert_eq!(start - hiss, TELL, "the hiss comes 1.5 s before the pulse");
@@ -131,10 +140,12 @@ fn haze_drains_reserve_but_never_health() {
         crab_at(haze.center(), 3, true),
     ];
     let health: Vec<_> = crabs.iter().map(|c| c.fighter.vitals.health).collect();
+    let mut cache = bone_hall::Cache::default();
     let mut hisses = 0;
     for tick in 1..=FIRST + PULSE + 10 {
         let before = crabs[0].mover.reserve;
-        hisses += usize::from(bone_hall::step(tick, &level, &tuning, &mut crabs).is_some());
+        hisses +=
+            usize::from(bone_hall::step(tick, &level, &tuning, &mut crabs, &mut cache).is_some());
         if !bone_hall::pulse_active(tick) {
             assert_eq!(crabs[0].mover.reserve, before, "no drain between pulses");
         }
@@ -154,7 +165,7 @@ fn haze_drains_reserve_but_never_health() {
     assert_eq!(hisses, 1);
     // Many pulses can empty the reserve but nothing more.
     for tick in FIRST + PULSE + 11..FIRST + PERIOD * 6 {
-        bone_hall::step(tick, &level, &tuning, &mut crabs);
+        bone_hall::step(tick, &level, &tuning, &mut crabs, &mut cache);
     }
     assert!(crabs[0].mover.reserve >= 0.0);
     assert_eq!(crabs[0].fighter.vitals.health, health[0]);
@@ -189,7 +200,9 @@ fn pulses_are_deterministic_and_coop_consistent() {
     let run = || {
         let mut sim = Sim::with_one_crab(Vec2::new(500.0, 0.0));
         sim.add_crab(PlayerId(1), Vec2::new(520.0, 0.0));
-        sim.crab_mut(PlayerId(1)).map(|c| c.remote = true);
+        if let Some(c) = sim.crab_mut(PlayerId(1)) {
+            c.remote = true;
+        }
         for _ in 0..FIRST + PERIOD * 2 {
             sim.tick();
         }
@@ -209,6 +222,7 @@ fn pulses_are_deterministic_and_coop_consistent() {
     let level = Level::test_level();
     let (_, haze) = real_hall(&level);
     let tuning = Tuning::default();
+    let mut cache = bone_hall::Cache::default();
     let mut host = [
         crab_at(haze.center(), 0, false),
         crab_at(haze.center(), 1, true),
@@ -218,8 +232,8 @@ fn pulses_are_deterministic_and_coop_consistent() {
         crab_at(haze.center(), 1, false),
     ];
     for tick in 1..=FIRST + PERIOD * 2 {
-        bone_hall::step(tick, &level, &tuning, &mut host);
-        bone_hall::step(tick, &level, &tuning, &mut guest);
+        bone_hall::step(tick, &level, &tuning, &mut host, &mut cache);
+        bone_hall::step(tick, &level, &tuning, &mut guest, &mut cache);
     }
     assert_eq!(host[0].mover.reserve, guest[1].mover.reserve);
     assert_eq!(host[1].mover.reserve, 1.0);

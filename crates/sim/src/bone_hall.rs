@@ -72,7 +72,22 @@ pub struct Hall {
 
 /// The bone hall, found by name.
 pub fn find(level: &Level) -> Option<Hall> {
-    find_in(&level.landmarks())
+    find_in(&landmarks_of(level)?)
+}
+
+/// The level's landmarks, if it is an authored level (a synthetic test level
+/// has none, and the landmark builder insists on the authored one's parts).
+fn landmarks_of(level: &Level) -> Option<Vec<Landmark>> {
+    let authored = !level.currents.is_empty()
+        && level
+            .foes
+            .iter()
+            .any(|(k, _)| *k == crate::enemy::Kind::Octopus)
+        && level
+            .eggs
+            .get(4)
+            .is_some_and(|egg| level.secrets.iter().any(|r| r.contains(*egg)));
+    authored.then(|| level.landmarks())
 }
 
 fn find_in(marks: &[Landmark]) -> Option<Hall> {
@@ -133,7 +148,7 @@ fn carve(r: Rect, cut: Rect) -> Rect {
 /// prize, shrunk to clear the door, the walk in and every tunnel or mouth.
 /// `None` when nothing is left.
 pub fn haze(level: &Level, hall: &Hall) -> Option<Rect> {
-    haze_in(&level.landmarks(), hall)
+    haze_in(&landmarks_of(level)?, hall)
 }
 
 fn haze_in(marks: &[Landmark], hall: &Hall) -> Option<Rect> {
@@ -182,17 +197,34 @@ pub fn drains_at(tick: u64, haze: Rect, p: Vec2) -> bool {
     pulse_active(tick) && haze.contains(p)
 }
 
+/// The hall and its haze, worked out once from the level (building the
+/// landmarks is costly, and a running world never changes them). Derived, so
+/// never hashed or saved.
+#[derive(Clone, Debug, Default)]
+pub struct Cache(Option<Option<Rect>>);
+
+/// Hiss and shimmer are only worth cueing for a crab within this of the haze.
+const EARSHOT: f32 = 2400.0;
+
 /// The hall's clock for the tick just finished (`tick` is the new count): the
 /// reserve drain for each crab on this device that stands in the haze during
 /// a pulse (health is never touched). Returns where the hiss comes from when a
-/// tell starts on this tick.
-pub fn step(tick: u64, level: &Level, tuning: &Tuning, crabs: &mut [SimCrab]) -> Option<Vec2> {
+/// tell starts on this tick and a crab on this device is within earshot.
+pub fn step(
+    tick: u64,
+    level: &Level,
+    tuning: &Tuning,
+    crabs: &mut [SimCrab],
+    cache: &mut Cache,
+) -> Option<Vec2> {
     let (starts, pulsing) = (tell_starts(tick), pulse_active(tick));
     if !starts && !pulsing {
         return None;
     }
-    let marks = level.landmarks();
-    let haze = haze_in(&marks, &find_in(&marks)?)?;
+    let haze = (*cache.0.get_or_insert_with(|| {
+        let marks = landmarks_of(level)?;
+        haze_in(&marks, &find_in(&marks)?)
+    }))?;
     if pulsing {
         for c in crabs
             .iter_mut()
@@ -204,5 +236,8 @@ pub fn step(tick: u64, level: &Level, tuning: &Tuning, crabs: &mut [SimCrab]) ->
             }
         }
     }
-    starts.then(|| haze.center())
+    let heard = crabs
+        .iter()
+        .any(|c| !c.remote && c.mover.pos.distance(haze.center()) < EARSHOT);
+    (starts && heard).then(|| haze.center())
 }
