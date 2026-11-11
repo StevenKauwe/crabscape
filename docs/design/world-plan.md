@@ -78,7 +78,7 @@ or `gh issue view <n>` before acting.
   W2.1 pressure on the body (#483), W2.3 anxiety (#484), W3.0 strata in the frames (#511), and the fix for main's
   flaky save tests (#491). Draft #419 is finished by #484 and can be closed.
 - **At a taste gate, waiting for the owner:** W2.2 sound (#493, Milestone 2; "what to try" is on #462). Do not merge
-  it or build on it until the owner answers. **W1.2, the open-water hunter (#458), needs #493's Hush cue, so it
+  it or build on it until the owner answers. **W1.2, the open-water hunter (#458), needs #493's Tell cue, so it
   waits too.**
 - **In progress:** W3.1 pockets, mouths and the hunter rule (#465) on branch `issue-465-pockets` (worktree
   `.claude/worktrees/pockets`). The hunter rule and the mouth tests are done; left: silt mouth columns from the home
@@ -192,7 +192,7 @@ existing gates hold for every ability kit. Human gate: none (no feel change).
 **Milestone 2 gate: the deep's atmosphere (W2.2 PR is a gate).**
 - Rest at the canyon floor below your adapted depth. Do the cracks and the shell ticking make you want to leave?
 - Does the crab still feel heavy but never sluggish when cracked?
-- Does the silence before the shark arrives feel like a warning? Is there anything that sounds like air or bubbles?
+- Does the swell before the shark arrives feel like a warning? Is there anything that sounds like air or bubbles?
 - Does the watched eye make you uneasy without ever being a fight?
 
 ### Phase 3: sediment pockets and burrow mouths

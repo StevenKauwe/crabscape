@@ -12,7 +12,7 @@
 //! - **Graphics**: the art style (Ink or Oil, see `style.rs`) and how smooth
 //!   the drawing is (the battery saver, see `power.rs`).
 //! - **Audio**: a volume slider for each kind of sound (see `sound.rs`):
-//!   "Master" (everything, 0 to 100%), "Music" (`music.rs`), "Effects" (blows,
+//!   "Master" (everything, 0 to 100%), "Ambience" (the world), "Music" (`music.rs`), "Effects" (blows,
 //!   parries and other game sounds) and "Voices" (friends', 0 to 300%: past
 //!   100% boosts quiet voices), each a row, its name and value left of the
 //!   track; under Music, which music plays ("Calm" or "Themes", `music.rs`).
@@ -65,6 +65,27 @@ pub enum Hear {
     Everyone,
     /// Friends fade with distance, gone at `range`.
     Nearby,
+}
+
+/// Device audio preference, kept independently of character exports/saves.
+#[derive(Resource, Clone, Copy, Debug, PartialEq)]
+pub struct Ambience(pub f32);
+impl Default for Ambience {
+    fn default() -> Self {
+        Self(0.5)
+    }
+}
+impl Ambience {
+    fn from_text(text: &str) -> Self {
+        Self(
+            number(text)
+                .map(|v| (v / 100.0).clamp(0.0, 1.0))
+                .unwrap_or(0.5),
+        )
+    }
+    fn to_text(self) -> String {
+        format!("{:.0}", self.0 * 100.0)
+    }
 }
 
 /// The kept settings.
@@ -263,6 +284,11 @@ impl Plugin for SettingsPlugin {
         if crate::power::asked_for_saver() {
             settings.saver = true;
         }
+        app.insert_resource(
+            crate::save::read_key("-ambience")
+                .map(|text| Ambience::from_text(&text))
+                .unwrap_or_default(),
+        );
         app.insert_resource(settings);
         panel::build(app);
     }
@@ -271,7 +297,9 @@ impl Plugin for SettingsPlugin {
 pub(crate) mod panel {
     use bevy::prelude::*;
 
-    use super::{GAP, Hear, RANGE_MAX, RANGE_MIN, Settings, Track, VOICES_MAX, button_rect};
+    use super::{
+        Ambience, GAP, Hear, RANGE_MAX, RANGE_MIN, Settings, Track, VOICES_MAX, button_rect,
+    };
     use crate::effects::radial_image;
     use crate::player::{GameSet, LocalPlayer};
     use crate::sound::{PlaySfx, Sfx};
@@ -434,6 +462,7 @@ pub(crate) mod panel {
         Music,
         /// The game's sounds' loudness.
         Effects,
+        Ambience,
         /// Friends' voices' loudness.
         Voices,
         /// How far a nearby voice carries (shown only for "Nearby").
@@ -441,41 +470,46 @@ pub(crate) mod panel {
     }
 
     /// The volume sliders, in the order they're shown.
-    const VOLUMES: [Slider; 4] = [
+    const VOLUMES: [Slider; 5] = [
         Slider::Master,
         Slider::Music,
         Slider::Effects,
         Slider::Voices,
+        // Last, so the rows above keep their places for the browser tests.
+        Slider::Ambience,
     ];
 
     impl Slider {
         /// Where its knob sits, 0 to 1.
-        fn at(self, s: &Settings) -> f32 {
+        fn at(self, s: &Settings, ambience: &Ambience) -> f32 {
             match self {
                 Slider::Master => s.master,
                 Slider::Music => s.music,
                 Slider::Effects => s.effects,
+                Slider::Ambience => ambience.0,
                 Slider::Voices => s.voices / VOICES_MAX,
                 Slider::Range => (s.range - RANGE_MIN) / (RANGE_MAX - RANGE_MIN),
             }
         }
 
         /// Moved to `t` (0 to 1); the volumes go in steps of 5%.
-        fn set(self, s: &mut Settings, t: f32) {
+        fn set(self, s: &mut Settings, ambience: &mut Ambience, t: f32) {
             let step = |max: f32| (t * max * 20.0).round() / 20.0;
             match self {
                 Slider::Master => s.master = step(1.0),
                 Slider::Music => s.music = step(1.0),
                 Slider::Effects => s.effects = step(1.0),
+                Slider::Ambience => ambience.0 = step(1.0),
                 Slider::Voices => s.voices = step(VOICES_MAX),
                 Slider::Range => s.range = RANGE_MIN + t * (RANGE_MAX - RANGE_MIN),
             }
         }
 
-        fn words(self, s: &Settings, crab_width: f32) -> String {
+        fn words(self, s: &Settings, ambience: &Ambience, crab_width: f32) -> String {
             match self {
                 Slider::Master => format!("Master {:.0}%", s.master * 100.0),
                 Slider::Music => format!("Music {:.0}%", s.music * 100.0),
+                Slider::Ambience => format!("Ambience {:.0}%", ambience.0 * 100.0),
                 Slider::Effects => format!("Effects {:.0}%", s.effects * 100.0),
                 Slider::Voices => format!("Voices {:.0}%", s.voices * 100.0),
                 Slider::Range => {
@@ -1084,6 +1118,7 @@ pub(crate) mod panel {
         window: Single<&Window>,
         mut open: ResMut<Open>,
         mut settings: ResMut<Settings>,
+        mut ambience: ResMut<Ambience>,
         mut style: ResMut<ArtStyle>,
         mut sim: ResMut<crabsim::Sim>,
         mut codes: MessageWriter<crate::codes::Typed>,
@@ -1220,7 +1255,11 @@ pub(crate) mod panel {
             };
             let t = ((p.x - track.min.x) / track.width()).clamp(0.0, 1.0);
             let was = *settings;
-            which.set(&mut settings, t);
+            let old_ambience = *ambience;
+            which.set(&mut settings, &mut ambience, t);
+            if *ambience != old_ambience {
+                crate::save::write_key("-ambience", &ambience.to_text());
+            }
             match which {
                 Slider::Range => open.ring = RING_FOR,
                 // A tick at the new loudness, to hear it by.
@@ -1255,6 +1294,7 @@ pub(crate) mod panel {
     fn show(
         open: Res<Open>,
         settings: Res<Settings>,
+        ambience: Res<Ambience>,
         style: Res<ArtStyle>,
         sim: Res<crabsim::Sim>,
         mut panel: Query<&mut Visibility, (With<Panel>, Without<SliderRow>)>,
@@ -1312,7 +1352,7 @@ pub(crate) mod panel {
         }
         let crab_width = 2.0 * sim.tuning.body_half_width;
         for (label, mut text) in &mut labels {
-            let words = label.0.words(&settings, crab_width);
+            let words = label.0.words(&settings, &ambience, crab_width);
             if text.0 != words {
                 text.0 = words;
             }
@@ -1324,7 +1364,7 @@ pub(crate) mod panel {
                 .iter()
                 .find(|(s, _, _)| *s == which)
                 .map_or(0.0, |(_, _, track)| track.width());
-            which.at(&settings).clamp(0.0, 1.0) * w
+            which.at(&settings, &ambience).clamp(0.0, 1.0) * w
         };
         for (which, mut fill) in &mut fill {
             let width = px(along(which.0));
@@ -1482,7 +1522,7 @@ pub(crate) mod panel {
                 let at = format!("{window} web {web} build lines {lines}");
                 let l = layout_for(window, web, lines);
                 let tabs = tabs_for(web);
-                assert_eq!(l.sliders.len(), if web { 5 } else { 0 }, "{at}");
+                assert_eq!(l.sliders.len(), if web { 6 } else { 0 }, "{at}");
                 assert_eq!(l.choices.len(), if web { 17 } else { 5 }, "{at}");
                 // On screen without scrolling, under the button.
                 assert!(
@@ -1647,6 +1687,17 @@ pub(crate) mod panel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ambience_is_saved_clamped_and_ignores_nonfinite_values() {
+        assert_eq!(
+            Ambience::from_text(&Ambience(0.35).to_text()),
+            Ambience(0.35)
+        );
+        assert_eq!(Ambience::from_text("900"), Ambience(1.0));
+        assert_eq!(Ambience::from_text("-10"), Ambience(0.0));
+        assert_eq!(Ambience::from_text("NaN"), Ambience::default());
+    }
 
     #[test]
     fn settings_come_back_as_kept_and_bad_text_keeps_the_defaults() {
