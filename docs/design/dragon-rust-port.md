@@ -424,3 +424,46 @@ An actual synthetic 390×844 Chromium journey verifies cleared riddle input, fiv
 numpad answers, the full-party baby option and Enter completion, with no microphone
 requests/runtime errors and unchanged original legacy data. These checks do not
 remove the physical-device, recorded-audio or home-server compatibility limits above.
+
+### Frame-rate regression investigation
+
+The first native preview rebuilt large gradient triangle grids and uploaded them
+through egui every frame. A synthetic First Flight with the same rider and 390×844
+viewport on an M2 Max/ANGLE Metal headless Chrome reproduced the reported slowdown;
+the original Canvas game remained at 60 Hz while the native preview dropped frames.
+This is a browser rendering result, not a claim about physical iPhone performance.
+
+The renderer now prepares each draw's color stops once and clips constant-alpha
+linear fills at their exact gradient-stop planes. This retains transformed paths,
+clamped ends and source colors without a screen-pixel-sized triangle grid. Tests
+compare the original color sampler and cover reflected transforms, transparency,
+additive blending and unsupported-gradient fallbacks. The opaque phone-sized sky
+alone falls from 98,304 emitted vertices to 18. Gameplay, RNG, saves and networking
+are unchanged by this rendering-only correction.
+
+A matching circular glow with a concentric radial gradient and unchanged RGB uses
+shared concentric rings at every color-stop radius. The original outer polygon is
+retained. A conservative angular/alpha-slope error bound rejects unresolved narrow
+rings; nonmatching paths, clips, transforms, colors and degenerate gradients retain
+the existing tessellation. The complete First Flight sky falls from 660,807 fill
+vertices to 1,068, rather than merely optimizing the opaque rectangle. No glow or
+other source layer is removed to obtain this reduction.
+
+Matched release-browser validation used fresh synthetic profiles, First Flight,
+three dragons, no gameplay input, a two-second warmup and ten-second rAF samples.
+Runs were sequential baseline/candidate/candidate/baseline with no concurrent
+compilation. Hardware was Chrome 157 with ANGLE Metal on Apple M2 Max. Baseline
+was the published a31bdbd release; candidate used the same Rust release settings
+and wasm-bindgen locally (without CI's optional wasm-opt size pass).
+
+At 390×844, both baseline samples had 33.4 ms p95 frames and roughly 22.32 MB of
+WebGL buffer uploads per rendered frame. Both corrected samples had 16.7 ms p95,
+16.8 ms worst frames and approximately 6.01 MB/frame (73% less upload traffic).
+At 1200×800, the baseline's first sample had 50.1 ms median / 66.8 ms p95, versus
+16.7 / 16.8 ms for the correction; upload traffic fell from 64.06 to 8.46 MB/frame.
+All browser runs reported no runtime errors, and screenshots retained the sky,
+moon glow, dragon art, weather and mission objects. This workload validates the
+reported rendering regression, not every mission/device or a universal FPS floor.
+The reverse-order desktop repeat reproduced the result: corrected 16.7 ms median
+and p95, baseline 50.0 ms median / 66.8 ms p95. The bounded-geometry tests are the
+CI regression guard; machine-dependent timing is reported, not a flaky pass gate.

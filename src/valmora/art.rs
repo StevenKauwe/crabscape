@@ -176,6 +176,137 @@ fn rgba(s: &str) -> [f64; 4] {
     }
     [0., 0., 0., 1.]
 }
+/// Parse each draw's colors once, not for each generated vertex. The source
+/// paint stays borrowed so transforms and radial fallback keep their semantics.
+struct PreparedPaint<'a> {
+    draw: &'a Draw,
+    solid: Option<Color32>,
+    stops: Vec<(f64, [f64; 4])>,
+    linear_bands: bool,
+}
+impl<'a> PreparedPaint<'a> {
+    fn new(draw: &'a Draw) -> Self {
+        let stops: Vec<_> = match &draw.paint {
+            Paint::Solid(_) => Vec::new(),
+            Paint::Linear { stops, .. } | Paint::Radial { stops, .. } => {
+                stops.iter().map(|(at, color)| (*at, rgba(color))).collect()
+            }
+        };
+        let solid = match &draw.paint {
+            Paint::Solid(color) => Some(tint(rgba(color), draw.alpha, draw.additive)),
+            _ => None,
+        };
+        // With constant alpha, color is affine inside each linear stop band.
+        // Duplicate/invalid stops and changing alpha retain the old sampler:
+        // premultiplying changing RGB and alpha is not affine.
+        let linear_bands = match &draw.paint {
+            Paint::Linear {
+                coords: [x0, y0, x1, y1],
+                transform,
+                ..
+            } => {
+                let axis = (x1 - x0).powi(2) + (y1 - y0).powi(2);
+                let [a, b, c, d, _, _] = transform.0;
+                axis.is_finite()
+                    && axis > 0.
+                    && transform.0.iter().all(|v| v.is_finite())
+                    && (a * d - b * c).is_finite()
+                    && (a * d - b * c).abs() >= 1e-15
+                    && draw.alpha.is_finite()
+                    && !stops.is_empty()
+                    && stops.iter().all(|(at, color)| {
+                        (0. ..=1.).contains(at)
+                            && color.iter().all(|v| v.is_finite())
+                            && color[..3].iter().all(|v| (0. ..=255.).contains(v))
+                            && (0. ..=1.).contains(&color[3])
+                            && color[3] == stops[0].1[3]
+                    })
+                    && stops.windows(2).all(|s| s[0].0 < s[1].0)
+            }
+            _ => false,
+        };
+        Self {
+            draw,
+            solid,
+            stops,
+            linear_bands,
+        }
+    }
+    fn value(&self, p: Pos2) -> f64 {
+        match &self.draw.paint {
+            Paint::Solid(_) => 0.,
+            Paint::Linear {
+                coords: [x0, y0, x1, y1],
+                transform,
+                ..
+            } => {
+                let [x, y] = transform.inverse_point(p.x as f64, p.y as f64);
+                let dx = x1 - x0;
+                let dy = y1 - y0;
+                ((x - x0) * dx + (y - y0) * dy) / (dx * dx + dy * dy)
+            }
+            Paint::Radial {
+                coords: [x0, y0, r0, x1, y1, r1],
+                transform,
+                ..
+            } => {
+                let [x, y] = transform.inverse_point(p.x as f64, p.y as f64);
+                let dx = x1 - x0;
+                let dy = y1 - y0;
+                let dr = r1 - r0;
+                let px = x - x0;
+                let py = y - y0;
+                let a = dx * dx + dy * dy - dr * dr;
+                let b = -2. * (px * dx + py * dy + r0 * dr);
+                let cc = px * px + py * py - r0 * r0;
+                let disc = (b * b - 4. * a * cc).max(0.).sqrt();
+                if a.abs() < 1e-12 {
+                    -cc / b
+                } else {
+                    let u = (-b - disc) / (2. * a);
+                    let v = (-b + disc) / (2. * a);
+                    if r0 + u * dr >= 0. { u } else { v }
+                }
+            }
+        }
+    }
+    fn at(&self, value: f64) -> Color32 {
+        if let Some(solid) = self.solid {
+            return solid;
+        }
+        let v = if value.is_finite() {
+            value.clamp(0., 1.)
+        } else {
+            0.
+        };
+        let mut a = self.stops.first();
+        let mut b = self.stops.last();
+        for stop in &self.stops {
+            if stop.0 <= v {
+                a = Some(stop);
+            }
+            if stop.0 >= v {
+                b = Some(stop);
+                break;
+            }
+        }
+        if let (Some((ta, a)), Some((tb, b))) = (a, b) {
+            let f = if tb > ta { (v - ta) / (tb - ta) } else { 0. };
+            tint(
+                std::array::from_fn(|i| a[i] + (b[i] - a[i]) * f),
+                self.draw.alpha,
+                self.draw.additive,
+            )
+        } else {
+            Color32::TRANSPARENT
+        }
+    }
+    fn color(&self, p: Pos2) -> Color32 {
+        self.at(self.value(p))
+    }
+}
+
+#[cfg(test)]
 fn color(d: &Draw, p: Pos2) -> Color32 {
     let (v, stops) = match &d.paint {
         Paint::Solid(s) => return tint(rgba(s), d.alpha, d.additive),
@@ -256,9 +387,79 @@ fn tint(v: [f64; 4], alpha: f64, additive: bool) -> Color32 {
 fn cross(a: Pos2, b: Pos2, c: Pos2) -> f32 {
     (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
 }
-fn triangle(mesh: &mut Mesh, d: &Draw, a: Pos2, b: Pos2, c: Pos2, depth: u8) {
-    // Gradient interpolation is evaluated within shapes, rather than as a full-frame filter.
-    if !matches!(d.paint, Paint::Solid(_))
+fn emit_triangle(mesh: &mut Mesh, vertices: [(Pos2, Color32); 3]) {
+    let i = mesh.vertices.len() as u32;
+    mesh.vertices.extend(vertices.map(|(pos, color)| Vertex {
+        pos,
+        uv: WHITE_UV,
+        color,
+    }));
+    mesh.indices.extend_from_slice(&[i, i + 1, i + 2]);
+}
+
+#[derive(Clone, Copy)]
+struct BandPoint {
+    pos: Pos2,
+    value: f64,
+}
+/// Split an already-triangulated fill at each gradient stop plane. Every
+/// resulting polygon is convex. Constant end bands preserve Canvas clamping.
+fn linear_triangle(mesh: &mut Mesh, paint: &PreparedPaint<'_>, points: [Pos2; 3]) -> bool {
+    let mut remaining: Vec<_> = points
+        .into_iter()
+        .map(|pos| BandPoint {
+            pos,
+            value: paint.value(pos),
+        })
+        .collect();
+    if remaining.iter().any(|p| !p.value.is_finite()) {
+        return false;
+    }
+    for (boundary, _) in &paint.stops {
+        if remaining.is_empty() {
+            break;
+        }
+        let mut below = Vec::with_capacity(remaining.len() + 1);
+        let mut above = Vec::with_capacity(remaining.len() + 1);
+        let mut prev = *remaining.last().expect("nonempty");
+        for &next in &remaining {
+            if (prev.value <= *boundary) != (next.value <= *boundary) {
+                let fraction = ((*boundary - prev.value) / (next.value - prev.value)) as f32;
+                let at = BandPoint {
+                    pos: prev.pos + (next.pos - prev.pos) * fraction,
+                    value: *boundary,
+                };
+                below.push(at);
+                above.push(at);
+            }
+            if next.value <= *boundary {
+                below.push(next);
+            } else {
+                above.push(next);
+            }
+            prev = next;
+        }
+        band_polygon(mesh, paint, &below);
+        remaining = above;
+    }
+    band_polygon(mesh, paint, &remaining);
+    true
+}
+fn band_polygon(mesh: &mut Mesh, paint: &PreparedPaint<'_>, points: &[BandPoint]) {
+    for pair in points.get(1..).unwrap_or_default().windows(2) {
+        let points = [points[0], pair[0], pair[1]];
+        if cross(points[0].pos, points[1].pos, points[2].pos).abs() > f32::EPSILON {
+            emit_triangle(mesh, points.map(|p| (p.pos, paint.at(p.value))));
+        }
+    }
+}
+fn triangle(mesh: &mut Mesh, paint: &PreparedPaint<'_>, a: Pos2, b: Pos2, c: Pos2, depth: u8) {
+    if paint.linear_bands && linear_triangle(mesh, paint, [a, b, c]) {
+        return;
+    }
+    // Keep the existing radial/changing-alpha approximation. This fallback has
+    // the same geometric bound, but no longer parses colors per vertex.
+    if paint.solid.is_none()
         && depth < 7
         && (a.distance(b).max(b.distance(c)).max(c.distance(a)) > 8.)
     {
@@ -266,21 +467,139 @@ fn triangle(mesh: &mut Mesh, d: &Draw, a: Pos2, b: Pos2, c: Pos2, depth: u8) {
         let bc = b + (c - b) * 0.5;
         let ca = c + (a - c) * 0.5;
         for [a, b, c] in [[a, ab, ca], [ab, b, bc], [ca, bc, c], [ab, bc, ca]] {
-            triangle(mesh, d, a, b, c, depth + 1);
+            triangle(mesh, paint, a, b, c, depth + 1);
         }
         return;
     }
-    let i = mesh.vertices.len() as u32;
-    for pos in [a, b, c] {
-        mesh.vertices.push(Vertex {
-            pos,
-            uv: WHITE_UV,
-            color: color(d, pos),
-        });
-    }
-    mesh.indices.extend_from_slice(&[i, i + 1, i + 2]);
+    emit_triangle(mesh, [a, b, c].map(|pos| (pos, paint.color(pos))));
 }
-fn polygon(mesh: &mut Mesh, d: &Draw, mut p: Vec<Pos2>) {
+/// Circular glows with one RGB hue can be drawn as concentric stop rings.
+/// Keep the original polygon's boundary samples, rather than changing the art's
+/// outline. Every stop gets a ring, including narrow interior peaks. If the
+/// polygon's angular resolution cannot bound color error, keep the old fallback.
+fn radial_circle(mesh: &mut Mesh, paint: &PreparedPaint<'_>, boundary: &[Pos2]) -> bool {
+    let draw = paint.draw;
+    let Paint::Radial {
+        coords: [x0, y0, r0, x1, y1, r1],
+        transform,
+        ..
+    } = &draw.paint
+    else {
+        return false;
+    };
+    let [PathCommand::Ellipse(x, y, rx, ry, rotation, start, end)] = draw.path.as_slice() else {
+        return false;
+    };
+    let dr = r1 - r0;
+    let [a, b, c, d, _, _] = transform.0;
+    let determinant = a * d - b * c;
+    if !transform.0.iter().all(|v| v.is_finite())
+        || !determinant.is_finite()
+        || determinant.abs() < 1e-15
+        || draw.stroke.is_some()
+        || !draw.clips.is_empty()
+        || draw.transform != *transform
+        || x != x0
+        || x0 != x1
+        || y != y0
+        || y0 != y1
+        || rx != ry
+        || ![x, y, rx, ry, rotation, start, end, r0, r1]
+            .iter()
+            .all(|v| v.is_finite())
+        || *rx <= 0.
+        || *r0 < 0.
+        || dr <= 0.
+        || !dr.is_finite()
+        || end - start < TAU
+        || !(0. ..=1.).contains(&draw.alpha)
+        || paint.stops.is_empty()
+        || !paint.stops.iter().all(|(at, color)| {
+            (0. ..=1.).contains(at)
+                && (0. ..=1.).contains(&color[3])
+                && color[..3] == paint.stops[0].1[..3]
+                && color[..3].iter().all(|v| (0. ..=255.).contains(v))
+        })
+        || !paint.stops.windows(2).all(|s| s[0].0 < s[1].0)
+    {
+        return false;
+    }
+    let boundary = if boundary.len() > 1
+        && boundary[0].distance_sq(*boundary.last().expect("nonempty")) < 0.0001
+    {
+        &boundary[..boundary.len() - 1]
+    } else {
+        boundary
+    };
+    if boundary.len() < 3 || boundary.iter().any(|p| !p.is_finite()) {
+        return false;
+    }
+    // For adjacent angular samples, interpolated radius differs from the true
+    // radius by at most R * (1 - cos(pi/n)). Multiplying by the largest alpha
+    // slope bounds every channel's unquantized color error, including crossings
+    // of stop radii between samples. This rejects unresolved thin rings instead
+    // of relying only on vertex/midpoint samples that can miss them completely.
+    let slope = paint
+        .stops
+        .windows(2)
+        .map(|s| 255. * draw.alpha * (s[1].1[3] - s[0].1[3]).abs() / ((s[1].0 - s[0].0) * dr))
+        .fold(0., f64::max);
+    let error = slope * rx * (1. - (std::f64::consts::PI / boundary.len() as f64).cos());
+    if !error.is_finite() || error > 0.25 {
+        return false;
+    }
+    let center = point(draw.transform, *x, *y);
+    if !center.is_finite() {
+        return false;
+    }
+    let center_index = mesh.vertices.len() as u32;
+    mesh.vertices.push(Vertex {
+        pos: center,
+        uv: WHITE_UV,
+        color: paint.at(-r0 / dr),
+    });
+    let mut inner = None;
+    for radius in paint
+        .stops
+        .iter()
+        .map(|(at, _)| r0 + at * dr)
+        .filter(|r| *r > 0. && *r < *rx)
+        .chain(std::iter::once(*rx))
+    {
+        let outer = mesh.vertices.len() as u32;
+        let color = paint.at((radius - r0) / dr);
+        mesh.vertices.extend(boundary.iter().map(|&p| Vertex {
+            pos: if radius == *rx {
+                p
+            } else {
+                center + (p - center) * (radius / rx) as f32
+            },
+            uv: WHITE_UV,
+            color,
+        }));
+        let count = boundary.len() as u32;
+        for i in 0..count {
+            let next = (i + 1) % count;
+            if let Some(inner) = inner {
+                mesh.indices.extend_from_slice(&[
+                    inner + i,
+                    outer + i,
+                    outer + next,
+                    inner + i,
+                    outer + next,
+                    inner + next,
+                ]);
+            } else {
+                mesh.indices
+                    .extend_from_slice(&[center_index, outer + i, outer + next]);
+            }
+        }
+        inner = Some(outer);
+    }
+    true
+}
+
+fn polygon(mesh: &mut Mesh, paint: &PreparedPaint<'_>, mut p: Vec<Pos2>) {
     p.dedup_by(|a, b| a.distance_sq(*b) < 0.0001);
     if p.len() > 1 && p[0].distance_sq(*p.last().expect("nonempty")) < 0.0001 {
         p.pop();
@@ -317,7 +636,7 @@ fn polygon(mesh: &mut Mesh, d: &Draw, mut p: Vec<Pos2>) {
                 continue;
             }
             ear = Some(i);
-            triangle(mesh, d, a, b, c, 0);
+            triangle(mesh, paint, a, b, c, 0);
             break;
         }
         if let Some(i) = ear {
@@ -326,7 +645,7 @@ fn polygon(mesh: &mut Mesh, d: &Draw, mut p: Vec<Pos2>) {
             return;
         }
     }
-    triangle(mesh, d, p[0], p[1], p[2], 0);
+    triangle(mesh, paint, p[0], p[1], p[2], 0);
 }
 fn clip(mut p: Vec<Pos2>, boundary: &[Pos2]) -> Vec<Pos2> {
     let area: f32 = boundary
@@ -368,6 +687,7 @@ pub fn paint(painter: &egui::Painter, canvas: &Canvas) {
 fn shapes(canvas: &Canvas) -> Vec<Shape> {
     let mut out = Vec::new();
     for d in &canvas.commands {
+        let paint = PreparedPaint::new(d);
         let mut mesh = Mesh::default();
         for (mut p, closed) in paths(&d.path, d.transform) {
             if let Some(stroke) = &d.stroke {
@@ -381,7 +701,7 @@ fn shapes(canvas: &Canvas) -> Vec<Shape> {
                 let width = stroke.width as f32 * scale;
                 // Egui's path stroker supplies anti-aliased round joins/caps. Original art strokes are solid.
                 if let Paint::Solid(_) = d.paint {
-                    let col = color(d, p[0]);
+                    let col = paint.color(p[0]);
                     if !stroke.dash.is_empty() {
                         for dash in dashed_path_offset(&p, &stroke.dash, scale, stroke.dash_offset)
                         {
@@ -404,7 +724,7 @@ fn shapes(canvas: &Canvas) -> Vec<Shape> {
                     let a = pair[0];
                     let b = pair[1];
                     let n = (b - a).normalized().rot90() * width * 0.5;
-                    polygon(&mut mesh, d, vec![a + n, b + n, b - n, a - n]);
+                    polygon(&mut mesh, &paint, vec![a + n, b + n, b - n, a - n]);
                 }
             } else {
                 for clipping in &d.clips {
@@ -412,7 +732,9 @@ fn shapes(canvas: &Canvas) -> Vec<Shape> {
                         p = clip(p, &boundary);
                     }
                 }
-                polygon(&mut mesh, d, p);
+                if !radial_circle(&mut mesh, &paint, &p) {
+                    polygon(&mut mesh, &paint, p);
+                }
             }
         }
         if !mesh.indices.is_empty() {
@@ -1105,7 +1427,11 @@ mod tests {
         c.fill();
         let d = &c.commands[0];
         let mut m = Mesh::default();
-        polygon(&mut m, d, paths(&d.path, d.transform).remove(0).0);
+        polygon(
+            &mut m,
+            &PreparedPaint::new(d),
+            paths(&d.path, d.transform).remove(0).0,
+        );
         let area: f32 = m
             .indices
             .as_chunks::<3>()
@@ -1224,7 +1550,7 @@ mod tests {
             }
             let mut mesh = Mesh::default();
             for (p, _) in paths(&d.path, d.transform) {
-                polygon(&mut mesh, d, p);
+                polygon(&mut mesh, &PreparedPaint::new(d), p);
             }
             assert!(
                 mesh.vertices
@@ -1235,5 +1561,465 @@ mod tests {
         }
         assert!(count > 100);
         assert!(count < 500_000, "bounded presentation geometry: {count}");
+    }
+    fn gradient_draw(paint: Paint) -> Draw {
+        Draw {
+            path: vec![],
+            transform: Affine::default(),
+            paint,
+            alpha: 1.,
+            additive: false,
+            stroke: None,
+            clips: vec![],
+        }
+    }
+    fn original_triangle(mesh: &mut Mesh, d: &Draw, points: [Pos2; 3], depth: u8) {
+        let [a, b, c] = points;
+        if !matches!(d.paint, Paint::Solid(_))
+            && depth < 7
+            && a.distance(b).max(b.distance(c)).max(c.distance(a)) > 8.
+        {
+            let ab = a + (b - a) * 0.5;
+            let bc = b + (c - b) * 0.5;
+            let ca = c + (a - c) * 0.5;
+            for points in [[a, ab, ca], [ab, b, bc], [ca, bc, c], [ab, bc, ca]] {
+                original_triangle(mesh, d, points, depth + 1);
+            }
+        } else {
+            emit_triangle(mesh, points.map(|p| (p, color(d, p))));
+        }
+    }
+    fn mesh_color(mesh: &Mesh, point: Pos2) -> Option<[f32; 4]> {
+        for indices in mesh.indices.as_chunks::<3>().0 {
+            let [a, b, c] = std::array::from_fn(|i| mesh.vertices[indices[i] as usize]);
+            let area = cross(a.pos, b.pos, c.pos);
+            if area.abs() < f32::EPSILON {
+                continue;
+            }
+            let weights = [
+                cross(point, b.pos, c.pos) / area,
+                cross(a.pos, point, c.pos) / area,
+                cross(a.pos, b.pos, point) / area,
+            ];
+            if weights.iter().all(|w| *w >= -0.0001) {
+                return Some(std::array::from_fn(|i| {
+                    [a, b, c]
+                        .iter()
+                        .zip(weights)
+                        .map(|(v, w)| f32::from(v.color[i]) * w)
+                        .sum()
+                }));
+            }
+        }
+        None
+    }
+    #[test]
+    fn prepared_colors_match_original_sampler_and_fallback_geometry() {
+        let transform = Affine([-1.2, 0.2, 0.3, 0.7, 21., 9.]);
+        let paints = [
+            Paint::Solid("#8ad".into()),
+            Paint::Linear {
+                coords: [0., 0., 130., 20.],
+                transform,
+                stops: vec![
+                    (0., "rgba(12,80,220,0.15)".into()),
+                    (1., "rgba(240,30,10,0.9)".into()),
+                ],
+            },
+            Paint::Linear {
+                coords: [0., 0., 130., 20.],
+                transform,
+                stops: vec![
+                    (0., "#fff".into()),
+                    (0.5, "#000".into()),
+                    (0.5, "#f00".into()),
+                    (1., "#00f".into()),
+                ],
+            },
+            Paint::Radial {
+                coords: [2., 3., 5., 12., 8., 60.],
+                transform,
+                stops: vec![
+                    (0., "rgba(255,80,16,0.8)".into()),
+                    (1., "rgba(255,80,16,0)".into()),
+                ],
+            },
+            Paint::Linear {
+                coords: [2., 3., 2., 3.],
+                transform,
+                stops: vec![(0., "#fff".into()), (1., "#000".into())],
+            },
+            Paint::Linear {
+                coords: [0., 0., 1., 1.],
+                transform: Affine([0.; 6]),
+                stops: vec![(0., "#fff".into()), (1., "#000".into())],
+            },
+        ];
+        for paint in paints {
+            for additive in [false, true] {
+                let mut draw = gradient_draw(paint.clone());
+                draw.alpha = 0.73;
+                draw.additive = additive;
+                let prepared = PreparedPaint::new(&draw);
+                assert!(!prepared.linear_bands);
+                for y in -5..25 {
+                    for x in -5..25 {
+                        let p = egui::pos2(x as f32 * 4.1, y as f32 * 3.7);
+                        assert_eq!(prepared.color(p), color(&draw, p));
+                    }
+                }
+                let points = [
+                    egui::pos2(-20., -10.),
+                    egui::pos2(130., 20.),
+                    egui::pos2(30., 100.),
+                ];
+                let mut before = Mesh::default();
+                original_triangle(&mut before, &draw, points, 0);
+                let mut after = Mesh::default();
+                triangle(&mut after, &prepared, points[0], points[1], points[2], 0);
+                assert_eq!(after.indices, before.indices);
+                assert_eq!(after.vertices, before.vertices);
+            }
+        }
+    }
+    #[test]
+    fn linear_bands_preserve_transformed_colors_clamping_and_coverage() {
+        for transform in [Affine::default(), Affine([-1.3, 0.2, 0.4, 0.8, 500., -20.])] {
+            for alpha in [1., 0.4] {
+                for additive in [false, true] {
+                    let mut draw = gradient_draw(Paint::Linear {
+                        coords: [20., 20., 240., 100.],
+                        transform,
+                        stops: vec![
+                            (0.2, format!("rgba(20,160,240,{alpha})")),
+                            (0.55, format!("rgba(240,60,20,{alpha})")),
+                            (0.75, format!("rgba(40,220,140,{alpha})")),
+                        ],
+                    });
+                    draw.alpha = 0.7;
+                    draw.additive = additive;
+                    let paint = PreparedPaint::new(&draw);
+                    assert!(paint.linear_bands);
+                    let points = [[0., 0.], [300., 0.], [300., 200.], [0., 200.]]
+                        .map(|[x, y]| point(transform, x, y));
+                    let mut mesh = Mesh::default();
+                    polygon(&mut mesh, &paint, points.to_vec());
+                    let area: f32 = mesh
+                        .indices
+                        .as_chunks::<3>()
+                        .0
+                        .iter()
+                        .map(|i| {
+                            cross(
+                                mesh.vertices[i[0] as usize].pos,
+                                mesh.vertices[i[1] as usize].pos,
+                                mesh.vertices[i[2] as usize].pos,
+                            )
+                            .abs()
+                                * 0.5
+                        })
+                        .sum();
+                    let expected_area = cross(points[0], points[1], points[2]).abs();
+                    assert!((area - expected_area).abs() < expected_area * 0.00001);
+                    // Sample interiors and both clamped end bands. Egui interpolates
+                    // sRGB vertex channels; allow two byte levels for endpoint
+                    // quantization and alpha premultiplication, not a visual shift.
+                    for y in 0..20 {
+                        for x in 0..30 {
+                            let p =
+                                point(transform, (x as f64 + 0.37) * 10., (y as f64 + 0.61) * 10.);
+                            let actual =
+                                mesh_color(&mesh, p).expect("gradient covers original rectangle");
+                            let expected = color(&draw, p);
+                            for i in 0..4 {
+                                assert!(
+                                    (actual[i] - f32::from(expected[i])).abs() <= 2.,
+                                    "color channel {i}: {actual:?} != {expected:?} at {p:?}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    #[test]
+    fn phone_sky_linear_gradient_geometry_depends_on_stops_not_pixel_area() {
+        for (width, height) in [(390., 844.), (844., 390.), (1920., 1080.)] {
+            let view = dragon_game::flight::Viewport::from_screen(width, height, 1., 130., 0.62);
+            let background = dragon_game::drawing::draw_background(view, 0, false);
+            let sky = &background.sky.commands[0];
+            let paint = PreparedPaint::new(sky);
+            assert!(paint.linear_bands);
+            let mut mesh = Mesh::default();
+            let points = paths(&sky.path, sky.transform).remove(0).0;
+            polygon(&mut mesh, &paint, points);
+            assert!(
+                mesh.vertices.len() <= 18,
+                "{} sky vertices",
+                mesh.vertices.len()
+            );
+            let original_points = [
+                egui::pos2(0., 0.),
+                egui::pos2(width as f32, 0.),
+                egui::pos2(width as f32, height as f32),
+                egui::pos2(0., height as f32),
+            ];
+            let mut before = Mesh::default();
+            original_triangle(
+                &mut before,
+                sky,
+                [original_points[3], original_points[0], original_points[1]],
+                0,
+            );
+            original_triangle(
+                &mut before,
+                sky,
+                [original_points[1], original_points[2], original_points[3]],
+                0,
+            );
+            assert_eq!(before.vertices.len(), 98_304);
+            println!(
+                "sky {width}x{height}: {} -> {} fill vertices",
+                before.vertices.len(),
+                mesh.vertices.len()
+            );
+        }
+    }
+    #[test]
+    #[ignore = "manual native CPU comparison; not a frame-rate or device benchmark"]
+    fn gradient_tessellation_cpu() {
+        use std::{hint::black_box, time::Instant};
+        let view = dragon_game::flight::Viewport::from_screen(390., 844., 1., 130., 0.62);
+        let background = dragon_game::drawing::draw_background(view, 0, false);
+        let draw = &background.sky.commands[0];
+        let points = [
+            egui::pos2(0., 0.),
+            egui::pos2(390., 0.),
+            egui::pos2(390., 844.),
+            egui::pos2(0., 844.),
+        ];
+        let mut before = Vec::new();
+        let mut after = Vec::new();
+        for sample in 0..7 {
+            for optimized in [sample % 2 == 0, sample % 2 != 0] {
+                let start = Instant::now();
+                for _ in 0..20 {
+                    let mut mesh = Mesh::default();
+                    if optimized {
+                        polygon(
+                            &mut mesh,
+                            &PreparedPaint::new(black_box(draw)),
+                            points.to_vec(),
+                        );
+                    } else {
+                        original_triangle(
+                            &mut mesh,
+                            black_box(draw),
+                            [points[3], points[0], points[1]],
+                            0,
+                        );
+                        original_triangle(
+                            &mut mesh,
+                            black_box(draw),
+                            [points[1], points[2], points[3]],
+                            0,
+                        );
+                    }
+                    black_box(mesh);
+                }
+                if optimized { &mut after } else { &mut before }
+                    .push(start.elapsed().as_secs_f64() * 1e6 / 20.);
+            }
+        }
+        before.sort_by(f64::total_cmp);
+        after.sort_by(f64::total_cmp);
+        println!(
+            "phone sky tessellation CPU us: before median {:.3} range {:.3}..{:.3}; after {:.3} range {:.3}..{:.3}",
+            before[3], before[0], before[6], after[3], after[0], after[6]
+        );
+    }
+    // Fill geometry only: line strokes are tessellated later by egui. Disabling
+    // the new bands reproduces the old triangle counts, not its parsing time.
+    fn fill_vertex_count(canvas: &Canvas, bands: bool) -> usize {
+        let mut count = 0;
+        for draw in &canvas.commands {
+            if draw.stroke.is_some() {
+                continue;
+            }
+            let mut paint = PreparedPaint::new(draw);
+            paint.linear_bands &= bands;
+            let mut mesh = Mesh::default();
+            for (mut p, _) in paths(&draw.path, draw.transform) {
+                for clipping in &draw.clips {
+                    for (boundary, _) in paths(&clipping.path, clipping.transform) {
+                        p = clip(p, &boundary);
+                    }
+                }
+                if !bands || !radial_circle(&mut mesh, &paint, &p) {
+                    polygon(&mut mesh, &paint, p);
+                }
+            }
+            count += mesh.vertices.len();
+        }
+        count
+    }
+    #[test]
+    #[ignore = "manual representative scene geometry counts, no rendered frame timing"]
+    fn first_flight_fill_mesh_counts() {
+        let view = dragon_game::flight::Viewport::from_screen(390., 844., 1., 130., 0.62);
+        let mut game = dragon_game::game::Game::first_flight(view, 42);
+        for _ in 0..120 {
+            game.step(1. / 60., dragon_game::flight::Input::default(), view)
+                .unwrap();
+        }
+        let ctx = egui::Context::default();
+        let mut cache = ArtCache::default();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let painter = ui.ctx().layer_painter(egui::LayerId::background());
+            paint_game(&painter, &mut cache, &game, view, 2., 2., 1., 1., true);
+        });
+        output.textures_delta.clear();
+        let background = dragon_game::drawing::draw_background(view, 0, false);
+        for (name, canvas) in [
+            ("sky", &background.sky),
+            ("far (one tile)", &background.far),
+            ("land (one tile)", &background.land),
+            ("dynamic First Flight t=2s", &cache.canvas),
+        ] {
+            println!(
+                "{name} fill vertices: {} -> {}",
+                fill_vertex_count(canvas, false),
+                fill_vertex_count(canvas, true)
+            );
+        }
+    }
+    fn circle_glow(stops: Vec<(f64, String)>, transform: Affine) -> Draw {
+        let mut draw = gradient_draw(Paint::Radial {
+            coords: [0., 0., 20., 0., 0., 100.],
+            transform,
+            stops,
+        });
+        draw.transform = transform;
+        draw.path = vec![PathCommand::Ellipse(0., 0., 100., 100., 0., 0., TAU)];
+        draw
+    }
+    #[test]
+    fn concentric_glow_rings_preserve_dense_colors_and_original_outline() {
+        for transform in [Affine::default(), Affine([-1.3, 0.2, 0.4, 0.8, 310., 200.])] {
+            for additive in [false, true] {
+                for stops in [
+                    vec![
+                        (0., "rgba(234,242,255,0.3)".into()),
+                        (1., "rgba(234,242,255,0)".into()),
+                    ],
+                    // An interior peak must not vanish just because the center
+                    // and outside of the source circle are both transparent.
+                    vec![
+                        (0., "rgba(180,70,250,0)".into()),
+                        (0.4, "rgba(180,70,250,0)".into()),
+                        (0.55, "rgba(180,70,250,0.8)".into()),
+                        (0.7, "rgba(180,70,250,0)".into()),
+                        (1., "rgba(180,70,250,0)".into()),
+                    ],
+                ] {
+                    let mut draw = circle_glow(stops, transform);
+                    draw.additive = additive;
+                    draw.alpha = 0.85;
+                    let paint = PreparedPaint::new(&draw);
+                    let boundary = paths(&draw.path, draw.transform).remove(0).0;
+                    let mut mesh = Mesh::default();
+                    assert!(radial_circle(&mut mesh, &paint, &boundary));
+                    let count = boundary.len() - 1;
+                    let outline = &mesh.vertices[mesh.vertices.len() - count..];
+                    for (vertex, point) in outline.iter().zip(&boundary) {
+                        assert_eq!(vertex.pos, *point);
+                    }
+                    for r in 0..64 {
+                        let radius = (r as f64 + 0.37) * 100. / 64.;
+                        for a in 0..64 {
+                            let angle = (a as f64 + 0.43) * TAU / 64.;
+                            let p = point(transform, radius * angle.cos(), radius * angle.sin());
+                            let actual =
+                                mesh_color(&mesh, p).expect("rings cover the original circle");
+                            let expected = color(&draw, p);
+                            for i in 0..4 {
+                                assert!(
+                                    (actual[i] - f32::from(expected[i])).abs() <= 2.,
+                                    "radial channel {i}: {actual:?} != {expected:?} at radius {radius}"
+                                );
+                            }
+                        }
+                    }
+                    // A sample at an interior ring's peak retains its alpha;
+                    // this is additional to the dense grid above.
+                    if !additive && paint.stops.len() > 2 {
+                        let peak = point(transform, 20. + 0.55 * 80., 0.);
+                        assert!(mesh_color(&mesh, peak).unwrap()[3] > 170.);
+                    }
+                }
+            }
+        }
+    }
+    #[test]
+    fn unresolved_thin_rings_and_unsupported_radials_keep_fallback() {
+        let mut draw = circle_glow(
+            vec![
+                (0., "rgba(255,255,255,0)".into()),
+                (0.5, "rgba(255,255,255,0)".into()),
+                (0.5001, "rgba(255,255,255,1)".into()),
+                (0.5002, "rgba(255,255,255,0)".into()),
+                (1., "rgba(255,255,255,0)".into()),
+            ],
+            Affine::default(),
+        );
+        for case in 0..5 {
+            if case == 1 {
+                draw = circle_glow(
+                    vec![(0., "#f00".into()), (1., "#00f".into())],
+                    Affine::default(),
+                );
+            } else if case == 2 {
+                draw = circle_glow(
+                    vec![
+                        (0., "rgba(255,255,255,1)".into()),
+                        (1., "rgba(255,255,255,0)".into()),
+                    ],
+                    Affine::default(),
+                );
+                if let Paint::Radial { coords, .. } = &mut draw.paint {
+                    coords[3] = 1.;
+                }
+            } else if case == 3 {
+                draw = circle_glow(
+                    vec![(0., "#fff".into()), (1., "#fff".into())],
+                    Affine([0.; 6]),
+                );
+            } else if case == 4 {
+                draw = circle_glow(
+                    vec![(0., "#fff".into()), (1., "#fff".into())],
+                    Affine::default(),
+                );
+                draw.clips.push(dragon_game::drawing::Clip {
+                    path: vec![],
+                    transform: Affine::default(),
+                });
+            }
+            let paint = PreparedPaint::new(&draw);
+            let boundary = paths(&draw.path, draw.transform).remove(0).0;
+            let mut mesh = Mesh::default();
+            assert!(!radial_circle(&mut mesh, &paint, &boundary), "case {case}");
+            assert!(mesh.vertices.is_empty() && mesh.indices.is_empty());
+        }
+    }
+    #[test]
+    fn complete_phone_sky_mesh_keeps_bounded_stop_geometry() {
+        let view = dragon_game::flight::Viewport::from_screen(390., 844., 1., 130., 0.62);
+        let sky = dragon_game::drawing::draw_background(view, 0, false).sky;
+        let count = fill_vertex_count(&sky, true);
+        // Current source fixture: the gradient rectangle plus a two-stop glow,
+        // solid moon and stars. Bound geometry, not uncalibrated elapsed time.
+        assert!(count < 2_000, "phone sky fill vertices: {count}");
+        assert_eq!(fill_vertex_count(&sky, false), 660_807);
     }
 }
