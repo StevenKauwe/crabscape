@@ -9,7 +9,7 @@
 //! | Action | Keyboard                | Controller           | Touch      |
 //! |--------|-------------------------|----------------------|------------|
 //! | Walk   | A / D, or the arrows    | left stick, d-pad    | `<` `>`    |
-//! | Jump   | W, Up, K               | A (south button)     | JUMP       |
+//! | Jump   | W, Up                  | A (south button)     | JUMP       |
 //! | Dodge  | Shift, J                | B, right trigger     | DODGE      |
 //! | Dig / turn | Space + direction     | right stick          | DIG / TURN stick |
 //! | Dive down | S / Down | stick / D-pad down | DIG / TURN stick down |
@@ -47,9 +47,10 @@ enum TouchAction {
     Guard,
     Dig,
     Eat,
+    Gather,
 }
 
-const ACTIONS: [TouchAction; 9] = [
+const ACTIONS: [TouchAction; 10] = [
     TouchAction::Left,
     TouchAction::Right,
     TouchAction::Jump,
@@ -59,6 +60,7 @@ const ACTIONS: [TouchAction; 9] = [
     TouchAction::Guard,
     TouchAction::Dig,
     TouchAction::Eat,
+    TouchAction::Gather,
 ];
 
 /// Whether the on-screen buttons are showing. They appear on touch screens,
@@ -236,7 +238,7 @@ pub(crate) fn has_touch_screen() -> bool {
 /// with the fighting row above them (smash over dodge, guard over jump, jab
 /// beside smash). Works in portrait and landscape: buttons scale with the
 /// shorter side.
-fn button_rects(size: Vec2) -> [(TouchAction, Rect); 9] {
+fn button_rects(size: Vec2) -> [(TouchAction, Rect); 10] {
     let button = (size.min_element() * 0.18).clamp(56.0, 96.0);
     let gap = button * 0.25;
     let margin = 18.0;
@@ -274,12 +276,17 @@ fn button_rects(size: Vec2) -> [(TouchAction, Rect); 9] {
                 bottom - button - gap,
             ),
         ),
+        // Up and right of the action stick, beside Eat: clear of the fighting row.
+        (
+            TouchAction::Gather,
+            square(margin + button + gap, bottom - 2.0 * (button + gap)),
+        ),
     ]
 }
 
 /// Every on-screen button's box (for other buttons to keep clear of).
 #[cfg(test)]
-pub(crate) fn touch_rects(size: Vec2) -> [Rect; 9] {
+pub(crate) fn touch_rects(size: Vec2) -> [Rect; 10] {
     button_rects(size).map(|(_, r)| r)
 }
 
@@ -288,6 +295,7 @@ pub(crate) fn touch_rects(size: Vec2) -> [Rect; 9] {
 pub fn on_a_button(size: Vec2, p: Vec2) -> bool {
     button_rects(size).iter().any(|(a, r)| {
         (*a != TouchAction::Dig || crate::cellular::enabled())
+            && *a != TouchAction::Gather
             && r.inflate(if *a == TouchAction::Dig { 3.0 } else { 10.0 })
                 .contains(p)
     })
@@ -366,6 +374,7 @@ struct PadWants {
     jab: bool,
     guard: bool,
     eat: bool,
+    gather: bool,
 }
 
 /// A controller's left `stick` and its buttons (`pressed`) as moves. A stick
@@ -393,14 +402,18 @@ fn pad_wants(stick: Vec2, pressed: impl Fn(GamepadButton) -> bool) -> PadWants {
         jab: pressed(GamepadButton::West),
         guard: any(&[GamepadButton::LeftTrigger, GamepadButton::LeftTrigger2]),
         eat: pressed(GamepadButton::DPadUp),
+        gather: pressed(GamepadButton::LeftThumb),
     }
 }
 
-const JUMP_KEYS: [KeyCode; 3] = [KeyCode::KeyW, KeyCode::ArrowUp, KeyCode::KeyK];
+// K opens the skills panel (`skills_panel.rs`), so it no longer jumps.
+const JUMP_KEYS: [KeyCode; 2] = [KeyCode::KeyW, KeyCode::ArrowUp];
 const DODGE_KEYS: [KeyCode; 3] = [KeyCode::ShiftLeft, KeyCode::ShiftRight, KeyCode::KeyJ];
 const SMASH_KEYS: [KeyCode; 2] = [KeyCode::KeyL, KeyCode::KeyE];
 const JAB_KEYS: [KeyCode; 2] = [KeyCode::KeyO, KeyCode::KeyQ];
 const GUARD_KEYS: [KeyCode; 2] = [KeyCode::KeyI, KeyCode::KeyF];
+/// Hold to gather from a node in reach (E and F are taken by the claws).
+const GATHER_KEYS: [KeyCode; 1] = [KeyCode::KeyC];
 
 fn key_pressed(
     keys: &ButtonInput<KeyCode>,
@@ -513,6 +526,9 @@ fn read_input(
     let mut jab = any_key(&JAB_KEYS) || touch(TouchAction::Jab) || combat_mouse.jab;
     let mut guard = any_key(&GUARD_KEYS) || touch(TouchAction::Guard);
     let mut eat = any_key(&[KeyCode::KeyT]) || touch(TouchAction::Eat);
+    // The Gather button only exists while a node is within reach.
+    let near_node = crate::gather_ui::in_reach(&sim, **local).is_some();
+    let mut gather = any_key(&GATHER_KEYS) || (near_node && touch(TouchAction::Gather));
 
     for pad in &gamepads {
         let wants = pad_wants(pad.left_stick(), |b| pad.pressed(b));
@@ -534,6 +550,7 @@ fn read_input(
         jab |= wants.jab;
         guard |= wants.guard;
         eat |= wants.eat;
+        gather |= wants.gather;
     }
 
     if modal {
@@ -563,8 +580,7 @@ fn read_input(
     }
     let mut controls = Controls {
         eat_held: eat,
-        // The Gather button and key come with the presentation package.
-        gather_held: false,
+        gather_held: gather,
         walk: walk.clamp(-1.0, 1.0),
         jump_held: jump,
         jump_pressed: edges.jump || key_pressed(&keys, &JUMP_KEYS, jump, held_before.jump),
@@ -668,6 +684,7 @@ fn spawn_touch_buttons(mut commands: Commands) {
             TouchAction::Guard => "GUARD",
             TouchAction::Dig => "DIG",
             TouchAction::Eat => "EAT",
+            TouchAction::Gather => "GATHER",
         };
         commands
             .spawn((
@@ -731,6 +748,7 @@ fn layout_touch_buttons(
     mouse: Res<ButtonInput<MouseButton>>,
     inside: Res<crate::interior::Inside>,
     sim: Res<crabsim::Sim>,
+    local: Query<&PlayerId, With<LocalPlayer>>,
     mut buttons: Query<
         (
             &TouchAction,
@@ -754,6 +772,9 @@ fn layout_touch_buttons(
         &touch_controls.ui_owned,
         |_| false,
     );
+    let near_node = local
+        .single()
+        .is_ok_and(|id| crate::gather_ui::in_reach(&sim, *id).is_some());
     let rect = rects[0].1;
     let vector = touch_controls
         .dig_touch
@@ -778,6 +799,7 @@ fn layout_touch_buttons(
         let wanted = if touch_controls.visible
             && !(fighting && inside.on)
             && (*action != TouchAction::Dig || sim.level.cells.is_some())
+            && (*action != TouchAction::Gather || near_node)
         {
             Visibility::Inherited
         } else {
@@ -826,6 +848,7 @@ mod tests {
                 .init_resource::<Touches>()
                 .init_resource::<crate::settings::panel::Open>()
                 .init_resource::<crate::shell_inventory::Open>()
+                .init_resource::<crate::skills_panel::Open>()
                 .init_resource::<crate::codes::CodeBox>()
                 .insert_resource(crabsim::Sim::with_one_crab(crabsim::SPAWN))
                 .insert_resource(TouchControls {

@@ -50,9 +50,17 @@ pub enum Sfx {
     /// A goliath grouper's boom: a very low swell and thump on D1 and D2,
     /// felt more than heard.
     Throb,
+    /// A skill levelled: two rising notes, D4 then A4 (placeholder).
+    Chime,
+    /// A tenth level or level 99: a longer, staggered open chord on D.
+    Chord,
+    /// One work stroke of a gather: a soft scrape and tap (placeholder).
+    Scrape,
+    /// A tool cracking: a sharp split and a dull knock (placeholder).
+    Crack,
 }
 
-const ALL: [Sfx; 12] = [
+const ALL: [Sfx; 16] = [
     Sfx::Swish,
     Sfx::Crunch,
     Sfx::Click,
@@ -65,6 +73,10 @@ const ALL: [Sfx; 12] = [
     Sfx::Bone,
     Sfx::Rock,
     Sfx::Throb,
+    Sfx::Chime,
+    Sfx::Chord,
+    Sfx::Scrape,
+    Sfx::Crack,
 ];
 
 /// The steady tones under everything: started once, never retriggered, only
@@ -231,10 +243,45 @@ fn atmosphere(sim: Res<crabsim::Sim>, me: Res<crate::coop::LocalId>, mut last: L
             Cue::VentHum { at: source } => {
                 backend::vent(0.025 * (1.0 - source.distance(at) / 1600.0).max(0.0));
             }
+            // The crab's own work: a scrape per stroke, a click when it
+            // gives, a ring for a made thing, a crack for a broken tool.
+            Cue::Gather { crab, .. } if own(crab) => {
+                backend::spatial(Sfx::Scrape, 0.6 * body, 1.0, 0.0, Route::Body);
+            }
+            Cue::Gathered { crab } if own(crab) => {
+                backend::spatial(Sfx::Click, 0.7 * body, 1.2, 0.0, Route::Body);
+            }
+            Cue::ToolCracked { crab } if own(crab) => {
+                backend::spatial(Sfx::Crack, 0.8 * body, 1.0, 0.0, Route::Body);
+            }
+            Cue::Crafted { crab } if own(crab) => {
+                backend::play(Sfx::Ring, 0.35, 1.0);
+            }
+            // The crab's own level gained.
+            Cue::LevelUp { crab, level, .. } if own(crab) => {
+                let sfx = if level_chord(level) {
+                    Sfx::Chord
+                } else {
+                    Sfx::Chime
+                };
+                backend::play(sfx, 0.5, 1.0);
+            }
             _ => {}
         }
     }
     *last = sim.tick_count();
+}
+
+/// Every tenth level and the last get the longer chord.
+pub fn level_chord(level: u32) -> bool {
+    level.is_multiple_of(10) || level >= crabsim::skills::MAX_LEVEL
+}
+
+/// `samples` starting `secs` into a longer sound.
+fn after(samples: Vec<f32>, secs: f32, rate: f32) -> Vec<f32> {
+    let mut out = vec![0.0; (secs * rate) as usize];
+    out.extend(samples);
+    out
 }
 
 /// The samples of `sfx` at `rate` samples per second, peaking at about 0.8.
@@ -272,6 +319,31 @@ pub fn synth(sfx: Sfx, rate: f32) -> Vec<f32> {
             groan(rate, d(-2), &[(1.0, 1.0), (2.0, 0.6)], 0.5, 1.8),
             // The thump: D2, quick in and quickly gone.
             groan(rate, d(-1), &[(1.0, 1.0)], 0.06, 0.45),
+        ]),
+        Sfx::Chime => {
+            // D4 then A4 (a fifth up), each a soft bell: whole-number
+            // partials on the music's D, so it sits in any mode.
+            let bell = |hz: f32| ring(rate, &[(hz, 0.4), (hz * 2.0, 0.2)], 0.5);
+            mix(&[bell(d(1)), after(bell(d(1) * 1.5), 0.14, rate)])
+        }
+        Sfx::Chord => {
+            // D4, A4, D5, A5 arriving one after another and ringing on.
+            let bell = |hz: f32| ring(rate, &[(hz, 1.3), (hz * 2.0, 0.6)], 0.4);
+            mix(&[
+                bell(d(1)),
+                after(bell(d(1) * 1.5), 0.11, rate),
+                after(bell(d(2)), 0.22, rate),
+                after(bell(d(2) * 1.5), 0.33, rate),
+            ])
+        }
+        Sfx::Scrape => mix(&[
+            muffled(crackle(&mut noise, rate, 0.14, 0.7), 1400.0, rate),
+            thump(rate, 150.0, 80.0, 0.05, 0.6),
+        ]),
+        Sfx::Crack => mix(&[
+            crack(&mut noise, rate, 0.02, 3000.0, 1.0),
+            thump(rate, 120.0, 55.0, 0.12, 0.7),
+            crackle(&mut noise, rate, 0.1, 0.4),
         ]),
         Sfx::Swish => {
             // Noise through a filter that opens and closes: a sweep of water.
@@ -1319,7 +1391,7 @@ mod tests {
         for sfx in ALL {
             let s = synth(sfx, 44100.0);
             let secs = s.len() as f32 / 44100.0;
-            let longest = if matches!(sfx, Sfx::Bone | Sfx::Rock | Sfx::Throb) {
+            let longest = if matches!(sfx, Sfx::Bone | Sfx::Rock | Sfx::Throb | Sfx::Chord) {
                 2.0
             } else {
                 0.7

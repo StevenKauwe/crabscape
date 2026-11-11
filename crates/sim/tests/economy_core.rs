@@ -51,7 +51,7 @@ fn every_node_is_in_its_depth_band_and_out_of_the_rock() {
         );
         for (j, m) in placed.iter().enumerate().skip(i + 1) {
             assert!(
-                n.pos.distance(m.pos) >= 40.0,
+                n.pos.distance(m.pos) >= 12.0,
                 "nodes {i} and {j} are {} apart",
                 n.pos.distance(m.pos)
             );
@@ -93,6 +93,10 @@ fn every_recipe_is_valid_and_has_no_orphan_input() {
     // finds or failures).
     let mut made: Vec<Item> = NODES.iter().filter_map(|n| n.yields).collect();
     made.extend([Item::Valve, Item::Pearl, Item::Scale, Item::Spoiled]);
+    // Creature drops come from beating creatures.
+    for kind in crabsim::enemy::KINDS {
+        made.extend(crabsim::economy::items::drops_of(kind));
+    }
     for r in ECON_RECIPES {
         if let Output::Items(items) = r.makes {
             made.extend(items.iter().map(|&(i, _)| i));

@@ -13,15 +13,16 @@ use crate::player::GameSet;
 /// The keys and what they do, in the order a new player needs them (the
 /// same keys as `input.rs`, `go_home.rs`, `view.rs`, `codes.rs`,
 /// `report.rs`, `style.rs` and `replay.rs` read).
-pub(crate) const KEYS: [(&str, &str); 17] = [
+pub(crate) const KEYS: [(&str, &str); 18] = [
     ("A D / Left Right", "walk"),
-    ("W / Up / K", "jump or paddle; hold to climb"),
+    ("W / Up", "jump or paddle; hold to climb"),
     ("Shift J + a way", "dodge; hold it: sprint"),
     ("S / Down", "dive in water; descend a climb"),
     ("Right click / E L", "smash; hold to charge"),
     ("Left click / Q O", "jab with the cutter"),
     ("F I", "guard; tap before a blow: parry"),
     ("B", "inventory; number keys choose"),
+    ("K / C", "skills / hold to gather"),
     ("T", "hold still to eat a portion"),
     ("H", "dim or brighten the lantern"),
     ("Home, then Y", "go home (it asks first)"),

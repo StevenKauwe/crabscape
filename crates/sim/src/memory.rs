@@ -78,6 +78,22 @@ pub struct Sighting {
     pub seen: u32,
 }
 
+/// A gathering node as the crab last saw it (a node it has never seen has no
+/// entry). Kept sorted by node index.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NodeSighting {
+    /// Its index in [`crate::Sim::placed_nodes`].
+    pub index: u32,
+    pub kind: crate::economy::NodeKind,
+    /// It had charges left when last seen (false: spent).
+    pub ready: bool,
+    /// The memory step it was last seen on.
+    pub seen: u32,
+}
+
+/// A node is seen by a point this far above its centre.
+const NODE_EYE_LINE: Vec2 = Vec2::new(0.0, 8.0);
+
 // A dense *sight window*, independent of the explored world's size. Row-major
 // lookup avoids allocating tree nodes and walking a tree for every ray sample.
 #[derive(Clone, Default)]
@@ -123,6 +139,8 @@ pub struct Memory {
     pub sightings: Vec<Sighting>,
     /// Each ghost net as last seen: cut or not (None = never seen).
     pub nets: Vec<Option<bool>>,
+    /// Each gathering node seen so far, as last seen.
+    pub nodes: Vec<NodeSighting>,
     /// Geometry sampled only around the latest sight ellipse.
     #[serde(skip)]
     obstruction: Obstruction,
@@ -145,6 +163,8 @@ impl<'de> Deserialize<'de> for Memory {
             home: Vec<u64>,
             sightings: Vec<Sighting>,
             nets: Vec<Option<bool>>,
+            #[serde(default)]
+            nodes: Vec<NodeSighting>,
             live_cells: Vec<u64>,
         }
         let mut state = State::deserialize(deserializer)?;
@@ -162,6 +182,7 @@ impl<'de> Deserialize<'de> for Memory {
             home: state.home,
             sightings: state.sightings,
             nets: state.nets,
+            nodes: state.nodes,
             obstruction: Obstruction::default(),
             live_cells: state.live_cells,
             cache: Default::default(),
@@ -177,6 +198,7 @@ impl PartialEq for Memory {
             && self.chunks == o.chunks
             && self.sightings == o.sightings
             && self.nets == o.nets
+            && self.nodes == o.nodes
     }
 }
 
@@ -251,6 +273,7 @@ impl Memory {
             home: Vec::new(),
             sightings: Vec::new(),
             nets: vec![None; level.nets.len()],
+            nodes: Vec::new(),
             obstruction: Obstruction::default(),
             live_cells: Vec::new(),
             cache: Default::default(),
@@ -424,7 +447,7 @@ impl Memory {
             }
         }
         bytes.extend(self.now.to_le_bytes());
-        bytes.extend(format!("{:?} {:?}", self.sightings, self.nets).bytes());
+        bytes.extend(format!("{:?} {:?} {:?}", self.sightings, self.nets, self.nodes).bytes());
         fnv1a(&bytes)
     }
 
@@ -560,6 +583,38 @@ impl Memory {
             let net = &level.nets[i];
             if sees(self, net.rect.center()) {
                 self.nets[i] = Some(net.cut);
+            }
+        }
+    }
+
+    /// Note the gathering nodes in sight now: each one seen (inside the
+    /// circle, with a clear line, like an animal) is remembered with whether
+    /// it had charges left. Call right after [`Self::step_with_sight`] for
+    /// the same `sight`, on a crab of this device only. `states` are the
+    /// shared charges, in the order of `placed`; unseen nodes are never
+    /// touched.
+    pub fn note_nodes(
+        &mut self,
+        sight: Sight,
+        placed: &[crate::economy::PlacedNode],
+        states: &[crate::shared::NodeState],
+        level: &Level,
+        t: &MemoryTuning,
+    ) {
+        for (i, (node, state)) in placed.iter().zip(states).enumerate() {
+            let p = node.pos + NODE_EYE_LINE;
+            if !sight.sees(p) || !self.clear_line(sight.eye, p, t, level) {
+                continue;
+            }
+            let seen = NodeSighting {
+                index: i as u32,
+                kind: node.kind,
+                ready: state.charges > 0,
+                seen: self.now,
+            };
+            match self.nodes.binary_search_by_key(&seen.index, |n| n.index) {
+                Ok(k) => self.nodes[k] = seen,
+                Err(k) => self.nodes.insert(k, seen),
             }
         }
     }
@@ -716,6 +771,7 @@ impl Memory {
             cells: Vec::new(),
             sightings: self.sightings.clone(),
             nets: self.nets.clone(),
+            nodes: self.nodes.clone(),
         }
     }
 
@@ -755,6 +811,12 @@ impl Memory {
         }
         m.sightings = s.sightings.clone();
         m.nets = s.nets.clone();
+        if s.nodes.iter().any(|n| n.seen > s.now)
+            || s.nodes.windows(2).any(|w| w[0].index >= w[1].index)
+        {
+            return None;
+        }
+        m.nodes = s.nodes.clone();
 
         m.dirty.clear();
         Some(m)
@@ -888,6 +950,9 @@ pub struct MemorySave {
     pub cells: Vec<MemoryChunk>,
     pub sightings: Vec<Sighting>,
     pub nets: Vec<Option<bool>>,
+    /// The gathering nodes seen, as last seen (saves from before have none).
+    #[serde(default)]
+    pub nodes: Vec<NodeSighting>,
 }
 
 #[cfg(test)]

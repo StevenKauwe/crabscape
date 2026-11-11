@@ -520,6 +520,12 @@ impl RegionJournal {
                 CellSessionAction::Craft(recipe) => {
                     let _ = sim.make(*id, *recipe);
                 }
+                CellSessionAction::Econ(i) => {
+                    if let Some(r) = crate::economy::ECON_RECIPES.get(usize::from(*i)) {
+                        let _ = sim.make_econ(*id, r);
+                    }
+                }
+                CellSessionAction::Bed(a) => crate::craft::Craft::Bed(*a).perform(sim, *id),
                 CellSessionAction::Shell(action) => {
                     sim.shell_action(*id, *action);
                 }

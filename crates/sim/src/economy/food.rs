@@ -17,6 +17,11 @@ pub enum Food {
     GrenadierFerment,
     VentPoachedSeepMussels,
     VentClamFeast,
+    AmphipodBroth,
+    Broth,
+    JellySalad,
+    InkedKelp,
+    ShrimpPasteFeast,
 }
 
 /// A timed buff from eating (one at a time; a new one replaces it).
@@ -32,6 +37,8 @@ pub enum Buff {
     Pressure30,
     /// Claws 15% harder (grenadier ferment).
     Claws15,
+    /// Pressure strain 20% less (amphipod broth).
+    Pressure20,
     /// All of the above (vent clam feast).
     Feast,
 }
@@ -63,6 +70,7 @@ impl Buff {
     pub fn pressure_percent(self) -> u32 {
         match self {
             Buff::Pressure30 | Buff::Feast => 30,
+            Buff::Pressure20 => 20,
             _ => 0,
         }
     }
@@ -77,7 +85,7 @@ impl Buff {
 }
 
 impl Food {
-    pub const ALL: [Food; 10] = [
+    pub const ALL: [Food; 15] = [
         Food::ShellFood,
         Food::ReserveFood,
         Food::ShuckedMussels,
@@ -88,6 +96,11 @@ impl Food {
         Food::GrenadierFerment,
         Food::VentPoachedSeepMussels,
         Food::VentClamFeast,
+        Food::AmphipodBroth,
+        Food::Broth,
+        Food::JellySalad,
+        Food::InkedKelp,
+        Food::ShrimpPasteFeast,
     ];
 
     pub fn name(self) -> &'static str {
@@ -102,6 +115,11 @@ impl Food {
             Food::GrenadierFerment => "Grenadier ferment",
             Food::VentPoachedSeepMussels => "Vent-poached seep mussels",
             Food::VentClamFeast => "Vent clam feast",
+            Food::AmphipodBroth => "Amphipod broth",
+            Food::Broth => "Small-crustacean broth",
+            Food::JellySalad => "Jelly salad",
+            Food::InkedKelp => "Inked kelp",
+            Food::ShrimpPasteFeast => "Shrimp-paste feast",
         }
     }
 
@@ -114,6 +132,8 @@ impl Food {
             Food::FermentedLanternfish => Some((Buff::Pressure30, BUFF_TICKS)),
             Food::GrenadierFerment => Some((Buff::Claws15, BUFF_TICKS)),
             Food::VentClamFeast => Some((Buff::Feast, FEAST_TICKS)),
+            Food::AmphipodBroth => Some((Buff::Pressure20, BUFF_TICKS)),
+            Food::ShrimpPasteFeast => Some((Buff::Gather15, BUFF_TICKS)),
             _ => None,
         }
     }
@@ -125,6 +145,9 @@ impl Food {
             Food::ShuckedMussels => 15,
             Food::VentPoachedSeepMussels => 40,
             Food::VentClamFeast => 40,
+            Food::Broth => 25,
+            Food::JellySalad => 10,
+            Food::ShrimpPasteFeast => 35,
             _ => 0,
         }
     }
@@ -134,7 +157,8 @@ impl Food {
     pub fn reserve_strokes(self) -> u8 {
         match self {
             Food::ReserveFood => 3,
-            Food::SnailWrap => 1,
+            Food::SnailWrap | Food::AmphipodBroth | Food::JellySalad => 1,
+            Food::InkedKelp => 2,
             Food::VentPoachedSeepMussels | Food::VentClamFeast => u8::MAX,
             _ => 0,
         }
@@ -145,6 +169,36 @@ impl Food {
         match self {
             Food::ShuckedMussels => &[(Item::Valve, 1)],
             _ => &[],
+        }
+    }
+}
+
+impl crate::SimCrab {
+    /// Crab eats one portion: the shell mends at once, the reserve fills at
+    /// once, and a timed buff starts (a new one replaces the old).
+    pub(crate) fn eat_portion(
+        &mut self,
+        kind: crate::prepared_food::PortionKind,
+        t: &crate::Tuning,
+    ) {
+        let food = kind.food();
+        let mend = food.mend_percent();
+        if mend > 0 {
+            let max = self.mover.max_shell(t);
+            self.fighter.vitals.health =
+                (self.fighter.vitals.health + max * mend as f32 / 100.0).min(max);
+        }
+        match food.reserve_strokes() {
+            0 => {}
+            u8::MAX => self.mover.reserve = 1.0,
+            strokes => {
+                self.mover.reserve = (self.mover.reserve
+                    + f32::from(strokes) / self.mover.reserve_strokes(t))
+                .min(1.0);
+            }
+        }
+        if let Some(buff) = food.buff() {
+            self.econ.buff = Some(buff);
         }
     }
 }

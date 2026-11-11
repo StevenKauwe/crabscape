@@ -430,6 +430,8 @@ const HEAVY_CRUSHER: f32 = 1.25;
 
 /// How long the scissor snap takes when the claw cuts (seconds).
 const SNAP_TIME: f32 = 0.3;
+/// How long the claws stay up when a skill levels (the spec: 0.8 s).
+const CHEER_TIME: f32 = 0.8;
 
 /// Animation memory for one crab.
 #[derive(Component, Default)]
@@ -470,6 +472,8 @@ struct PuppetAnim {
     heave_side: f32,
     /// How far the claws are raised (smoothed, 0..1).
     claw_raise: f32,
+    /// Seconds left of the claws-up cheer for a level gained.
+    cheer: f32,
     /// Eyestalk angles and their spin, per side (springs: they lag and sway).
     eye: [f32; 2],
     eye_vel: [f32; 2],
@@ -1158,6 +1162,10 @@ fn animate(
             }
             a.lantern_vel += 2.0 * k * if a.lantern >= 0.0 { 1.0 } else { -1.0 };
         }
+        a.cheer = (a.cheer - dt).max(0.0);
+        if ev.level_up.is_some() {
+            a.cheer = CHEER_TIME;
+        }
         a.snap = (a.snap - dt).max(0.0);
         if ev.cut_net {
             a.snap = SNAP_TIME;
@@ -1233,7 +1241,7 @@ fn animate(
             a.walk_phase += vy.abs() * dt / STRIDE * TAU;
         }
         let crouching = mover.windup > 0.0;
-        let raise = if crouching || (!grounded && vy > 0.0) {
+        let raise = if crouching || a.cheer > 0.0 || (!grounded && vy > 0.0) {
             1.0
         } else if !grounded {
             0.45

@@ -19,8 +19,15 @@
 //! the shed shells stay on a shelf as keepsakes, one per moult.
 
 use bevy::prelude::*;
+use crabsim::craft::CantMakeEcon;
+use crabsim::economy::beds::BedAction;
+use crabsim::economy::recipes::{Bench, Output};
+use crabsim::economy::{ECON_RECIPES, EconRecipe};
 use crabsim::level::Place;
-use crabsim::{CantMake, Feat, Item, Material, Mover, RECIPES, Recipe, Shelter, Sim, Stash};
+use crabsim::{
+    CantMake, Feat, Item, Material, Mover, RECIPES, Recipe, Shelter, Sim, SimCrab, Skill, Stash,
+    TICKS_PER_SECOND,
+};
 
 use crate::effects::SoftTextures;
 use crate::home::OUT_OF_SIGHT;
@@ -71,9 +78,114 @@ pub struct Inside {
 #[derive(Resource, Default)]
 struct Pick(usize);
 
-/// Which group of recipes is visible at the workbench.
+/// The workbench's tabs, left to right.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+enum Tab {
+    #[default]
+    Make,
+    Cook,
+    Shellcraft,
+    Weave,
+    Build,
+    Culture,
+    Repair,
+}
+
+const TABS: [Tab; 7] = [
+    Tab::Make,
+    Tab::Cook,
+    Tab::Shellcraft,
+    Tab::Weave,
+    Tab::Build,
+    Tab::Culture,
+    Tab::Repair,
+];
+
+impl Tab {
+    /// The tab's word (Shellcraft is "Shell" so seven fit across a phone).
+    fn label(self) -> &'static str {
+        match self {
+            Tab::Make => "Make",
+            Tab::Cook => "Cook",
+            Tab::Shellcraft => "Shell",
+            Tab::Weave => "Weave",
+            Tab::Build => "Build",
+            Tab::Culture => "Culture",
+            Tab::Repair => "Repair",
+        }
+    }
+
+    /// Which tab an economy recipe is listed in: repairs together, the rest
+    /// by the skill that makes them.
+    fn of(r: &EconRecipe) -> Tab {
+        if matches!(r.makes, Output::Repair(_)) {
+            return Tab::Repair;
+        }
+        match r.skill {
+            Skill::Cooking => Tab::Cook,
+            Skill::Shellcraft => Tab::Shellcraft,
+            Skill::Weaving => Tab::Weave,
+            Skill::Building => Tab::Build,
+            Skill::Culturing => Tab::Culture,
+            _ => Tab::Make,
+        }
+    }
+}
+
+/// Which tab is showing at the workbench, and which page of its list.
 #[derive(Resource, Default)]
-struct RecipePage(usize);
+struct MenuTab {
+    tab: Tab,
+    page: usize,
+}
+
+/// One row of a tab's list.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Row {
+    /// One of the original recipes (an index into [`RECIPES`]).
+    Basic(usize),
+    /// A row of [`ECON_RECIPES`] (its index).
+    Econ(usize),
+    /// Culture bed `n`'s state (no button).
+    Bed(usize),
+    /// No culture bed is built yet (no button).
+    NoBeds,
+    /// Harvest the first ripe bed.
+    Harvest,
+    /// Feed a spoiled batch to a growing bed.
+    Feed,
+}
+
+/// The rows of a tab for this crab, in the order shown.
+fn rows_for(tab: Tab, crab: &SimCrab) -> Vec<Row> {
+    let mut econ: Vec<usize> = ECON_RECIPES
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| Tab::of(r) == tab)
+        .map(|(i, _)| i)
+        .collect();
+    econ.sort_by_key(|&i| (ECON_RECIPES[i].level, i));
+    let mut rows = Vec::new();
+    match tab {
+        Tab::Make => rows.extend((0..RECIPES.len()).map(Row::Basic)),
+        Tab::Culture => {
+            if crab.econ.culture_beds == 0 {
+                rows.push(Row::NoBeds);
+            } else {
+                rows.extend((0..usize::from(crab.econ.culture_beds)).map(Row::Bed));
+                rows.extend([Row::Harvest, Row::Feed]);
+            }
+        }
+        _ => {}
+    }
+    rows.extend(econ.into_iter().map(Row::Econ));
+    rows
+}
+
+/// How many pages a list of `n` rows takes (at least one).
+fn pages(n: usize) -> usize {
+    n.div_ceil(PAGE_ROWS).max(1)
+}
 
 /// The keepsakes: each moult's shed shell on the shelf along the back wall,
 /// this much smaller than on the crab, dull and a little see-through.
@@ -110,7 +222,7 @@ impl Plugin for InteriorPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Inside>()
             .init_resource::<Pick>()
-            .init_resource::<RecipePage>()
+            .init_resource::<MenuTab>()
             .add_systems(Startup, spawn_scene)
             .add_systems(Update, press.in_set(GameSet::Input))
             // Once the crabs are placed for this frame, before anything is
@@ -517,8 +629,8 @@ fn fill_scene(
 // --- the crafting menu -------------------------------------------------------
 
 /// The menu's rows' heights, its header's, and its padding.
-const ROW: f32 = 54.0;
-const HEADER: f32 = 44.0;
+const ROW: f32 = 48.0;
+const HEADER: f32 = 30.0;
 const PAD: f32 = 10.0;
 const MAKE_W: f32 = 72.0;
 const MAKE_H: f32 = 34.0;
@@ -530,7 +642,12 @@ const NEXT_W: f32 = 52.0;
 /// each row's name and needs fit on one line and its description on two.
 const WIDTH: f32 = 410.0;
 const PAGE_ROWS: usize = 4;
-const PAGE_ROW: f32 = 34.0;
+/// The tab strip's height, the footer's (hint and pager), and the pager's
+/// buttons.
+const TAB_H: f32 = 34.0;
+const FOOT: f32 = 28.0;
+const PAGER_W: f32 = 44.0;
+const PAGER_H: f32 = 24.0;
 
 /// Where the menu and its buttons are, in window pixels from the top-left,
 /// and the part of the screen left for the cut-away.
@@ -539,10 +656,17 @@ struct Layout {
     /// The moult row in place of the header, when it shows: the row, its
     /// Moult button and its Next button (to pick another ready feat).
     moult: Option<(Rect, Rect, Rect)>,
-    /// Each recipe's row and its Make button, in [`RECIPES`]' order.
+    /// The tab strip's buttons, in [`TABS`]' order.
+    tabs: Vec<Rect>,
+    /// Each visible row and its button.
     rows: Vec<(Rect, Rect)>,
     scene: Rect,
-    page_button: Rect,
+    /// The footer: its hint's box, the previous and next page buttons and
+    /// the page count between them.
+    foot: Rect,
+    prev: Rect,
+    next: Rect,
+    count: Rect,
 }
 
 /// The on-screen buttons' size (as `input.rs` sizes them).
@@ -552,7 +676,7 @@ fn touch_button(window: Vec2) -> f32 {
 
 fn layout(window: Vec2, moult_row: bool) -> Layout {
     let top_row = if moult_row { MOULT_ROW } else { HEADER };
-    let height = top_row + PAGE_ROW + PAGE_ROWS as f32 * ROW + PAD;
+    let height = top_row + TAB_H + PAGE_ROWS as f32 * ROW + FOOT + PAD;
     let b = touch_button(window);
     let (panel, scene) = if window.x < 600.0 {
         // A phone held upright: across the screen, just above the jump
@@ -572,15 +696,21 @@ fn layout(window: Vec2, moult_row: bool) -> Layout {
         let panel = Rect::new(right - WIDTH, top, right, top + height);
         (panel, Rect::new(0.0, 80.0, panel.min.x - 8.0, window.y))
     };
-    let page_button = Rect::new(
-        panel.max.x - PAD - 100.0,
-        panel.min.y + top_row,
-        panel.max.x - PAD,
-        panel.min.y + top_row + PAGE_ROW,
-    );
+    let strip = (panel.width() - 12.0) / TABS.len() as f32;
+    let tabs = (0..TABS.len())
+        .map(|i| {
+            let x = panel.min.x + 6.0 + i as f32 * strip;
+            Rect::new(
+                x + 1.0,
+                panel.min.y + top_row,
+                x + strip - 1.0,
+                panel.min.y + top_row + TAB_H - 4.0,
+            )
+        })
+        .collect();
     let rows = (0..PAGE_ROWS)
         .map(|i| {
-            let y = panel.min.y + top_row + PAGE_ROW + i as f32 * ROW;
+            let y = panel.min.y + top_row + TAB_H + i as f32 * ROW;
             let row = Rect::new(panel.min.x, y, panel.max.x, y + ROW);
             let make = Rect::new(
                 row.max.x - PAD - MAKE_W,
@@ -603,12 +733,32 @@ fn layout(window: Vec2, moult_row: bool) -> Layout {
         let next = Rect::new(go.min.x - 8.0 - NEXT_W, y, go.min.x - 8.0, y + MAKE_H);
         (row, go, next)
     });
+    let foot_y = panel.min.y + top_row + TAB_H + PAGE_ROWS as f32 * ROW;
+    let foot = Rect::new(panel.min.x, foot_y, panel.max.x, foot_y + FOOT);
+    let btn_y = foot_y + (FOOT - PAGER_H) / 2.0;
+    let next = Rect::new(
+        panel.max.x - PAD - PAGER_W,
+        btn_y,
+        panel.max.x - PAD,
+        btn_y + PAGER_H,
+    );
+    let count = Rect::new(next.min.x - 40.0, btn_y, next.min.x - 4.0, btn_y + PAGER_H);
+    let prev = Rect::new(
+        count.min.x - 4.0 - PAGER_W,
+        btn_y,
+        count.min.x - 4.0,
+        btn_y + PAGER_H,
+    );
     Layout {
         panel,
         moult,
+        tabs,
         rows,
         scene,
-        page_button,
+        foot,
+        prev,
+        next,
+        count,
     }
 }
 
@@ -618,16 +768,39 @@ struct Menu;
 #[derive(Component)]
 struct LarderText;
 
-/// A recipe's "what it needs" text.
+/// A tab's button, and its word.
 #[derive(Component)]
-struct Needs(Recipe);
-
-/// A recipe's Make button, and its word.
-#[derive(Component)]
-struct Make(Recipe);
+struct TabButton(Tab);
 
 #[derive(Component)]
-struct MakeText(Recipe);
+struct TabText;
+
+/// The page buttons (previous, next) and the page count between them.
+#[derive(Component, Clone, Copy, PartialEq, Eq)]
+enum Pager {
+    Prev,
+    Next,
+}
+
+#[derive(Component)]
+struct PageCount;
+
+/// What a visible row says, by its place on the page: its name, its short
+/// tag, its second line, and its button and the button's word.
+#[derive(Component)]
+struct SlotName(usize);
+
+#[derive(Component)]
+struct SlotTag(usize);
+
+#[derive(Component)]
+struct SlotLine(usize);
+
+#[derive(Component)]
+struct SlotButton(usize);
+
+#[derive(Component)]
+struct SlotButtonText(usize);
 
 /// The moult row's buttons.
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
@@ -677,15 +850,14 @@ fn lay_out_menu(
     mut commands: Commands,
     window: Single<&Window>,
     inside: Res<Inside>,
-    page: Res<RecipePage>,
     menus: Query<Entity, With<Menu>>,
-    mut laid: Local<Option<(Vec2, bool, usize)>>,
+    mut laid: Local<Option<(Vec2, bool)>>,
 ) {
     let size = window.size();
-    if *laid == Some((size, inside.moult_row, page.0)) {
+    if *laid == Some((size, inside.moult_row)) {
         return;
     }
-    *laid = Some((size, inside.moult_row, page.0));
+    *laid = Some((size, inside.moult_row));
     for m in &menus {
         commands.entity(m).despawn();
     }
@@ -765,36 +937,63 @@ fn lay_out_menu(
                     },
                     text("", 12.0, DIM),
                 ));
-                let hint = Rect::new(o.x + PAD, o.y + 26.0, l.panel.max.x - PAD, o.y + HEADER);
-                p.spawn((
-                    at(hint, o),
-                    text("Walk out, jump or dodge to leave.", 11.0, DIM),
-                ));
             }
             p.spawn((
+                at(
+                    Rect::new(
+                        l.foot.min.x + PAD,
+                        l.foot.min.y + 7.0,
+                        l.prev.min.x - 6.0,
+                        l.foot.max.y,
+                    ),
+                    o,
+                ),
+                text("Walk out, jump or dodge to leave.", 11.0, DIM),
+            ));
+            for (button, r, word) in [(Pager::Prev, l.prev, "<"), (Pager::Next, l.next, ">")] {
+                p.spawn((
+                    button,
+                    Node {
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        border: UiRect::all(px(1.0)),
+                        border_radius: BorderRadius::all(px(PAGER_H / 2.0)),
+                        ..at(r, o)
+                    },
+                    BorderColor::all(Color::srgba(1.0, 0.85, 0.55, 0.35)),
+                    BackgroundColor(Color::srgba(0.05, 0.12, 0.14, 0.45)),
+                ))
+                .with_children(|b| {
+                    b.spawn(text(word, 14.0, INK));
+                });
+            }
+            p.spawn((
+                PageCount,
                 Node {
                     justify_content: JustifyContent::Center,
                     align_items: AlignItems::Center,
-                    border: UiRect::all(px(1.0)),
-                    border_radius: BorderRadius::all(px(12.0)),
-                    ..at(l.page_button, o)
+                    ..at(l.count, o)
                 },
-                BorderColor::all(Color::srgba(1.0, 0.85, 0.55, 0.35)),
-                BackgroundColor(Color::srgba(0.05, 0.12, 0.14, 0.45)),
-            ))
-            .with_children(|b| {
-                b.spawn(text(
-                    if page.0 == 0 { "Food + gear" } else { "Gear" },
-                    13.0,
-                    INK,
-                ));
-            });
-            for (def, (row, make)) in RECIPES
-                .iter()
-                .skip(page.0 * PAGE_ROWS)
-                .take(PAGE_ROWS)
-                .zip(&l.rows)
-            {
+                children![text("1/1", 11.5, DIM)],
+            ));
+            for (tab, r) in TABS.into_iter().zip(&l.tabs) {
+                p.spawn((
+                    TabButton(tab),
+                    Node {
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        border: UiRect::all(px(1.0)),
+                        border_radius: BorderRadius::all(px(10.0)),
+                        ..at(*r, o)
+                    },
+                    BorderColor::all(Color::srgba(1.0, 0.85, 0.55, 0.35)),
+                    BackgroundColor(Color::srgba(0.05, 0.12, 0.14, 0.45)),
+                ))
+                .with_children(|b| {
+                    b.spawn((TabText, text(tab.label(), 11.0, INK)));
+                });
+            }
+            for (slot, (row, make)) in l.rows.iter().enumerate() {
                 // A faint line between rows.
                 p.spawn((
                     at(
@@ -822,13 +1021,13 @@ fn lay_out_menu(
                             ..default()
                         })
                         .with_children(|line| {
-                            line.spawn(text(def.name, 14.0, INK));
-                            line.spawn((Needs(def.recipe), text("", 11.5, DIM)));
+                            line.spawn((SlotName(slot), text("", 14.0, INK)));
+                            line.spawn((SlotTag(slot), text("", 11.0, DIM)));
                         });
-                        w.spawn(text(def.does, 11.0, DIM));
+                        w.spawn((SlotLine(slot), text("", 11.0, DIM)));
                     });
                 p.spawn((
-                    Make(def.recipe),
+                    SlotButton(slot),
                     Node {
                         justify_content: JustifyContent::Center,
                         align_items: AlignItems::Center,
@@ -840,7 +1039,7 @@ fn lay_out_menu(
                     BackgroundColor(Color::srgba(0.05, 0.12, 0.14, 0.45)),
                 ))
                 .with_children(|b| {
-                    b.spawn((MakeText(def.recipe), text("Make", 13.0, INK)));
+                    b.spawn((SlotButtonText(slot), text("", 13.0, INK)));
                 });
             }
         });
@@ -915,21 +1114,281 @@ fn needs_text(stash: &Stash, needs: &[(Material, u32)]) -> String {
         .join(", ")
 }
 
+/// What one row says and offers.
+#[derive(Debug, PartialEq)]
+struct RowView {
+    name: String,
+    /// Short and dim, beside the name: the skill and level.
+    tag: String,
+    /// The second line: station, what it needs against what is in the bank,
+    /// or why it can't be done.
+    line: String,
+    /// The second line is lit (it can be done) or red (it can't).
+    lit: bool,
+    /// The button's word, and whether a press would do it now.
+    button: Option<(&'static str, bool)>,
+}
+
+/// "shed tooth 1/1, ...": what an economy recipe needs, against the bank.
+fn econ_needs_text(stash: &Stash, needs: &[(Item, u32)]) -> String {
+    needs
+        .iter()
+        .map(|&(item, n)| {
+            let (one, many) = item.names();
+            format!(
+                "{} {}/{n}",
+                if n == 1 { one } else { many },
+                stash.count(item)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Why an economy recipe can't be made, in a few words (a shortfall of items
+/// is already in the counts).
+fn why_not_econ(why: CantMakeEcon) -> Option<String> {
+    Some(match why {
+        CantMakeEcon::Missing(..) | CantMakeEcon::Made | CantMakeEcon::Unknown => return None,
+        CantMakeEcon::NotAtHome => "not at home".into(),
+        CantMakeEcon::Level(skill, level) => format!("needs {} {level}", skill.name()),
+        CantMakeEcon::Station(st) => format!("needs a {}", st.name().to_lowercase()),
+        CantMakeEcon::NotAtVentPot => "cook it at the vent pot".into(),
+        CantMakeEcon::NeedsEarlierBed => "build the earlier bed first".into(),
+        CantMakeEcon::NeedsEarlierRoom => "build the earlier room first".into(),
+        CantMakeEcon::NoRoom => "no room for portions".into(),
+        CantMakeEcon::NoFreeBed => "every bed is growing".into(),
+        CantMakeEcon::NothingToMend => "nothing to mend".into(),
+        CantMakeEcon::NothingReady => "nothing is ripe".into(),
+        CantMakeEcon::NothingGrowing => "nothing is growing".into(),
+    })
+}
+
+/// The button's word for what a recipe makes.
+fn econ_word(r: &EconRecipe) -> &'static str {
+    match r.makes {
+        Output::Repair(_) => "Mend",
+        Output::Bed(_) => "Plant",
+        Output::Station(_) => "Build",
+        _ => "Make",
+    }
+}
+
+fn econ_view(sim: &Sim, id: crabsim::PlayerId, crab: &SimCrab, r: &'static EconRecipe) -> RowView {
+    let verdict = sim.can_make_econ(id, r);
+    let station = match r.at {
+        Bench::Workbench => None,
+        Bench::At(st) => Some(st.name().to_lowercase()),
+        Bench::VentPot => Some("vent pot".to_string()),
+    };
+    let needs = if r.from_larder() {
+        format!("a clam {}/1", crab.larder.min(1))
+    } else {
+        econ_needs_text(&crab.stash, r.needs)
+    };
+    let reason = verdict.err().and_then(why_not_econ);
+    let lead = reason.or(station);
+    let line = match (lead, needs.is_empty()) {
+        (Some(lead), false) => format!("{lead}: {needs}"),
+        (Some(lead), true) => lead,
+        (None, _) => needs,
+    };
+    let made = matches!(verdict, Err(CantMakeEcon::Made));
+    RowView {
+        name: r.name.to_string(),
+        tag: format!("{} {}", r.skill.name(), r.level),
+        line: if made { "Done".into() } else { line },
+        lit: verdict.is_ok(),
+        button: Some(if made {
+            ("Made", false)
+        } else {
+            (econ_word(r), verdict.is_ok())
+        }),
+    }
+}
+
+fn basic_view(sim: &Sim, id: crabsim::PlayerId, crab: &SimCrab, recipe: Recipe) -> RowView {
+    let def = recipe.def();
+    let verdict = sim.can_make(id, recipe);
+    let fitted = matches!(verdict, Err(CantMake::Made));
+    let line = if matches!(recipe, Recipe::ShellPortions | Recipe::ReservePortions) {
+        format!(
+            "clams {}; slots {}/4",
+            crab.larder,
+            crab.mover.prepared_food.slots.iter().flatten().count()
+        )
+    } else if recipe == Recipe::ToggleAutoEat {
+        if crab.mover.prepared_food.auto_eat {
+            "On".into()
+        } else {
+            "Off".into()
+        }
+    } else if fitted {
+        "Fitted".into()
+    } else {
+        needs_text(&crab.stash, def.needs)
+    };
+    RowView {
+        name: def.name.to_string(),
+        tag: def.does.to_string(),
+        line,
+        lit: verdict.is_ok() || fitted,
+        button: Some(match verdict {
+            Ok(()) if recipe == Recipe::ToggleAutoEat => ("Switch", true),
+            Ok(()) => ("Make", true),
+            Err(CantMake::Made) => ("Fitted", false),
+            Err(_) => ("Make", false),
+        }),
+    }
+}
+
+fn mm_ss(ticks: u64) -> String {
+    let secs = ticks.div_ceil(u64::from(TICKS_PER_SECOND));
+    format!("{}:{:02}", secs / 60, secs % 60)
+}
+
+fn row_view(sim: &Sim, id: crabsim::PlayerId, crab: &SimCrab, row: Row) -> RowView {
+    let tick = sim.tick_count();
+    match row {
+        Row::Basic(i) => basic_view(sim, id, crab, RECIPES[i].recipe),
+        Row::Econ(i) => econ_view(sim, id, crab, &ECON_RECIPES[i]),
+        Row::NoBeds => RowView {
+            name: "No culture bed".into(),
+            tag: String::new(),
+            line: "Build one in the Build tab.".into(),
+            lit: false,
+            button: None,
+        },
+        Row::Bed(n) => {
+            let bed = crab.econ.beds.get(n).copied().flatten();
+            let (tag, line, lit) = match bed {
+                None => (
+                    "empty".to_string(),
+                    "Plant a strain below.".to_string(),
+                    false,
+                ),
+                Some(b) if b.ready_at_tick <= tick => (
+                    b.strain.names().1.to_string(),
+                    "Ready to harvest!".into(),
+                    true,
+                ),
+                Some(b) => (
+                    b.strain.names().1.to_string(),
+                    format!(
+                        "Growing: {} left{}",
+                        mm_ss(b.ready_at_tick - tick),
+                        if b.fed { " (fed)" } else { "" }
+                    ),
+                    false,
+                ),
+            };
+            RowView {
+                name: format!("Bed {}", n + 1),
+                tag,
+                line,
+                lit,
+                button: None,
+            }
+        }
+        Row::Harvest => {
+            let ripe = crab.econ.ripe_bed(tick).is_some();
+            RowView {
+                name: "Harvest".into(),
+                tag: "Culturing".into(),
+                line: if ripe {
+                    "A bed is ripe.".into()
+                } else {
+                    "Nothing is ripe.".into()
+                },
+                lit: ripe,
+                button: Some(("Harvest", ripe)),
+            }
+        }
+        Row::Feed => {
+            let spoiled = crab.stash.count(Item::Spoiled);
+            let growing = crab.econ.feedable_bed(tick).is_some();
+            RowView {
+                name: "Feed a bed".into(),
+                tag: "halves its time".into(),
+                line: if growing {
+                    format!("spoiled batch {spoiled}/1")
+                } else {
+                    "Nothing is growing.".into()
+                },
+                lit: growing && spoiled > 0,
+                button: Some(("Feed", growing && spoiled > 0)),
+            }
+        }
+    }
+}
+
 /// The menu's state: shown inside (out of the way while the settings panel
-/// is open over it), each recipe's needs and whether it can be made.
+/// is open over it), the tabs, each visible row and its button.
+/// Text that is none of the menu rows' (the larder line and the page count).
+type NotHeader = (Without<LarderText>, Without<PageCount>);
+/// Text that is none of the menu rows' own words.
+type OtherThanSlots = (
+    Without<SlotName>,
+    Without<SlotTag>,
+    Without<SlotLine>,
+    Without<SlotButtonText>,
+);
+
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn show_menu(
     inside: Res<Inside>,
     settings: Res<crate::settings::panel::Open>,
     sim: Res<Sim>,
+    mut state: ResMut<MenuTab>,
     me: Query<&PlayerId, With<LocalPlayer>>,
-    mut menu: Query<&mut Visibility, With<Menu>>,
-    mut larder: Query<&mut Text, (With<LarderText>, Without<Needs>, Without<MakeText>)>,
-    mut needs: Query<(&Needs, &mut Text, &mut TextColor), (Without<LarderText>, Without<MakeText>)>,
-    mut makes: Query<(&Make, &mut BackgroundColor, &mut BorderColor)>,
-    mut make_text: Query<
-        (&MakeText, &mut Text, &mut TextColor),
-        (Without<LarderText>, Without<Needs>),
+    mut menu: Query<&mut Visibility, (With<Menu>, Without<SlotButton>, Without<Pager>)>,
+    mut larder: Query<&mut Text, (With<LarderText>, Without<PageCount>, OtherThanSlots)>,
+    mut count: Query<&mut Text, (With<PageCount>, Without<LarderText>, OtherThanSlots)>,
+    mut tabs: Query<(&TabButton, &mut BackgroundColor, &mut BorderColor), Without<SlotButton>>,
+    mut names: Query<
+        (&SlotName, &mut Text, &mut TextColor),
+        (
+            Without<SlotTag>,
+            Without<SlotLine>,
+            Without<SlotButtonText>,
+            NotHeader,
+        ),
+    >,
+    mut tags: Query<
+        (&SlotTag, &mut Text),
+        (
+            Without<SlotName>,
+            Without<SlotLine>,
+            Without<SlotButtonText>,
+            NotHeader,
+        ),
+    >,
+    mut lines: Query<
+        (&SlotLine, &mut Text, &mut TextColor),
+        (
+            Without<SlotName>,
+            Without<SlotTag>,
+            Without<SlotButtonText>,
+            NotHeader,
+        ),
+    >,
+    mut buttons: Query<
+        (
+            &SlotButton,
+            &mut BackgroundColor,
+            &mut BorderColor,
+            &mut Visibility,
+        ),
+        (Without<TabButton>, Without<Menu>),
+    >,
+    mut button_words: Query<
+        (&SlotButtonText, &mut Text, &mut TextColor),
+        (
+            Without<SlotName>,
+            Without<SlotLine>,
+            Without<SlotTag>,
+            NotHeader,
+        ),
     >,
 ) {
     for mut v in &mut menu {
@@ -952,58 +1411,92 @@ fn show_menu(
             t.0.clone_from(&words);
         }
     }
-    for (Needs(recipe), mut t, mut colour) in &mut needs {
-        let def = recipe.def();
-        // Gear made once: the Fitted button says it all, so no need shows.
-        let fitted = matches!(sim.can_make(id, *recipe), Err(CantMake::Made));
-        let words = if matches!(recipe, Recipe::ShellPortions | Recipe::ReservePortions) {
-            format!(
-                "clams {}; slots {}/2",
-                crab.larder,
-                crab.mover.prepared_food.slots.iter().flatten().count()
-            )
-        } else if *recipe == Recipe::ToggleAutoEat {
-            if crab.mover.prepared_food.auto_eat {
-                "On".into()
-            } else {
-                "Off".into()
-            }
-        } else if fitted {
-            String::new()
-        } else {
-            needs_text(&crab.stash, def.needs)
-        };
-        if t.0 != words {
-            t.0 = words;
+    let list = rows_for(state.tab, crab);
+    let total = pages(list.len());
+    if state.page >= total {
+        state.page = total - 1;
+    }
+    let shown: Vec<Option<RowView>> = (0..PAGE_ROWS)
+        .map(|slot| {
+            list.get(state.page * PAGE_ROWS + slot)
+                .map(|&row| row_view(&sim, id, crab, row))
+        })
+        .collect();
+    let pager = format!("{}/{total}", state.page + 1);
+    for mut t in &mut count {
+        if t.0 != pager {
+            t.0.clone_from(&pager);
         }
-        let c = if crab.stash.has(def.needs) {
+    }
+    for (TabButton(tab), mut bg, mut border) in &mut tabs {
+        let on = *tab == state.tab;
+        bg.set_if_neq(BackgroundColor(if on {
+            Color::srgba(0.35, 0.55, 0.6, 0.75)
+        } else {
+            Color::srgba(0.05, 0.12, 0.14, 0.45)
+        }));
+        border.set_if_neq(BorderColor::all(Color::srgba(
+            1.0,
+            0.85,
+            0.55,
+            if on { 0.6 } else { 0.25 },
+        )));
+    }
+    let set = |t: &mut Text, w: &str| {
+        if t.0 != w {
+            t.0 = w.to_string();
+        }
+    };
+    for (SlotName(i), mut t, mut c) in &mut names {
+        let v = shown[*i].as_ref();
+        set(&mut t, v.map_or("", |v| v.name.as_str()));
+        c.set_if_neq(TextColor(INK));
+    }
+    for (SlotTag(i), mut t) in &mut tags {
+        set(&mut t, shown[*i].as_ref().map_or("", |v| v.tag.as_str()));
+    }
+    for (SlotLine(i), mut t, mut c) in &mut lines {
+        let v = shown[*i].as_ref();
+        set(&mut t, v.map_or("", |v| v.line.as_str()));
+        c.set_if_neq(TextColor(if v.is_some_and(|v| v.lit) {
             HAVE
         } else {
             LACK
-        };
-        colour.set_if_neq(TextColor(c));
+        }));
     }
-    for (Make(recipe), mut bg, mut border) in &mut makes {
-        let ok = sim.can_make(id, *recipe).is_ok();
+    for (SlotButton(i), mut bg, mut border, mut vis) in &mut buttons {
+        let button = shown[*i].as_ref().and_then(|v| v.button);
+        vis.set_if_neq(if button.is_some() {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        });
+        let ok = button.is_some_and(|b| b.1);
         bg.set_if_neq(BackgroundColor(if ok {
             Color::srgba(0.35, 0.55, 0.6, 0.75)
         } else {
             Color::srgba(0.05, 0.12, 0.14, 0.30)
         }));
-        let edge = if ok { 0.55 } else { 0.18 };
-        border.set_if_neq(BorderColor::all(Color::srgba(1.0, 0.85, 0.55, edge)));
+        border.set_if_neq(BorderColor::all(Color::srgba(
+            1.0,
+            0.85,
+            0.55,
+            if ok { 0.55 } else { 0.18 },
+        )));
     }
-    for (MakeText(recipe), mut t, mut colour) in &mut make_text {
-        let (words, c) = match sim.can_make(id, *recipe) {
-            Ok(()) if *recipe == Recipe::ToggleAutoEat => ("Switch", INK),
-            Ok(()) => ("Make", INK),
-            Err(CantMake::Made) => ("Fitted", DIM),
-            Err(_) => ("Make", Color::srgba(1.0, 0.9, 0.7, 0.35)),
-        };
-        if t.0 != words {
-            t.0 = words.into();
-        }
-        colour.set_if_neq(TextColor(c));
+    for (SlotButtonText(i), mut t, mut c) in &mut button_words {
+        let button = shown[*i].as_ref().and_then(|v| v.button);
+        set(&mut t, button.map_or("", |b| b.0));
+        c.set_if_neq(TextColor(match button {
+            Some((word, ok)) if ok || word == "Fitted" || word == "Made" => {
+                if ok {
+                    INK
+                } else {
+                    DIM
+                }
+            }
+            _ => Color::srgba(1.0, 0.9, 0.7, 0.35),
+        }));
     }
 }
 
@@ -1081,7 +1574,7 @@ fn press(
     window: Single<&Window>,
     mut sim: ResMut<Sim>,
     mut pick: ResMut<Pick>,
-    mut page: ResMut<RecipePage>,
+    mut menu: ResMut<MenuTab>,
     me: Query<&PlayerId, With<LocalPlayer>>,
 ) {
     if !inside.on || settings.is_open() {
@@ -1098,8 +1591,24 @@ fn press(
     }
     let l = layout(window.size(), inside.moult_row);
     for p in taps {
-        if l.page_button.contains(p) {
-            page.0 = 1 - page.0;
+        if let Some(i) = l.tabs.iter().position(|r| r.inflate(2.0).contains(p)) {
+            if menu.tab != TABS[i] {
+                *menu = MenuTab {
+                    tab: TABS[i],
+                    page: 0,
+                };
+            }
+            continue;
+        }
+        if l.prev.inflate(4.0).contains(p) || l.next.inflate(4.0).contains(p) {
+            let total = sim
+                .crab(*id)
+                .map_or(1, |c| pages(rows_for(menu.tab, c).len()));
+            menu.page = if l.next.inflate(4.0).contains(p) {
+                (menu.page + 1) % total
+            } else {
+                (menu.page + total - 1) % total
+            };
             continue;
         }
         if let Some((_, go, next)) = l.moult
@@ -1116,18 +1625,47 @@ fn press(
                 pick.0 += 1;
             }
         }
-        for (def, (_, make)) in RECIPES
-            .iter()
-            .skip(page.0 * PAGE_ROWS)
-            .take(PAGE_ROWS)
-            .zip(&l.rows)
-        {
-            if make.contains(p)
-                && !crate::coop::cells_action(crate::coop::CellsAction::Craft(def.recipe))
-            {
-                let _ = sim.make(*id, def.recipe);
+        let Some(list) = sim.crab(*id).map(|c| rows_for(menu.tab, c)) else {
+            continue;
+        };
+        for (slot, (_, button)) in l.rows.iter().enumerate() {
+            if !button.contains(p) {
+                continue;
+            }
+            if let Some(&row) = list.get(menu.page * PAGE_ROWS + slot) {
+                perform(&mut sim, *id, row);
             }
         }
+    }
+}
+
+/// Do a row's action through the same path a typed code takes: a co-op
+/// session if one is running, else the sim between ticks.
+fn perform(sim: &mut Sim, id: crabsim::PlayerId, row: Row) {
+    use crate::coop::{CellsAction, cells_action};
+    match row {
+        Row::Basic(i) => {
+            let recipe = RECIPES[i].recipe;
+            if !cells_action(CellsAction::Craft(recipe)) {
+                let _ = sim.make(id, recipe);
+            }
+        }
+        Row::Econ(i) => {
+            if !cells_action(CellsAction::Econ(i as u16)) {
+                let _ = sim.make_econ(id, &ECON_RECIPES[i]);
+            }
+        }
+        Row::Harvest => {
+            if !cells_action(CellsAction::Bed(BedAction::Harvest)) {
+                let _ = sim.harvest_bed(id);
+            }
+        }
+        Row::Feed => {
+            if !cells_action(CellsAction::Bed(BedAction::Feed)) {
+                let _ = sim.feed_bed(id);
+            }
+        }
+        Row::Bed(_) | Row::NoBeds => {}
     }
 }
 
@@ -1169,6 +1707,27 @@ mod tests {
                     );
                     assert!(row.contains(make.min) && row.contains(make.max));
                 }
+                assert_eq!(l.tabs.len(), TABS.len());
+                for (i, t) in l.tabs.iter().enumerate() {
+                    assert!(
+                        t.width() >= 40.0 && t.height() >= 28.0,
+                        "a thumb fits {window}"
+                    );
+                    assert!(l.panel.contains(t.min) && l.panel.contains(t.max));
+                    assert!(
+                        l.tabs
+                            .iter()
+                            .skip(i + 1)
+                            .all(|o| t.intersect(*o).is_empty())
+                    );
+                    assert!(t.max.y <= l.rows[0].0.min.y);
+                }
+                for b in [l.prev, l.next] {
+                    assert!(b.width() >= 40.0 && b.height() >= 22.0);
+                    assert!(l.panel.contains(b.min) && l.panel.contains(b.max));
+                    assert!(b.min.y >= l.rows[PAGE_ROWS - 1].0.max.y, "below the rows");
+                }
+                assert!(l.prev.max.x <= l.count.min.x && l.count.max.x <= l.next.min.x);
                 assert_eq!(l.moult.is_some(), moult_row);
                 if let Some((row, go, next)) = l.moult {
                     for b in [go, next] {
@@ -1223,5 +1782,37 @@ mod tests {
         );
         assert!(SCENE_SIZE.x * k <= free.width() + 0.5);
         assert!(SCENE_SIZE.y * k <= free.height() + 0.5);
+    }
+
+    #[test]
+    fn every_recipe_sits_in_a_tab_and_each_tab_has_rows() {
+        let sim = Sim::with_one_crab(Vec2::new(95.0, 0.0));
+        let crab = sim.crab(crabsim::PlayerId(0)).unwrap();
+        let mut econ_rows = 0;
+        for tab in TABS {
+            let rows = rows_for(tab, crab);
+            assert!(!rows.is_empty(), "{tab:?} has rows");
+            econ_rows += rows.iter().filter(|r| matches!(r, Row::Econ(_))).count();
+        }
+        assert_eq!(econ_rows, ECON_RECIPES.len());
+        assert_eq!(rows_for(Tab::Make, crab).len(), RECIPES.len());
+        assert_eq!(rows_for(Tab::Culture, crab)[0], Row::NoBeds);
+    }
+
+    #[test]
+    fn a_row_shows_counts_and_the_reason_it_cannot_be_made() {
+        let sim = Sim::with_one_crab(Vec2::new(95.0, 0.0));
+        let id = crabsim::PlayerId(0);
+        let crab = sim.crab(id).unwrap();
+        let i = ECON_RECIPES
+            .iter()
+            .position(|r| r.word == "braided-cord")
+            .unwrap();
+        let v = row_view(&sim, id, crab, Row::Econ(i));
+        // Away from home with nothing banked: greyed, with counts and a reason.
+        assert_eq!(v.button, Some(("Make", false)));
+        assert!(v.line.contains("0/3"), "{}", v.line);
+        assert!(v.line.starts_with("not at home"), "{}", v.line);
+        assert_eq!(v.tag, "Weaving 20");
     }
 }
