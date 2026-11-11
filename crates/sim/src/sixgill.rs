@@ -306,7 +306,8 @@ fn turn(s: &mut State, e: &Enemy, level: &Level, toward: Vec2, rate: f32) {
     let goal = clamp_pitch(toward, aim);
     // The rate is a share of a half turn per tick: about 80 degrees a second
     // at 0.02 (a slow, heavy swing).
-    let mut diff = goal.to_angle() - aim.to_angle();
+    // libm, not std: the same bits on native and in the browser (replays).
+    let mut diff = libm::atan2f(goal.y, goal.x) - libm::atan2f(aim.y, aim.x);
     while diff > std::f32::consts::PI {
         diff -= std::f32::consts::TAU;
     }
@@ -319,7 +320,7 @@ fn turn(s: &mut State, e: &Enemy, level: &Level, toward: Vec2, rate: f32) {
     // out of (it starts clear of them, so it never gets in). If the short
     // way round is blocked, it swings the long way.
     for angle in [step, -step.signum() * step.abs().max(0.005)] {
-        let next = Vec2::from_angle(angle).rotate(aim);
+        let next = unit(angle).rotate(aim);
         if overlap(s, level, e.pos, next).is_some_and(|n| had.is_none_or(|h| n <= h)) {
             s.aim = next.to_array();
             return;
@@ -377,7 +378,7 @@ fn glide(e: &mut Enemy, s: &State, level: &Level, dir: Vec2, speed: f32) {
         -2.6,
         std::f32::consts::PI,
     ] {
-        let step = Vec2::from_angle(angle).rotate(dir.normalize_or_zero()) * speed * STEP;
+        let step = unit(angle).rotate(dir.normalize_or_zero()) * speed * STEP;
         if step == Vec2::ZERO {
             return;
         }
@@ -757,4 +758,10 @@ pub fn phase(e: &Enemy) -> Option<&'static str> {
         Phase::Recover => "leave",
         other => other.name(),
     })
+}
+
+/// `Vec2::from_angle` through libm (std's trig may differ between native and
+/// WebAssembly, and replays must match bit for bit).
+fn unit(angle: f32) -> Vec2 {
+    Vec2::new(libm::cosf(angle), libm::sinf(angle))
 }

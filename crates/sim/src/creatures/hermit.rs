@@ -366,7 +366,7 @@ pub fn sting(e: &Enemy, crabs: &mut [SimCrab], t: &Tuning, blows: &mut Vec<(Play
         let b = combat::body(&c.mover, t);
         let gap_x = (b.min.x - hurt.max.x).max(hurt.min.x - b.max.x).max(0.0);
         let gap_y = (b.min.y - hurt.max.y).max(hurt.min.y - b.max.y).max(0.0);
-        if gap_x.hypot(gap_y) > STING_REACH {
+        if (gap_x * gap_x + gap_y * gap_y).sqrt() > STING_REACH {
             continue;
         }
         let away = if c.mover.pos.x >= e.pos.x { 1.0 } else { -1.0 };
