@@ -221,6 +221,17 @@ pub(crate) fn step(
         }
     }
     e.state_tick += 1;
+    // Through its whole tell it turns after the crab it felt, so one that
+    // walks on over the burrow is still struck (a hop or a dodge clears it).
+    if e.state == Phase::Tell
+        && let Some(x) = e
+            .target
+            .and_then(|id| crabs.iter().find(|c| c.id == id))
+            .map(|c| c.mover.pos.x)
+        && x != e.pos.x
+    {
+        e.facing = (x - e.pos.x).signum();
+    }
     // The head: out with the lunge, held out while it recovers or holds on,
     // then drawn back in.
     e.reach = match e.state {

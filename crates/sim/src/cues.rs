@@ -30,6 +30,11 @@ pub enum Cue {
     VentHum {
         at: Vec2,
     },
+    /// A goliath grouper starts its boom (the warning before a gulp): a very
+    /// low, felt thump at `at`. Once per boom.
+    Boom {
+        at: Vec2,
+    },
     /// The strained shell creaks, at irregular moments (never a beat).
     ShellTick {
         crab: PlayerId,
@@ -124,6 +129,13 @@ impl Cues {
         _tuning: &crate::Tuning,
     ) {
         self.told.retain(|&(_, strike)| strike >= tick);
+        // The grouper's boom is heard by everyone near, whoever it is aimed at.
+        if e.kind == crate::Kind::GoliathGrouper
+            && e.state == State::Notice
+            && before.0 != State::Notice
+        {
+            self.emit(tick, Cue::Boom { at: e.pos });
+        }
         let Some(crab) = e.target.filter(|_| e.animal_target.is_none()) else {
             return;
         };

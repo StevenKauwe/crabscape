@@ -6,15 +6,17 @@
 //! whoever hits them. Hit it while it is out and committed (tell, recover,
 //! stagger) and the soft claws and legs take half as much again.
 //!
-//! The generic `Enemy::takes` knows nothing of the shell, so the hermit keeps
-//! its real health in `State::banked` while withdrawn and parks a huge shield
-//! in `vitals`; each tick it reads what a blow took off the shield, books a
-//! tenth of it and puts the shield back. That way a shell hit can neither kill
-//! nor stagger it, and the sting is judged on the stung crab's own device.
+//! The generic `Enemy::takes` knows nothing of the shell, so the
+//! `creatures::takes` hook ([`takes`]) books each blow: a tenth of the damage
+//! and none of the poise on the shell (it can be worn down but not staggered),
+//! half as much again on soft parts. A blow on the shell notes `State::stung`;
+//! the anemones' counter-sting is then judged in its next step, on the stung
+//! crab's own device.
 
 use bevy_math::Vec2;
 
 use crate::combat::{self, Hit, Outcome, Source, Vitals};
+use crate::creatures::{Scale, Takes};
 use crate::enemy::{AnimalPrey, Enemy, State as Gen};
 use crate::level::Level;
 use crate::physics::STEP;
@@ -91,8 +93,6 @@ pub const STING_GAP: u32 = 60;
 /// the one that struck it.
 pub const STING_REACH: f32 = 50.0;
 pub const STING_FLARE: u32 = 50;
-/// The shield parked in `vitals` while shut in.
-const SHIELD: f32 = 10_000.0;
 const MAX_STEP: f32 = 8.0;
 
 /// Which claw action it is on.
@@ -118,10 +118,8 @@ pub struct State {
     pub posture: Posture,
     /// The move it is telling or striking (and next).
     pub next: Move,
-    /// Real health while shut in (`vitals.health` holds a shield).
-    pub banked: f32,
-    /// The `vitals.health` value it left last tick: a drop is a blow.
-    pub expect: f32,
+    /// A blow landed on the shell since its last step: the anemones sting.
+    pub stung: bool,
     /// Ticks until it withdraws from a swing it has seen (0 = none).
     pub react: u32,
     /// Ticks it ignores new swings.
@@ -242,11 +240,8 @@ pub fn withdraw(e: &mut Enemy) {
 
 fn shut_in(e: &mut Enemy, s: &mut State, posture: Posture) {
     s.posture = posture;
-    s.banked = e.vitals.health;
-    e.vitals.health = s.banked + SHIELD;
-    e.vitals.poise = SHIELD;
     e.vitals.stagger = 0;
-    s.expect = e.vitals.health;
+    s.stung = false;
     s.react = 0;
     s.away = 0;
     e.combo = 0;
@@ -265,21 +260,11 @@ fn come_out(e: &mut Enemy, s: &mut State, mend: bool) {
     if mend {
         e.vitals = Vitals::new(&k.vitals);
     } else {
-        e.vitals.health = s.banked;
         e.vitals.poise = k.vitals.poise;
     }
     s.posture = Posture::Out;
     s.cooldown = REWITHDRAW_COOLDOWN;
-    s.expect = e.vitals.health;
     e.enter(Gen::Notice, NOTICE_TICKS / 2);
-}
-
-fn die(e: &mut Enemy) {
-    e.vitals.health = 0.0;
-    e.deaths += 1;
-    e.enter(Gen::Gone, tuning().respawn_ticks);
-    e.vel_x = 0.0;
-    e.follow_ups.clear();
 }
 
 /// Solid ground under both feet, no rock in the way, and not over the mouth
@@ -356,6 +341,22 @@ fn strike_circle(e: &Enemy, s: &State) -> (Vec2, f32) {
     }
 }
 
+/// How it books a blow. Shut in, the shell takes a tenth of the damage and no
+/// poise, and the anemones will sting; out and committed, the soft claws and
+/// legs take half as much again.
+pub(crate) fn takes(e: &mut Enemy, _hit: &Hit, _from_x: f32, _t: &Tuning) -> Option<Takes> {
+    let mut s = state_of(e);
+    Some(match s.posture {
+        Posture::Out if exposed(e) => Scale::of(SOFT_SHARE, 1.0),
+        Posture::Out => return None,
+        Posture::Withdrawn | Posture::Sulking => {
+            s.stung = true;
+            e.creature = crate::creatures::Extra::Hermit(s);
+            Scale::of(SHELL_SHARE, 0.0)
+        }
+    })
+}
+
 /// Its counter-sting on a crab hitting the shell.
 pub fn sting(e: &Enemy, crabs: &mut [SimCrab], t: &Tuning, blows: &mut Vec<(PlayerId, Outcome)>) {
     let hurt = e.hurtbox(t);
@@ -417,9 +418,6 @@ fn run(
     blows: &mut Vec<(PlayerId, Outcome)>,
 ) {
     let k = tuning();
-    if s.expect == 0.0 {
-        s.expect = e.vitals.health;
-    }
     s.cooldown = s.cooldown.saturating_sub(1);
     s.decided = s.decided.saturating_sub(1);
     s.sting_gap = s.sting_gap.saturating_sub(1);
@@ -429,40 +427,12 @@ fn run(
     }
     e.state_tick += 1;
 
-    // What a blow took off it since last tick.
-    let lost = (s.expect - e.vitals.health).max(0.0);
-    match s.posture {
-        Posture::Out => {
-            if lost > 0.0 && e.state != Gen::Gone {
-                if exposed(e) {
-                    let extra = lost * (SOFT_SHARE - 1.0);
-                    e.vitals.health = (e.vitals.health - extra).max(0.0);
-                }
-                if e.vitals.health <= 0.0 {
-                    die(e);
-                    return;
-                }
-            }
-        }
-        Posture::Withdrawn | Posture::Sulking => {
-            if lost > 0.0 {
-                s.banked -= lost * SHELL_SHARE;
-                if s.banked <= 0.0 {
-                    die(e);
-                    return;
-                }
-                if s.sting_gap == 0 {
-                    s.sting_gap = STING_GAP;
-                    s.flare = STING_FLARE;
-                    sting(e, crabs, t, blows);
-                }
-            }
-            e.vitals.health = s.banked + SHIELD;
-            e.vitals.poise = SHIELD;
-            e.vitals.stagger = 0;
-        }
+    // A blow on the shell: the anemones sting whoever is hitting it.
+    if std::mem::take(&mut s.stung) && s.sting_gap == 0 && e.state != Gen::Gone {
+        s.sting_gap = STING_GAP;
+        s.flare = STING_FLARE;
+        sting(e, crabs, t, blows);
     }
-    s.expect = e.vitals.health;
 
     // The crabs it might care about.
     let target = e
@@ -589,7 +559,6 @@ fn run(
             } else if e.vitals.unhit > crate::enemy::MEND_AFTER && e.vitals.health < k.vitals.health
             {
                 e.vitals = Vitals::new(&k.vitals);
-                s.expect = e.vitals.health;
             }
         }
         Gen::Notice => match target {

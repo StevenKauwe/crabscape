@@ -6,7 +6,7 @@
 
 use bevy_math::Vec2;
 
-use crate::combat::Outcome;
+use crate::combat::{self, Hit, Outcome};
 use crate::enemy::{AnimalPrey, Enemy, Kind};
 use crate::level::Level;
 use crate::rng::Rng;
@@ -101,6 +101,49 @@ pub(crate) fn step(
     }
 }
 
+/// How a creature books one blow on itself, on top of the generic head and
+/// tail zones.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Takes {
+    /// The generic booking, with the blow scaled.
+    Scale(Scale),
+    /// The creature booked the blow itself (health, poise, state). Only the
+    /// hit-stop is still applied; the result is what the crab is told.
+    Handled(combat::Took),
+}
+
+/// What a blow is scaled by. A poise share of 0 can never stagger it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Scale {
+    pub damage: f32,
+    pub poise: f32,
+    /// The share of the blow's push it feels.
+    pub knock: f32,
+}
+
+impl Scale {
+    /// Damage and poise scaled alike, the push untouched.
+    pub fn of(damage: f32, poise: f32) -> Takes {
+        Takes::Scale(Self {
+            damage,
+            poise,
+            knock: 1.0,
+        })
+    }
+}
+
+/// How it books a blow from `from_x`, if it has its own rules (`None` =
+/// generic). A pure function of its state and the blow (it may note things
+/// for its next step), so the device that runs it and a guest's hit agree.
+pub(crate) fn takes(e: &mut Enemy, hit: &Hit, from_x: f32, t: &Tuning) -> Option<Takes> {
+    match e.kind {
+        Kind::Lobster => lobster::takes(e, hit, from_x, t),
+        Kind::HermitCrab => hermit::takes(e, hit, from_x, t),
+        Kind::GiantIsopod => isopod::takes(e, hit, from_x, t),
+        _ => None,
+    }
+}
+
 /// What a blow did to it, if it has its own rules (`None` = generic).
 pub(crate) fn feels(e: &mut Enemy, crab: PlayerId, outcome: Outcome, t: &Tuning) -> Option<bool> {
     match e.kind {
@@ -114,6 +157,23 @@ pub(crate) fn feels(e: &mut Enemy, crab: PlayerId, outcome: Outcome, t: &Tuning)
         Kind::GiantIsopod => isopod::feels(e, crab, outcome, t),
         Kind::Hagfish => hagfish::feels(e, crab, outcome, t),
         Kind::AmphipodSwarm => amphipods::feels(e, crab, outcome, t),
+        _ => None,
+    }
+}
+
+/// Does it still hold `crab` by its own account, if it has a view (`None` =
+/// only the generic state rule applies)? A grab starts in the blow (`Attack`)
+/// and lasts in `Grab`; back at rest, sizing up or telling again, the squid,
+/// bobbit worm and grouper have let go, and the grouper in `Grab` holds only
+/// the crab it swallowed. The hagfish never grabs.
+pub(crate) fn holds(e: &Enemy, crab: PlayerId) -> Option<bool> {
+    use crate::enemy::State::{Attack, Grab};
+    match e.kind {
+        Kind::HumboldtSquid | Kind::BobbitWorm => Some(matches!(e.state, Attack | Grab)),
+        Kind::GoliathGrouper => {
+            Some(e.state == Attack || (e.state == Grab && grouper::engulfs(e, crab)))
+        }
+        Kind::Hagfish => Some(false),
         _ => None,
     }
 }

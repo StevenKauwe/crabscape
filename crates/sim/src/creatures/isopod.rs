@@ -5,17 +5,14 @@
 //! a blow, its belly (bared when it rears) takes double, and a parry or a
 //! broken poise turns it on its back.
 //!
-//! The generic `Enemy::takes` knows no armour zones, so the damage a blow
-//! really does is settled here, at the start of the next step: the loss that
-//! `takes` booked is rescaled by `State::armour`, the factor for the pose it
-//! was in when the blow landed. (Decision: the kill check in `takes` uses the
-//! raw damage, so a nearly dead isopod can fall to a blow its armour would
-//! have shrugged off.)
+//! The generic `Enemy::takes` knows no armour zones, so the `creatures::takes`
+//! hook ([`takes`]) scales every blow by the factor for the pose it is in
+//! when the blow lands, before the kill check.
 
 use bevy_math::Vec2;
 
 use crate::combat::{self, Hit, Outcome, Source};
-use crate::creatures::Extra;
+use crate::creatures::{Extra, Scale, Takes};
 use crate::enemy::{self, AnimalPrey, Enemy, State as Mode};
 use crate::level::Level;
 use crate::physics::STEP;
@@ -110,10 +107,6 @@ pub struct State {
     pub leg: u32,
     /// Which way it ambles or crawls.
     pub dir: f32,
-    /// Its health as of the end of its last step.
-    pub seen_health: f32,
-    /// The share of a blow that gets through, for the pose it is in.
-    pub armour: f32,
 }
 
 impl Default for State {
@@ -127,8 +120,6 @@ impl Default for State {
             pausing: true,
             leg: 0,
             dir: 1.0,
-            seen_health: HEALTH,
-            armour: ARMOUR,
         }
     }
 }
@@ -212,21 +203,14 @@ fn state_of(e: &Enemy) -> State {
 }
 
 /// The share of a blow that gets through in its pose right now.
-fn armour(e: &Enemy, s: &State) -> f32 {
+pub fn armour(e: &Enemy) -> f32 {
+    let s = state_of(e);
     match e.state {
         Mode::Stagger => FLIPPED,
         Mode::Flee if s.curl > 0 => ROLLED,
         Mode::Tell if s.biting && e.state_tick * 2 <= e.state_len => BELLY,
         Mode::Recover if s.biting && !s.righting && e.state_tick <= BELLY_RECOVER => BELLY,
         _ => ARMOUR,
-    }
-}
-
-fn refresh(e: &mut Enemy) {
-    let s = state_of(e);
-    let a = armour(e, &s);
-    if let Extra::Isopod(s) = &mut e.creature {
-        s.armour = a;
     }
 }
 
@@ -308,7 +292,6 @@ pub(crate) fn step(
     let _ = (animals, bounded_region);
     let mut s = state_of(e);
     let blows = run(e, crabs, t, level, rng, &mut s);
-    s.armour = armour(e, &s);
     e.creature = Extra::Isopod(s);
     Some(blows)
 }
@@ -325,22 +308,6 @@ fn run(
     let mut blows = Vec::new();
     e.vitals.tick(&k.vitals);
     e.state_tick += 1;
-
-    // Settle the blows that landed since the last step by the pose it was in.
-    let lost = s.seen_health - e.vitals.health;
-    if lost > 0.0 {
-        let health = (s.seen_health - lost * s.armour).max(0.0);
-        e.vitals.health = health;
-        if health <= 0.0 {
-            e.deaths += 1;
-            e.follow_ups.clear();
-            e.vel_x = 0.0;
-            e.enter(Mode::Gone, k.respawn_ticks);
-            s.seen_health = 0.0;
-            return blows;
-        }
-    }
-    s.seen_health = e.vitals.health;
 
     let prey = e.target.and_then(|id| {
         crabs
@@ -424,7 +391,6 @@ fn run(
                 // Alone and unhurt for a while: the scare is over.
                 e.vitals = combat::Vitals::new(&k.vitals);
                 e.fled = false;
-                s.seen_health = e.vitals.health;
             }
         }
         Mode::Notice => {
@@ -552,8 +518,14 @@ fn run(
     blows
 }
 
+/// How it books a blow: by the share its pose lets through. Its poise takes
+/// the blow whole (a broken one flips it).
+pub(crate) fn takes(e: &mut Enemy, _hit: &Hit, _from_x: f32, _t: &Tuning) -> Option<Takes> {
+    Some(Scale::of(armour(e), 1.0))
+}
+
 /// What a blow did to it. A parry turns it on its back; any other result
-/// only freezes it for the hit-stop. (Its armour is settled in `step`.)
+/// only freezes it for the hit-stop.
 pub(crate) fn feels(e: &mut Enemy, crab: PlayerId, outcome: Outcome, t: &Tuning) -> Option<bool> {
     let done = match outcome {
         Outcome::Evaded | Outcome::Ignored => false,
@@ -579,7 +551,6 @@ pub(crate) fn feels(e: &mut Enemy, crab: PlayerId, outcome: Outcome, t: &Tuning)
             false
         }
     };
-    refresh(e);
     Some(done)
 }
 
