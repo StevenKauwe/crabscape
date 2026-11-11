@@ -14,9 +14,11 @@ others in the world share, and that we build together, like Valheim.
   tasks and quests with a clear "go here, get that", gathering feeding crafting, rarer things from deeper places,
   and places you can see but can't reach yet. Every region answers "why would I go there?" before "what does it
   look like?"
-- **Fights like Silksong (the moment to moment):** skilful, readable, punishing combat and movement. A fight is won
-  by reading tells and timing, not by out-levelling it: skill levels open new tools, moves and places; they never
-  turn a hard fight into a number check. (We're a heavy crab, not a needle: see `how-it-plays.md`.)
+- **Fights like Silksong (the moment to moment):** skilful, readable, punishing combat and movement, with levels
+  and gear that work like Elden Ring's: they *lower the skill a fight needs*, never remove it. An over-levelled,
+  well-geared crab has more room for mistakes (more shell to lose, harder hits, wider timing windows); an
+  under-levelled one can still win on skill. It's never "click and see if you win". (We're a heavy crab, not a
+  needle: see `how-it-plays.md`.)
 - **Comes home like Valheim (the place between adventures):** a strong home base that everyone in your world shares
   and builds together. You leave it to adventure, come back to it to rest, cook, craft and show off, and it grows
   with the world.
@@ -42,7 +44,7 @@ to take part in the activities that the core and rare materials come from.
 | Pillar | Means | Feels like | Never |
 |---|---|---|---|
 | Cozy | Home, food and friends are a warm refuge | Kelp stew in your shell-home after a dive | Cozy everywhere, so nothing is earned |
-| Brutal | The deep is dangerous and indifferent, and bodies visibly break: hits crack shells and tear off limbs, on the crab and its enemies alike | Limping home with a cracked shell, a missing leg and a dimming lantern | Big damage numbers or punishing difficulty; cruel for its own sake, or punishing friends for playing together |
+| Brutal | The deep is dangerous and indifferent, and bodies visibly break: hits crack shells and tear off limbs, on the crab and its enemies alike | Limping home with a cracked shell, a missing leg and a dimming lantern | Big damage numbers or punishing difficulty; cruel for its own sake, or punishing friends for playing together; a chore at the prize (danger guards the *way to* a resource, never camps on it: once you reach it, harvesting is calm) |
 | Surreal | The real ocean is stranger than anything on land | A whale-fall village; an anglerfish that fills the sky at crab scale | Made up. If the real ocean doesn't do it, neither do we |
 
 Every art, sound and design choice is checked against all three. A hat should be cozy to own, hard-won, and a bit
@@ -53,6 +55,7 @@ strange.
 - **Co-op is optional,** 2–8 players, peer-to-peer in the browser (WebRTC via matchbox; the host's browser is the
   server, a tiny introducer, no database, cheating allowed among friends). Crisp for everyone: your own crab never
   feels the lag, and a parry is judged on your own screen. Each player keeps their crab in their own browser.
+- **The home base is the host's** (owner, 2026-11-11): everyone in a session sees the host's base and builds it together, Valheim style. It lives in the host's world save; guests bring their crabs and take theirs home.
 - A hosted shared world may come much later; refactor then rather than design for it now.
 
 ## The loop
