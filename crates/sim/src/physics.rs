@@ -550,6 +550,9 @@ pub struct StepEvents {
     pub levelled: Option<Skill>,
     /// ...or any skill, by [`crate::Sim::earn`] (the last level crossed).
     pub level_up: Option<crate::economy::LevelUp>,
+    /// The pinned goal's materials are all in hand and the crab is away
+    /// from home (one-shot: "go home and make it").
+    pub goal_ready: bool,
     /// Why a gather did not start (once per press): see
     /// [`crate::economy::gather::GatherBlocked`].
     pub gather_blocked: Option<crate::economy::gather::GatherBlocked>,
@@ -667,6 +670,7 @@ impl StepEvents {
         self.came_out |= other.came_out;
         self.rested |= other.rested;
         self.delivered |= other.delivered;
+        self.goal_ready |= other.goal_ready;
         self.levelled = self.levelled.or(other.levelled);
         if other.level_up.is_some() {
             self.level_up = other.level_up;
