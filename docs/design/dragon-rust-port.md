@@ -50,7 +50,8 @@ entry points.
 - Original story, briefing, quest and project text plus journal/shared unlock rules.
 - Built-profile offline adventure flow: story/briefing to mission, pause/resume, result
   progression to story/rank/results, growth scenes and times-gate to hatch/roost. The
-  host must enforce narration/read-lock completion; builder/lobby/result prose and
+  current source allows Continue/skip immediately; narration and heard-page history
+  remain host responsibilities. Builder/lobby/result prose and
   retry-from-stop UI remain separate. The initial supplied profile stays untouched.
 - Pure profile normalization and in-memory progression commands (XP, feeding, treats,
   crafts, skill purchases, party selection, team craft/hoard aggregation).
@@ -83,13 +84,18 @@ transcription is connected. See `crates/dragon-peer/README.md`.
 
 A genuine two-native-client loopback test passes reliable/unreliable exchange, replay
 rejection, disconnect and cancellation using ephemeral local signaling and no STUN/TURN
-URLs. This is not a browser/native interoperability or multiplayer gameplay test. The
-mission runtime still needs world/session synchronization and authority/handoff wiring.
+URLs. This is not a browser/native interoperability or multiplayer gameplay test.
 Pure static-room authority election, world snapshot encoding/guest projection,
 trusted-sender action admission and host takeover/handoff are ported separately. They keep transport identity distinct from rider claims, preserve
 valid source wire layouts and quantization, and return presentation/banking effects.
 Malformed entity IDs and indices are rejected more strictly than the JS receiver.
-These core tests do not yet establish an integrated two-player Dragon mission.
+The `coop::Session` adapter now connects those rules to the mission runtime: host-owned
+enemy/objective updates, guest hits, local rewards, Guardian healing, normalized resize,
+pause-aware host timeout, disconnect takeover and explicit handoff. Seven in-memory
+two-player tests cover these paths, including real `dragon-peer::Session` packet
+admission and replay rejection before gameplay. The application must still bind verified
+room slots, drive an actual socket, and render remote players. These tests do not yet
+establish a live two-device Dragon mission or browser/native interoperability.
 
 ## Verification
 

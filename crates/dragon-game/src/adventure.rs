@@ -1,5 +1,5 @@
 //! Offline/static adventure flow for an already-built normalized profile.
-//! Lobby synchronization, builder, narration playback/read-lock timing and storage
+//! Lobby synchronization, builder, narration playback/heard-page history and storage
 //! are host responsibilities. Other profiles provide the source's shared unlocks;
 //! they do not turn the current solo Game into a multiplayer simulation.
 use crate::{

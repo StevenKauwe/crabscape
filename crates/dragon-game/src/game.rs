@@ -103,6 +103,8 @@ pub struct Ally {
     pub cd: f64,
 }
 pub struct Game {
+    pub(crate) net: crate::coop::Runtime,
+    target_rider: BTreeMap<u64, i32>,
     pub champion: bool,
     /// Effective source timer used for the swift crown, not a failure deadline.
     pub par: f64,
@@ -135,9 +137,9 @@ pub struct Game {
     pub scroll: f64,
     pub scroll_v: f64,
     pub rng: Mulberry32,
-    view: Viewport,
-    uid: u64,
-    used: Used,
+    pub(crate) view: Viewport,
+    pub(crate) uid: u64,
+    pub(crate) used: Used,
     target_t: BTreeMap<u64, f64>,
     pub profile: Option<Value>,
     pub progression_events: Vec<progression::Event>,
@@ -177,6 +179,8 @@ impl Game {
             ..Player::default()
         };
         let mut g = Self {
+            net: crate::coop::Runtime::default(),
+            target_rider: BTreeMap::new(),
             champion: def.id.ends_with('c'),
             par: 0.,
             allies: vec![],
@@ -371,7 +375,7 @@ impl Game {
             difficulty: (1. + r0 * 0.35 + r1 * 0.25 + in_realm as f64 * 0.08)
                 * if self.champion { 1.3 } else { 1. },
             toughness: [1.15, 1.5, 2.3, 4., 5., 6.][realm] * (1. + 0.06 * in_realm as f64),
-            sky_toughness: 1.,
+            sky_toughness: if self.net.enabled { self.net.sky } else { 1. },
             speed: (1. + r0 * 0.12 + r1 * 0.05) * if self.champion { 1.1 } else { 1. },
         }
     }
@@ -391,7 +395,12 @@ impl Game {
         b.entered = true;
     }
     fn drop_carried_piece(&mut self, draw: &mut impl FnMut() -> f64) {
-        if let Some(ob) = self.objective.as_mut().filter(|ob| ob.carrier == 0) {
+        if !self.mission.guest
+            && let Some(ob) = self
+                .objective
+                .as_mut()
+                .filter(|ob| ob.carrier == self.net.rider as i32)
+        {
             ob.drop_piece(self.view, draw, &mut self.objective_events);
         }
     }
@@ -419,9 +428,14 @@ impl Game {
         self.enemies.push(e);
     }
     fn retire(&mut self, draw: &mut impl FnMut() -> f64) {
-        if self.player.hearts > 0 || self.mission.done || self.mission.fail_t != 0. {
+        if self.net.retired
+            || self.player.hearts > 0
+            || self.mission.done
+            || self.mission.fail_t != 0.
+        {
             return;
         }
+        self.net.retired = true;
         self.player.out = true;
         self.player.dizzy = 0.;
         let lost = if self.pouch_charm {
@@ -439,6 +453,16 @@ impl Game {
             gem.lost_one = true;
             self.gems.push(gem);
         }
+        if self.net.enabled {
+            if self.mission.guest {
+                return;
+            }
+            if self.net.active_others > 0 {
+                self.net.events.push(crate::coop::GameEvent::Handoff);
+                self.mission.guest = true;
+                return;
+            }
+        }
         let mut m = std::mem::take(&mut self.mission);
         m.fail(&mut Adapter(self));
         self.mission = m;
@@ -450,15 +474,9 @@ impl Game {
         let p = [e.target.x, e.target.y];
         let radius = e.target.r;
         let boss = e.target.boss;
+        let kind = e.kind;
         let split = !calmed && e.kind == enemies::Kind::Slime;
         let extra = e.extra;
-        let count = if boss {
-            8
-        } else if calmed {
-            e.kind.definition().gems.div_ceil(2).min(6)
-        } else {
-            e.kind.definition().gems.min(6)
-        };
         if split {
             for dir in [-1., 1.] {
                 let x = self
@@ -483,9 +501,49 @@ impl Game {
                 self.kills += 1;
             }
         }
+        self.defeat_fx(kind, p, radius, calmed, draw);
+        if boss {
+            for e in &mut self.enemies {
+                if e.extra && !e.target.dead {
+                    e.target.calm = true;
+                }
+            }
+        } else if owner != "wild" && owner != "remote" {
+            self.add_xp(Some(owner), 4.);
+        }
+        if self.net.enabled {
+            self.net.events.push(crate::coop::GameEvent::Defeat {
+                id,
+                kind,
+                at: p,
+                calmed,
+                by: if owner == "remote" {
+                    self.net.remote_by.unwrap_or(self.net.rider)
+                } else {
+                    self.net.rider
+                },
+            });
+        }
+    }
+    fn defeat_fx(
+        &mut self,
+        kind: enemies::Kind,
+        p: [f64; 2],
+        radius: f64,
+        calmed: bool,
+        draw: &mut impl FnMut() -> f64,
+    ) {
+        let boss = kind.definition().boss;
         if !calmed {
             self.hit_stop = self.hit_stop.max(if boss { 0.12 } else { 0.05 });
         }
+        let count = if boss {
+            8
+        } else if calmed {
+            kind.definition().gems.div_ceil(2).min(6)
+        } else {
+            kind.definition().gems.min(6)
+        };
         for _ in 0..count {
             let x = self.view.scale.max(
                 (self.view.width - self.view.scale).min(p[0] + random(draw, -0.5, 0.5) * radius),
@@ -518,18 +576,135 @@ impl Game {
                 });
             }
             self.add_xp(None, 80.);
-            for e in &mut self.enemies {
-                if e.extra && !e.target.dead {
-                    e.target.calm = true;
+        }
+    }
+    fn enemy_effects(
+        &mut self,
+        effects: Vec<enemies::Event>,
+        view: Viewport,
+        draw: &mut impl FnMut() -> f64,
+    ) {
+        for e in effects {
+            match e {
+                enemies::Event::Strike { x, y0, warn, bolt } => {
+                    let uid = self.next_id();
+                    self.strikes.push(Strike {
+                        uid,
+                        x,
+                        y0,
+                        warn,
+                        bolt,
+                        hit: false,
+                    });
+                }
+                enemies::Event::Touch { id, hurts } => {
+                    if !damage::is_safe(&self.player) {
+                        let t = &self
+                            .enemies
+                            .iter()
+                            .find(|e| e.target.id == id)
+                            .expect("touch target exists")
+                            .target;
+                        let p = [t.x, t.y];
+                        if hurts {
+                            let armor = self.craft("armor");
+                            damage::bonk(&mut self.player, p, view.scale, armor);
+                            self.bonks += 1;
+                            self.hit_stop = self.hit_stop.max(0.06);
+                            self.drop_carried_piece(draw);
+                            self.retire(draw);
+                        } else {
+                            damage::bump(&mut self.player, p, view.scale);
+                        }
+                    }
+                }
+                enemies::Event::Spark {
+                    position,
+                    velocity,
+                    radius,
+                    life,
+                } => {
+                    let uid = self.next_id();
+                    self.hazards.push(Hazard {
+                        uid,
+                        x: position[0],
+                        y: position[1],
+                        vx: velocity[0],
+                        vy: velocity[1],
+                        r: radius,
+                        life,
+                        kind: "spark".into(),
+                        ..Hazard::default()
+                    });
+                }
+                enemies::Event::Spawn { kind, extra, at } => {
+                    self.spawn(kind, extra, Some(at), draw)
+                }
+                enemies::Event::SpawnSea { kind, extra } => self.spawn(kind, extra, None, draw),
+                enemies::Event::SpawnBaby {
+                    at,
+                    velocity,
+                    dir,
+                    extra,
+                } => self.spawn_baby(at, velocity, dir, extra, draw),
+                enemies::Event::Hazard(h) => {
+                    let uid = self.next_id();
+                    self.hazards.push(Hazard {
+                        uid,
+                        kind: serde_json::to_value(h.kind)
+                            .expect("hazard kind")
+                            .as_str()
+                            .expect("kind string")
+                            .into(),
+                        x: h.position[0],
+                        y: h.position[1],
+                        vx: h.velocity[0],
+                        vy: h.velocity[1],
+                        gravity: h.gravity,
+                        r: h.radius,
+                        life: h.life,
+                        warn: h.warn,
+                        spin: 0.,
+                    });
+                }
+                enemies::Event::Gobble { gem_id } => {
+                    self.gems.remove(gem_id as usize);
+                }
+                enemies::Event::Sting { id } => {
+                    if !damage::is_safe(&self.player) {
+                        let t = &self
+                            .enemies
+                            .iter()
+                            .find(|e| e.target.id == id)
+                            .expect("sting target")
+                            .target;
+                        let pos = [t.x, t.y];
+                        let armor = self.craft("armor");
+                        damage::bonk(&mut self.player, pos, view.scale, armor);
+                        self.bonks += 1;
+                        self.hit_stop = self.hit_stop.max(0.06);
+                        self.drop_carried_piece(draw);
+                        self.retire(draw);
+                    }
+                }
+                event @ (enemies::Event::Ring { .. } | enemies::Event::Splash { .. }) => {
+                    self.presentation_events.push(event)
                 }
             }
-        } else if owner != "wild" && owner != "remote" {
-            self.add_xp(Some(owner), 4.);
         }
     }
     /// Clamp frame duration like frame(now). Zero duration still runs collisions and
     /// ready fire/spawn callbacks, including during hit-stop. Pause by not calling.
     pub fn step(&mut self, elapsed: f64, input: Input, view: Viewport) -> Result<(), &'static str> {
+        self.step_network(elapsed, input, view, &mut |_, _| false)
+    }
+    pub(crate) fn step_network(
+        &mut self,
+        elapsed: f64,
+        input: Input,
+        view: Viewport,
+        before_mission: &mut impl FnMut(&mut Self, &mut dyn FnMut() -> f64) -> bool,
+    ) -> Result<(), &'static str> {
         if !elapsed.is_finite()
             || !valid_view(view)
             || input
@@ -603,8 +778,15 @@ impl Game {
         self.shots = shots;
         self.view.dragon_scale = self.body_scale(view.dragon_scale);
         view = self.view;
+        let guest_update = self.mission.guest;
         let mut index = 0;
         while index < self.enemies.len() {
+            if guest_update {
+                let effects = self.mirror_step(index, dt);
+                self.enemy_effects(effects, view, &mut draw);
+                index += 1;
+                continue;
+            }
             if !self.enemies[index].target.dead {
                 let id = self.enemies[index].target.id;
                 let timer = self.target_t.entry(id).or_default();
@@ -615,13 +797,17 @@ impl Game {
                         .as_ref()
                         .is_some_and(|o| o.kind != objectives::Kind::Carry && !o.done)
                         && !self.enemies[index].target.boss;
-                    if objective_available && draw() >= 0.5 {
+                    let local = !self.player.out || self.net.aims.is_empty();
+                    let count =
+                        usize::from(local) + self.net.aims.len() + usize::from(objective_available);
+                    let pick = (draw() * count as f64).floor() as usize;
+                    self.target_objective.remove(&id);
+                    self.target_rider.remove(&id);
+                    if objective_available && pick == count - 1 {
                         self.target_objective.insert(id);
-                    } else {
-                        if !objective_available {
-                            let _target = draw();
-                        }
-                        self.target_objective.remove(&id);
+                    } else if pick >= usize::from(local) {
+                        self.target_rider
+                            .insert(id, self.net.aims[pick - usize::from(local)].id);
                     }
                     *timer = random(&mut draw, 5., 9.);
                 }
@@ -636,6 +822,12 @@ impl Game {
                     .filter(|o| !o.done && o.kind != objectives::Kind::Carry)
             {
                 world.aim = [o.x, o.y];
+                world.quiet = false;
+            }
+            if let Some(rider) = self.target_rider.get(&self.enemies[index].target.id)
+                && let Some(p) = self.net.aims.iter().find(|p| &p.id == rider)
+            {
+                world.aim = [p.x, p.y];
                 world.quiet = false;
             }
             let mut effects = vec![];
@@ -661,116 +853,7 @@ impl Game {
             self.enemies[index]
                 .step_with_context(dt, &world, context, &mut draw, &mut effects)
                 .map_err(|_| "unsupported enemy")?;
-            for e in effects {
-                match e {
-                    enemies::Event::Strike { x, y0, warn, bolt } => {
-                        let uid = self.next_id();
-                        self.strikes.push(Strike {
-                            uid,
-                            x,
-                            y0,
-                            warn,
-                            bolt,
-                            hit: false,
-                        });
-                    }
-                    enemies::Event::Touch { id, hurts } => {
-                        if !damage::is_safe(&self.player) {
-                            let t = &self
-                                .enemies
-                                .iter()
-                                .find(|e| e.target.id == id)
-                                .expect("touch target exists")
-                                .target;
-                            let p = [t.x, t.y];
-                            if hurts {
-                                let armor = self.craft("armor");
-                                damage::bonk(&mut self.player, p, view.scale, armor);
-                                self.bonks += 1;
-                                self.hit_stop = self.hit_stop.max(0.06);
-                                self.drop_carried_piece(&mut draw);
-                                self.retire(&mut draw);
-                            } else {
-                                damage::bump(&mut self.player, p, view.scale);
-                            }
-                        }
-                    }
-                    enemies::Event::Spark {
-                        position,
-                        velocity,
-                        radius,
-                        life,
-                    } => {
-                        let uid = self.next_id();
-                        self.hazards.push(Hazard {
-                            uid,
-                            x: position[0],
-                            y: position[1],
-                            vx: velocity[0],
-                            vy: velocity[1],
-                            r: radius,
-                            life,
-                            kind: "spark".into(),
-                            ..Hazard::default()
-                        });
-                    }
-                    enemies::Event::Spawn { kind, extra, at } => {
-                        self.spawn(kind, extra, Some(at), &mut draw)
-                    }
-                    enemies::Event::SpawnSea { kind, extra } => {
-                        self.spawn(kind, extra, None, &mut draw)
-                    }
-                    enemies::Event::SpawnBaby {
-                        at,
-                        velocity,
-                        dir,
-                        extra,
-                    } => self.spawn_baby(at, velocity, dir, extra, &mut draw),
-                    enemies::Event::Hazard(h) => {
-                        let uid = self.next_id();
-                        self.hazards.push(Hazard {
-                            uid,
-                            kind: serde_json::to_value(h.kind)
-                                .expect("hazard kind")
-                                .as_str()
-                                .expect("kind string")
-                                .into(),
-                            x: h.position[0],
-                            y: h.position[1],
-                            vx: h.velocity[0],
-                            vy: h.velocity[1],
-                            gravity: h.gravity,
-                            r: h.radius,
-                            life: h.life,
-                            warn: h.warn,
-                            spin: 0.,
-                        });
-                    }
-                    enemies::Event::Gobble { gem_id } => {
-                        self.gems.remove(gem_id as usize);
-                    }
-                    enemies::Event::Sting { id } => {
-                        if !damage::is_safe(&self.player) {
-                            let t = &self
-                                .enemies
-                                .iter()
-                                .find(|e| e.target.id == id)
-                                .expect("sting target")
-                                .target;
-                            let pos = [t.x, t.y];
-                            let armor = self.craft("armor");
-                            damage::bonk(&mut self.player, pos, view.scale, armor);
-                            self.bonks += 1;
-                            self.hit_stop = self.hit_stop.max(0.06);
-                            self.drop_carried_piece(&mut draw);
-                            self.retire(&mut draw);
-                        }
-                    }
-                    event @ (enemies::Event::Ring { .. } | enemies::Event::Splash { .. }) => {
-                        self.presentation_events.push(event)
-                    }
-                }
-            }
+            self.enemy_effects(effects, view, &mut draw);
             index += 1;
         }
         self.enemies.retain(|e| !e.target.dead);
@@ -858,8 +941,17 @@ impl Game {
                 );
             },
         );
+        let took_over = before_mission(self, &mut draw);
         let mut m = std::mem::take(&mut self.mission);
+        // A timeout takes authority inside the guest branch; this frame still runs
+        // guest gem spawning, not host queue/AI work, exactly like updateMission.
+        if took_over {
+            m.guest = true;
+        }
         m.step(dt, self.definition, &mut Adapter(self), &mut draw);
+        if took_over {
+            m.guest = false;
+        }
         self.mission = m;
         if let Some(ok) = self.result
             && let Some(p) = self.profile.as_mut()
@@ -924,6 +1016,7 @@ impl MissionWorld for Adapter<'_> {
         let g = &self.0;
         WorldSnapshot {
             player_out: g.player.out,
+            active_others: g.net.active_others,
             regular_uncalm: g
                 .enemies
                 .iter()
@@ -1033,15 +1126,16 @@ impl Game {
             return;
         };
         self.had_objective = true;
-        let riders = if self.player.out {
+        let mut riders = if self.player.out {
             vec![]
         } else {
             vec![objectives::Rider {
-                id: 0,
+                id: self.net.rider as i32,
                 x: self.player.x,
                 y: self.player.y,
             }]
         };
+        riders.extend(self.net.others.iter().cloned());
         let mut enemies: Vec<_> = self
             .enemies
             .iter()
@@ -1578,6 +1672,10 @@ impl Game {
                     }
                 }
                 abilities::Event::Calm { id } => {
+                    if self.mission.guest {
+                        self.net.events.push(crate::coop::GameEvent::Calm(id));
+                        continue;
+                    }
                     if let Some(e) = self
                         .enemies
                         .iter_mut()
@@ -1637,7 +1735,18 @@ impl Game {
             self.hit_stop = self.hit_stop.max(0.025);
         }
         let start = events.len();
+        let authority = projectiles::Authority {
+            guest: self.mission.guest,
+            ..authority
+        };
         projectiles::hit_enemy(e, shot, authority, events);
+        for event in &events[start..] {
+            if matches!(event, projectiles::Event::GuestHit { .. }) {
+                self.net
+                    .events
+                    .push(crate::coop::GameEvent::Hit(event.clone()));
+            }
+        }
         let defeated = events[start..].iter().find_map(|e| {
             if let projectiles::Event::Defeat { id, owner } = e {
                 Some((*id, owner.clone()))
@@ -1669,6 +1778,178 @@ impl<F: FnMut() -> f64> projectiles::CollisionWorld for CollisionAdapter<'_, F> 
         events: &mut Vec<projectiles::Event>,
     ) {
         self.game.hit(index, shot, authority, events, self.draw);
+    }
+}
+
+impl Game {
+    pub(crate) fn known_mission(id: &str) -> bool {
+        definitions().iter().any(|d| d.id == id)
+    }
+    pub(crate) fn resize_network(&mut self, mut view: Viewport) -> Result<(), &'static str> {
+        if !valid_view(view) {
+            return Err("invalid viewport");
+        }
+        view.dragon_scale = self.body_scale(view.dragon_scale);
+        self.view = view;
+        view.clamp(&mut self.player);
+        Ok(())
+    }
+    pub(crate) fn network_riding(&self) -> bool {
+        self.profile
+            .as_ref()
+            .is_some_and(|p| progression::riding(p, &progression::team_summary(p, &[], true)))
+    }
+    pub(crate) fn make_mirror(
+        &self,
+        kind: enemies::Kind,
+        at: [f64; 2],
+        draw: &mut impl FnMut() -> f64,
+    ) -> Enemy {
+        Enemy::spawn(
+            kind,
+            0,
+            false,
+            Some(at),
+            &self.enemy_world(),
+            self.scaling(),
+            draw,
+        )
+    }
+    pub(crate) fn bank_network_gems(&mut self) {
+        let mut m = std::mem::take(&mut self.mission);
+        m.bank_gems(&mut Adapter(self));
+        self.mission = m;
+    }
+    pub(crate) fn drop_network_piece(&mut self) {
+        if self.mission.guest {
+            return;
+        }
+        let mut rng = self.rng;
+        if let Some(o) = self.objective.as_mut() {
+            o.drop_piece(
+                self.view,
+                &mut || rng.next_unit(),
+                &mut self.objective_events,
+            );
+        }
+        self.rng = rng;
+    }
+    pub(crate) fn apply_team_spell(&mut self, spell: abilities::Spell) {
+        let rules = self.ability_rules();
+        let targets = self.target_snapshot();
+        let effects = abilities::apply_spell(&mut self.player, &rules, &targets, spell);
+        let mut rng = self.rng;
+        self.apply_ability_events(effects, &mut || rng.next_unit());
+        self.rng = rng;
+    }
+    pub(crate) fn apply_network_hit(&mut self, hit: crate::network_actions::AdmittedHit) {
+        let Some(i) = self.enemies.iter().position(|e| e.target.id == hit.uid) else {
+            return;
+        };
+        self.net.remote_by = Some(hit.rider);
+        let mut rng = self.rng;
+        let mut draw = || rng.next_unit();
+        match hit.action {
+            Some(crate::network_actions::HitAction::Hit(shot)) => self.hit(
+                i,
+                &shot,
+                projectiles::Authority::default(),
+                &mut vec![],
+                &mut draw,
+            ),
+            Some(crate::network_actions::HitAction::Calm) => {
+                self.enemies[i].target.calm = true;
+                self.defeated(hit.uid, "remote", true, &mut draw);
+            }
+            None => {}
+        }
+        self.net.remote_by = None;
+        self.rng = rng;
+    }
+    pub(crate) fn apply_network_defeat(
+        &mut self,
+        effects: Vec<crate::network_actions::DefeatEffect>,
+    ) {
+        use crate::network_actions::DefeatEffect;
+        let mut rng = self.rng;
+        let mut draw = || rng.next_unit();
+        for effect in effects {
+            match effect {
+                DefeatEffect::RemoveEnemy(id) => {
+                    self.enemies.retain(|e| e.target.id != id);
+                    self.net.destinations.remove(&id);
+                }
+                DefeatEffect::Defeat {
+                    kind,
+                    position,
+                    radius,
+                    calmed,
+                } => self.defeat_fx(kind, position, radius, calmed, &mut draw),
+                DefeatEffect::CreditLocalKill { xp } => {
+                    self.kills += 1;
+                    let main = self
+                        .profile
+                        .as_ref()
+                        .map(|p| self.dragon(main_index(p)).id)
+                        .unwrap_or_else(|| "bond".into());
+                    self.add_xp(Some(&main), xp as f64);
+                }
+            }
+        }
+        self.rng = rng;
+    }
+    // Same order as updateMirrors. The effect adapter rechecks safety after an
+    // earlier touch/bonk, and gem indices refer to the current local gem vector.
+    fn mirror_step(&mut self, index: usize, dt: f64) -> Vec<enemies::Event> {
+        let e = &mut self.enemies[index];
+        let t = &mut e.target;
+        let mut effects = vec![];
+        e.t += dt;
+        t.flash -= dt;
+        if let Some(at) = self.net.destinations.get(&t.id) {
+            let k = (dt * 12.).min(1.);
+            t.x += (at[0] - t.x) * k;
+            t.y += (at[1] - t.y) * k;
+        }
+        if e.kind.definition().ground && !e.air {
+            t.y = self.view.ground_y - t.r * 0.95;
+        }
+        if e.kind == enemies::Kind::Gobbler
+            && !t.calm
+            && let Some(i) = self
+                .gems
+                .iter()
+                .position(|g| (g.x - t.x).hypot(g.y - t.y) < t.r + g.r)
+        {
+            effects.push(enemies::Event::Gobble { gem_id: i as u64 });
+        }
+        let s = self.view.scale * self.view.dragon_scale;
+        let distance = (self.player.x - t.x).hypot(self.player.y - t.y);
+        let hurts = e.hurt
+            || e.sting > 0.
+            || (e.air
+                && (matches!(e.kind, enemies::Kind::Wolf | enemies::Kind::Leaper)
+                    || e.kind.definition().hop))
+            || (e.kind == enemies::Kind::Swallower && e.windup > 0.);
+        if !t.calm
+            && !damage::is_safe(&self.player)
+            && !(e.kind == enemies::Kind::Leaper && !e.air)
+            && t.stun <= 0.
+            && distance < t.r * 0.85 + s * 0.35
+        {
+            effects.push(enemies::Event::Touch { id: t.id, hurts });
+        }
+        if e.sting > 0. {
+            e.sting -= dt;
+        }
+        if e.sting > 0.
+            && !t.calm
+            && !damage::is_safe(&self.player)
+            && distance < t.r * 1.9 + s * 0.3
+        {
+            effects.push(enemies::Event::Sting { id: t.id });
+        }
+        effects
     }
 }
 
