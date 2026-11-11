@@ -72,6 +72,9 @@ pub struct Progress {
     /// have neither.
     #[serde(default)]
     pub glass_grips: bool,
+    /// Has ridden the long chimney home once (act three).
+    #[serde(default)]
+    pub act_three: bool,
     #[serde(default)]
     pub sponges_taken: Vec<bool>,
     /// What it grew at its moults, and a moult not yet hardened (see
@@ -185,6 +188,7 @@ impl Sim {
             grit_taken: shared.grit_taken.clone(),
             home_grit: crab.home_grit,
             glass_grips: m.glass_grips,
+            act_three: m.act_three,
             sponges_taken: crab.sponges_taken.clone(),
             feats: m.feats.clone(),
             moults: m.moults,
@@ -274,6 +278,7 @@ impl Sim {
         m.lantern_dim = p.lantern_dim;
         m.scissor_claw = p.scissor_claw;
         m.glass_grips = p.glass_grips;
+        m.act_three = p.act_three;
         m.clam_guards = p.clam_guards;
         m.prepared_food = p.prepared_food.clone();
         m.climb_xp = p.climb_xp;

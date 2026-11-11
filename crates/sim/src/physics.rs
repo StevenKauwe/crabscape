@@ -263,6 +263,14 @@ pub struct Mover {
     /// Paddle strokes made since it last touched the floor or a climb.
     #[serde(default)]
     pub swim_run: u32,
+    /// The ride lane and stretch it has been carried through without a break
+    /// (see [`crate::ride`]); `None` when not riding.
+    #[serde(default)]
+    pub ride: Option<(u8, u8)>,
+    /// Has ridden the long chimney home once: act three (see
+    /// [`crate::chimney`]). Kept with its progress.
+    #[serde(default)]
+    pub act_three: bool,
 }
 
 impl Mover {
@@ -322,6 +330,8 @@ impl Mover {
             proven: Vec::new(),
             climb_low: None,
             swim_run: 0,
+            ride: None,
+            act_three: false,
         }
     }
 
