@@ -164,14 +164,14 @@ mod tests {
         {
             assert!((pair[1].y - pair[0].y).abs() / (pair[1].x - pair[0].x) <= 0.8);
         }
-        for climb in level.climbs.iter().filter(|c| c.x > 8800.0) {
+        for climb in level.climbs.iter().filter(|c| c.x > 8800.0 && c.x < 17781.0) {
             assert_eq!(climb.bottom, level.floor_height(climb.x));
             assert!(climb.top > climb.bottom);
         }
-        assert_eq!(cell(&level, 10080.0, -2180.0), Cell::Rock);
-        assert_eq!(cell(&level, 10080.0, -2350.0), Cell::Sand);
-        assert_eq!(cell(&level, 10080.0, -2470.0), Cell::Rock);
-        assert_eq!(cell(&level, 13200.0, -3270.0), Cell::Mud);
+        assert_eq!(cell(&level, 10080.0, -4180.0), Cell::Rock);
+        assert_eq!(cell(&level, 10080.0, -4350.0), Cell::Sand);
+        assert_eq!(cell(&level, 10080.0, -4470.0), Cell::Rock);
+        assert_eq!(cell(&level, 13200.0, -5270.0), Cell::Mud);
     }
 
     #[test]

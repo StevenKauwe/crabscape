@@ -4,9 +4,9 @@
 //! - **The ridge.** The pit's right wall stands on up as a ridge, as tall as
 //!   the end wall, so the hub is walled on both sides: nothing glides into it
 //!   from the cliff's crest or the shallows (that used to skip the ghost
-//!   net). A window through the ridge is netted, and its knots are on the hub
-//!   side: cut from there, the glide off the cliff's crest carries a crab
-//!   over the pit and through it, the way back in, for everyone.
+//!   net). A window through the ridge is netted: with the pit filled, the
+//!   basin floor runs straight to it, and the net is the scissor claw's gate
+//!   to the hub, cuttable from either side, for everyone.
 //! - **Glass grips (the long glide home).** The ridge's hub face is bare rock
 //!   above the shaft's coral: with glass grips a crab climbs to its crest and
 //!   glides off it west, over the pit, the basin and the cliff, to the
@@ -47,7 +47,7 @@ pub(super) fn shape(level: &mut Level) {
     level.nets.push(Net {
         rect: Rect::new(east - 16.0, WINDOW.0, east, WINDOW.1),
         cut: false,
-        from: CutFrom::East,
+        from: CutFrom::Either,
     });
     // Bare rock up the ridge's hub face, from where the shaft's coral stops.
     level.climbs.push(Climb {
