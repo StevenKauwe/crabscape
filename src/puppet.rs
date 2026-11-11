@@ -72,6 +72,7 @@ use crabsim::combat::{Claw, Phase};
 use crabsim::{Feat, Fighter};
 
 mod depth_order;
+mod royal_ribbon;
 use depth_order::{DepthOrder, remember_draw_order};
 
 /// The parts list, baked into the game (it is small).
@@ -506,26 +507,28 @@ pub struct PuppetPlugin;
 
 impl Plugin for PuppetPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, load_art).add_systems(
-            Update,
-            (
-                prepare_art,
-                prepare_pizza,
-                build_puppets,
-                restyle,
-                animate,
-                shell_look,
-                show_pressure_scars,
-                show_walking_legs,
-                halo_depth,
-                into_the_dark,
-                show_gear,
-                soft_look,
-                resort,
-            )
-                .chain()
-                .in_set(GameSet::Present),
-        );
+        app.add_systems(Startup, (load_art, royal_ribbon::prepare))
+            .add_systems(
+                Update,
+                (
+                    prepare_art,
+                    prepare_pizza,
+                    build_puppets,
+                    restyle,
+                    animate,
+                    shell_look,
+                    show_pressure_scars,
+                    royal_ribbon::show,
+                    show_walking_legs,
+                    halo_depth,
+                    into_the_dark,
+                    show_gear,
+                    soft_look,
+                    resort,
+                )
+                    .chain()
+                    .in_set(GameSet::Present),
+            );
     }
 }
 
@@ -1007,6 +1010,7 @@ fn build_puppets(
                 ShellOf(crab),
             ))
             .id();
+        royal_ribbon::spawn(&mut commands, crab, dorsal);
         // Ink stays on the shell, below anything carried on its dome.
         for index in 0..8 {
             for segment in 0..3 {

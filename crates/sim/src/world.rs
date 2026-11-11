@@ -1129,6 +1129,7 @@ impl Sim {
                     return;
                 };
                 if crab.remote && Net::newer(&mut net.crab_at, state.id, at) {
+                    crab.royal.wearing = state.ribbon.filter(|i| *i < 4);
                     crab.mover = state.mover;
                     crab.fighter = state.fighter;
                     crab.pending.merge(state.events);
@@ -2011,6 +2012,17 @@ impl Sim {
         ready
     }
 
+    fn preflight_local_terrain(&mut self) -> bool {
+        if let Some(pos) = self.crabs.iter().find(|c| !c.remote).map(|c| c.mover.pos)
+            && let Some(mut cells) = self.level.cells.take()
+        {
+            let ready = cells.prepare_paged_follow(&self.level, pos.x, pos.y, self.tick);
+            self.level.cells = Some(cells);
+            return ready;
+        }
+        true
+    }
+
     fn tick_region_inner(
         &mut self,
         external_terrain: bool,
@@ -2018,21 +2030,34 @@ impl Sim {
         mut regional_rng: Option<&mut std::collections::BTreeMap<u32, Rng>>,
         fixed_region: bool,
     ) -> bool {
+        let outside = !external_terrain
+            && !fixed_region
+            && self.crabs.iter().find(|c| !c.remote).is_some_and(|crab| {
+                self.level
+                    .cells
+                    .as_ref()
+                    .is_some_and(|cells| !cells.contains_world(crab.mover.pos.x, crab.mover.pos.y))
+            });
+        // Home may also leave a full dirty personal-memory cache. Recover its
+        // terrain first so a coherent save can free both caches while memory
+        // reads wait; never save Home against the distant pre-teleport window.
+        if outside && !self.preflight_local_terrain() {
+            return false;
+        }
         if !self.memory_pages_ready() {
             return false;
         }
-        // Move the detailed window before simulating, independent of camera.
-        if !external_terrain
-            && !fixed_region
-            && let Some(pos) = self.crabs.iter().find(|c| !c.remote).map(|c| c.mover.pos)
-            && let Some(mut cells) = self.level.cells.take()
-        {
-            if !cells.prepare_paged_follow(&self.level, pos.x, pos.y, self.tick) {
-                self.level.cells = Some(cells);
+        // Ordinary movement retains the memory-before-terrain gate.
+        if !external_terrain && !fixed_region {
+            if !outside && !self.preflight_local_terrain() {
                 return false;
             }
-            cells.follow_player(&self.level, pos.x, pos.y);
-            self.level.cells = Some(cells);
+            if let Some(pos) = self.crabs.iter().find(|c| !c.remote).map(|c| c.mover.pos)
+                && let Some(mut cells) = self.level.cells.take()
+            {
+                cells.follow_player(&self.level, pos.x, pos.y);
+                self.level.cells = Some(cells);
+            }
         }
         if !external_terrain
             && fixed_region
@@ -3013,6 +3038,7 @@ impl Sim {
                 .map(|u| std::mem::take(&mut u.1))
                 .unwrap_or_default();
             let crab = CrabState {
+                ribbon: c.royal.wearing,
                 id: c.id,
                 mover: c.mover.clone(),
                 fighter: c.fighter.clone(),

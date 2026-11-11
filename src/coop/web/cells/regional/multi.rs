@@ -21,6 +21,7 @@ pub(super) struct Multi {
     enabled: bool,
     stopping: bool,
     stop_acknowledged: bool,
+    region_requested: bool,
     initial_stops: u64,
 }
 struct Group {

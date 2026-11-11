@@ -106,6 +106,10 @@ See [the performance workflow and measured examples](docs/engineering/rust-perfo
 ## Repo practices and CI/CD
 - Branch (`issue-<n>-<slug>`) → PR (`Closes #<n>`, what changed, how verified, screenshots for visual changes) →
   `gh pr merge --squash --auto --delete-branch`. Rebase on `main` and resolve conflicts yourself. Never push to `main`.
+- **Show new assets in the PR.** PRs that add or change visual assets, including cosmetics, must include
+  screenshots in the PR description showing them in-game. Show each new asset in its intended context; include
+  before/after screenshots when changing existing visuals. A playable preview link or source-art file does not
+  replace these screenshots.
 - CI (`.github/workflows/ci.yml`, Rust pinned in `rust-toolchain.toml`): fmt, clippy (native + wasm32), tests,
   cargo-deny, the tidy tool's checks (and on `main`, a coverage report: see "Testing and linting" below), the web build, relaxed-SIMD check, a size report, the browser tests (after the web
   build, at once: `cargo webtest` portrait and landscape in WebKit, `cargo cooptest` in three parts, frame strips;
