@@ -71,6 +71,9 @@ use crabsim::Sim;
 use crabsim::combat::{Claw, Phase};
 use crabsim::{Feat, Fighter};
 
+mod depth_order;
+use depth_order::{DepthOrder, remember_draw_order};
+
 /// The parts list, baked into the game (it is small).
 const PARTS_JSON: &str = include_str!("../assets/crab/crab-parts.json");
 /// The pizza crab's parts list (the same pieces as the crab's, in other places on its own pictures), loaded
@@ -1107,7 +1110,7 @@ fn paddle_curve(t: f32) -> f32 {
 }
 
 /// Pose every crab puppet from its movement state.
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn animate(
     time: Res<Time>,
     rave: Res<crate::codes::Rave>,
@@ -1124,6 +1127,7 @@ fn animate(
     )>,
     mut parts: Query<(&mut Transform, Option<&RestPos>)>,
     mut lits: Query<&mut Lit>,
+    mut order_scratch: Local<DepthOrder>,
 ) {
     let dt = time.delta_secs().min(0.05);
     for (mover, id, fighter, events, rig, mut a, local) in &mut crabs {
@@ -1384,13 +1388,10 @@ fn animate(
         }
 
         // --- The turn: each limb's plane placed, foreshortened and ordered
-        let order = draw_order(
-            &rig.planes.iter().map(|p| p.geom).collect::<Vec<_>>(),
-            a.yaw,
-        );
+        let order = draw_order(rig.planes.iter().map(|p| p.geom), a.yaw, &mut order_scratch);
         let behind = order.iter().filter(|&&slot| slot < 0).count() as f32;
         let mut widths = [1.0f32; 2];
-        for (plane, slot) in rig.planes.iter().zip(&order) {
+        for (plane, slot) in rig.planes.iter().zip(order) {
             let w = match plane.member {
                 Member::Claw(side) => {
                     // Rigid with the body, or swung out to reach along the
@@ -1603,15 +1604,11 @@ fn animate(
         a.lantern_in_front = rig
             .planes
             .iter()
-            .zip(&order)
+            .zip(order)
             .any(|(p, &slot)| p.member == Member::Claw(1) && slot > 0);
-        let mut drawn = order.clone();
-        drawn.push(i32::from(a.lantern_in_front));
-        if let Ok((tr, _)) = parts.get(rig.root) {
-            drawn.push(tr.translation.z.to_bits() as i32);
-        }
-        a.resort = drawn != a.drawn;
-        a.drawn = drawn;
+        let lantern_in_front = a.lantern_in_front;
+        let root_z = parts.get(rig.root).ok().map(|(tr, _)| tr.translation.z);
+        a.resort = remember_draw_order(&mut a.drawn, order, lantern_in_front, root_z);
         let fill = BACKLIT_FILL * a.backlit;
         for &e in &rig.lit {
             if let Ok(mut l) = lits.get_mut(e)
@@ -2074,28 +2071,20 @@ fn plane_geom(member: Member, anchor: Vec2) -> PlaneGeom {
 /// (in their own order). From the front that is the art's order; from
 /// behind the claws, lantern and eye stalks go behind the shell, the legs'
 /// order reverses and the paddles come in front.
-fn draw_order(planes: &[PlaneGeom], yaw: f32) -> Vec<i32> {
+fn draw_order(
+    planes: impl Iterator<Item = PlaneGeom>,
+    yaw: f32,
+    scratch: &mut DepthOrder,
+) -> &[i32] {
     let (s, c) = yaw.sin_cos();
-    let keys: Vec<f32> = planes
-        .iter()
-        .map(|g| {
-            let key = -g.at.x * s + g.at.y * c;
-            if g.under {
-                key.min(-0.5) + 0.001 * key
-            } else {
-                key
-            }
-        })
-        .collect();
-    let mut by_depth: Vec<usize> = (0..planes.len()).collect();
-    by_depth.sort_by(|&a, &b| keys[a].total_cmp(&keys[b]));
-    let behind = keys.iter().filter(|&&k| k < 0.0).count() as i32;
-    let mut slots = vec![0; planes.len()];
-    for (rank, &i) in by_depth.iter().enumerate() {
-        let r = rank as i32 - behind;
-        slots[i] = if r >= 0 { r + 1 } else { r };
-    }
-    slots
+    scratch.slots(planes.map(|g| {
+        let key = -g.at.x * s + g.at.y * c;
+        if g.under {
+            key.min(-0.5) + 0.001 * key
+        } else {
+            key
+        }
+    }))
 }
 
 /// A flat piece's width across the screen, kept from going thinner than
@@ -2687,6 +2676,10 @@ mod tests {
     /// name.
     fn planes() -> Vec<(String, PlaneGeom)> {
         let file = PartsFile::parse();
+        planes_for(&file)
+    }
+
+    fn planes_for(file: &PartsFile) -> Vec<(String, PlaneGeom)> {
         let shell = file.parts.iter().find(|p| p.name == "carapace").unwrap();
         file.parts
             .iter()
@@ -2698,12 +2691,133 @@ mod tests {
             .collect()
     }
 
+    /// The original allocating implementation, retained only as an independent
+    /// behavior/performance reference for this presentation-only optimization.
+    fn original_draw_order(planes: &[PlaneGeom], yaw: f32) -> Vec<i32> {
+        let (s, c) = yaw.sin_cos();
+        let keys: Vec<f32> = planes
+            .iter()
+            .map(|g| {
+                let key = -g.at.x * s + g.at.y * c;
+                if g.under {
+                    key.min(-0.5) + 0.001 * key
+                } else {
+                    key
+                }
+            })
+            .collect();
+        let mut by_depth: Vec<usize> = (0..planes.len()).collect();
+        by_depth.sort_by(|&a, &b| keys[a].total_cmp(&keys[b]));
+        let behind = keys.iter().filter(|&&k| k < 0.0).count() as i32;
+        let mut slots = vec![0; planes.len()];
+        for (rank, &i) in by_depth.iter().enumerate() {
+            let r = rank as i32 - behind;
+            slots[i] = if r >= 0 { r + 1 } else { r };
+        }
+        slots
+    }
+
+    #[test]
+    fn reusable_order_matches_both_real_rigs_through_every_turn() {
+        let mut scratch = DepthOrder::default();
+        for file in [
+            PartsFile::parse(),
+            serde_json::from_str(PIZZA_PARTS_JSON).unwrap(),
+        ] {
+            let geoms: Vec<_> = planes_for(&file).into_iter().map(|(_, g)| g).collect();
+            for half_degree in -720..=720 {
+                let yaw = (half_degree as f32 * 0.5).to_radians();
+                assert_eq!(
+                    draw_order(geoms.iter().copied(), yaw, &mut scratch),
+                    original_draw_order(&geoms, yaw),
+                    "yaw {yaw}"
+                );
+            }
+        }
+    }
+
+    /// Release comparison on the real crab and pizza rig geometry. CPU time
+    /// for order/signature preparation only, not animation, GPU work or FPS.
+    /// Run: cargo test --release -p crabscape puppet_order_cpu -- --ignored --nocapture
+    #[test]
+    #[ignore = "manual release microbenchmark, no portable timing threshold"]
+    fn puppet_order_cpu() {
+        use std::{hint::black_box, time::Instant};
+        let rigs: Vec<Vec<PlaneGeom>> = [
+            PartsFile::parse(),
+            serde_json::from_str(PIZZA_PARTS_JSON).unwrap(),
+        ]
+        .iter()
+        .map(|file| planes_for(file).into_iter().map(|(_, g)| g).collect())
+        .collect();
+        for count in [1, 8] {
+            for turning in [false, true] {
+                let mut times = [Vec::new(), Vec::new()];
+                for sample in 0..11 {
+                    // Alternate measurement order to reduce ordering bias.
+                    for variant in [sample % 2, 1 - sample % 2] {
+                        let mut scratch = DepthOrder::default();
+                        let mut previous = vec![Vec::new(); count];
+                        let start = Instant::now();
+                        for frame in 0..20_000 {
+                            for (crab, old) in previous.iter_mut().enumerate() {
+                                let geoms = black_box(&rigs[crab % rigs.len()]);
+                                let yaw = black_box(if turning {
+                                    (frame as f32 * 0.01 + crab as f32).sin() * PI
+                                } else {
+                                    0.0
+                                });
+                                if variant == 0 {
+                                    let geometry = geoms.to_vec();
+                                    let order = original_draw_order(&geometry, yaw);
+                                    let mut drawn = order.clone();
+                                    drawn.push(i32::from(order[0] > 0));
+                                    drawn.push(9.0f32.to_bits() as i32);
+                                    black_box(drawn != *old);
+                                    *old = drawn;
+                                    black_box(&order);
+                                } else {
+                                    let order =
+                                        draw_order(geoms.iter().copied(), yaw, &mut scratch);
+                                    black_box(remember_draw_order(
+                                        old,
+                                        order,
+                                        order[0] > 0,
+                                        Some(9.0),
+                                    ));
+                                    black_box(order);
+                                }
+                            }
+                        }
+                        times[variant].push(start.elapsed().as_secs_f64() * 1e6 / 20_000.0);
+                        black_box(previous);
+                    }
+                }
+                for values in &mut times {
+                    values.sort_by(f64::total_cmp);
+                }
+                println!(
+                    "puppet ordering: crabs={count} turning={turning}; before {:.3} us/frame (range {:.3}–{:.3}), after {:.3} (range {:.3}–{:.3}); 11 samples x 20000 frames",
+                    times[0][5], times[0][0], times[0][10], times[1][5], times[1][0], times[1][10]
+                );
+            }
+        }
+    }
+
     /// Slots in the drawing order at `yaw` degrees, by name.
     fn slots_at(yaw: f32) -> HashMap<String, i32> {
         let planes = planes();
-        let geoms: Vec<PlaneGeom> = planes.iter().map(|(_, g)| *g).collect();
-        let slots = draw_order(&geoms, yaw.to_radians());
-        planes.into_iter().map(|(n, _)| n).zip(slots).collect()
+        let mut scratch = DepthOrder::default();
+        let slots = draw_order(
+            planes.iter().map(|(_, g)| *g),
+            yaw.to_radians(),
+            &mut scratch,
+        );
+        planes
+            .into_iter()
+            .map(|(n, _)| n)
+            .zip(slots.iter().copied())
+            .collect()
     }
 
     #[test]
