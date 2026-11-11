@@ -34,7 +34,8 @@ fn main() -> Result<()> {
     }
     if std::env::args().any(|arg| arg == "--reuse-only") {
         canyon::prepare(&mut browser, &url, true)?;
-        let result = browser.eval(r#"(async()=>{
+        let expect_fresh = std::env::args().any(|arg| arg == "--expect-fresh-connections");
+        let script = r#"(async()=>{
           const c=document.getElementById('crabscape');
           c.setAttribute('data-cell-work-profile','1');c.setAttribute('data-cell-performance-probe','1');
           const original=IDBObjectStore.prototype.get,transactions=new WeakSet(),databases=new Map();
@@ -54,10 +55,12 @@ fn main() -> Result<()> {
           try{
             const start=performance.now();while((completed<8||applied<8)&&performance.now()-start<30000)await new Promise(r=>setTimeout(r,50));
             const result={batches,completed,aborted,applied,failed,distinctPageConnections:databases.size,batchesPerConnection:[...databases.values()]};
-            if(completed<8||applied<8||aborted||failed||databases.size!==1)throw Error(JSON.stringify(result));
+            if(completed<8||applied<8||aborted||failed||databases.size!==(EXPECT_FRESH?batches:1))throw Error(JSON.stringify(result));
+            result.build=(await (await fetch(new URL('pkg/commit.txt',location.href),{cache:'no-store'})).text()).trim();
             return result;
           }finally{IDBObjectStore.prototype.get=original;observer.disconnect();c.removeAttribute('data-cell-work-profile');c.removeAttribute('data-cell-performance-probe')}
-        })()"#)?;
+        })()"#.replace("EXPECT_FRESH", if expect_fresh { "true" } else { "false" });
+        let result = browser.eval(&script)?;
         println!("{result}");
         return browser.trouble().map_or(Ok(()), Err);
     }
