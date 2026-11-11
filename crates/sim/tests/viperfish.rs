@@ -11,16 +11,22 @@ use crabsim::{Controls, Kind, Level, PlayerId, Sim, Tuning};
 
 const P: PlayerId = PlayerId(0);
 const GUEST: PlayerId = PlayerId(1);
-const X: f32 = 19900.0;
-
-fn floor() -> f32 {
-    Level::test_level().floor_height(X)
+/// Where the arena is: the first viperfish's own spot over the vent field
+/// (clear of every chimney mouth and refuge, on any map).
+fn x() -> f32 {
+    vf::spots(&Level::test_level())
+        .first()
+        .map_or(19_000.0, |p| p.x)
 }
 
-/// A crab on the floor at X, a viperfish `dx` to its right at crab-middle height.
+fn floor() -> f32 {
+    Level::test_level().floor_height(x())
+}
+
+/// A crab on the floor at x(), a viperfish `dx` to its right at crab-middle height.
 fn arena(dx: f32, dim: bool) -> Sim {
-    let mut sim = Sim::with_one_crab(Vec2::new(X, floor()));
-    sim.spawn_enemy(Kind::Viperfish, Vec2::new(X + dx, floor() + 10.0));
+    let mut sim = Sim::with_one_crab(Vec2::new(x(), floor()));
+    sim.spawn_enemy(Kind::Viperfish, Vec2::new(x() + dx, floor() + 10.0));
     sim.crab_mut(P).unwrap().mover.lantern_dim = dim;
     sim
 }
@@ -442,7 +448,7 @@ fn dim_at(i: u32) -> bool {
 fn two_sims_agree_on_every_hash() {
     let build = || {
         let mut sim = arena(300.0, false);
-        sim.spawn_enemy(Kind::Viperfish, Vec2::new(X - 500.0, floor() + 200.0));
+        sim.spawn_enemy(Kind::Viperfish, Vec2::new(x() - 500.0, floor() + 200.0));
         sim
     };
     let (mut a, mut b) = (build(), build());
@@ -459,11 +465,11 @@ fn two_sims_agree_on_every_hash() {
 
 fn game() -> (Sim, Sim, FakeLink) {
     let setup = |sim: &mut Sim| {
-        sim.spawn_enemy(Kind::Viperfish, Vec2::new(X + 160.0, floor() + 10.0));
+        sim.spawn_enemy(Kind::Viperfish, Vec2::new(x() + 160.0, floor() + 10.0));
     };
     let world = || Sim::new(Tuning::default(), Level::test_level());
     let far = Vec2::new(1150.0, 110.0);
-    let at = Vec2::new(X, floor());
+    let at = Vec2::new(x(), floor());
     let mut host = world();
     setup(&mut host);
     host.add_crab(P, far);

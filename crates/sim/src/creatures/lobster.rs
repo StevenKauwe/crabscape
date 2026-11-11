@@ -7,18 +7,18 @@
 //! Spec: `docs/design/creatures/american-lobster.md`. Its feel numbers are the
 //! named consts below; shared ones stay in `tuning.rs`.
 //!
-//! How the rules ride on the shared skeleton without a shared change: the
-//! crab's claws hurt it through `Enemy::takes` like any enemy, before its step
-//! runs. At the start of its step it reads what that did (health and poise
-//! lost since the last step it saw), and, if it was guarding, gives back what
-//! its guard stops: [`settle`]. It also reads the local crabs' swings to start
-//! its counter beat. Every blow of its own goes through `crab_defends` and
-//! [`feels`], as the co-op rules need.
+//! How the rules ride on the shared skeleton: the crab's claws hurt it through
+//! `Enemy::takes` like any enemy, and the `creatures::takes` hook ([`takes`])
+//! books the blow against its guard (a fifth of the damage, none of the poise,
+//! wearing down the guard's own poise instead) or, in the counter beat, turns
+//! a smash aside (nothing booked, and its step shoves the smasher). It also
+//! reads the local crabs' swings to start its counter beat. Every blow of its
+//! own goes through `crab_defends` and [`feels`], as the co-op rules need.
 
 use bevy_math::Vec2;
 
 use crate::combat::{self, Claw, Hit, Outcome, Source};
-use crate::creatures::Extra;
+use crate::creatures::{Extra, Scale, Takes};
 use crate::enemy::{self, AnimalPrey, Enemy, State as Gen};
 use crate::level::Level;
 use crate::level::landmarks::Kind as Place;
@@ -172,15 +172,8 @@ pub struct State {
     pub riposted: bool,
     /// In its den after a flip: holds it, snips what comes close.
     pub denned: bool,
-    // What the last step ended on, to read what the crab did since.
-    seen_health: f32,
-    seen_poise: f32,
-    seen_stagger: u32,
-    seen_state: Gen,
-    seen_tick: u32,
-    seen_len: u32,
-    seen_guarded: bool,
-    seen_counter: bool,
+    /// A smash was turned aside since its last step: it shoves the crab.
+    shove: bool,
 }
 
 impl Default for State {
@@ -191,14 +184,7 @@ impl Default for State {
             guard_unhit: 0,
             riposted: false,
             denned: false,
-            seen_health: HEALTH,
-            seen_poise: POISE,
-            seen_stagger: 0,
-            seen_state: Gen::Idle,
-            seen_tick: 0,
-            seen_len: 0,
-            seen_guarded: false,
-            seen_counter: false,
+            shove: false,
         }
     }
 }
@@ -364,53 +350,39 @@ fn sheltered(level: &Level, c: &SimCrab) -> bool {
         })
 }
 
-/// What the crab's claws did to it since its last step, as the guard sees it.
-fn settle(
-    e: &mut Enemy,
-    s: &mut State,
-    crabs: &mut [SimCrab],
-    t: &Tuning,
-    blows: &mut Vec<(PlayerId, Outcome)>,
-) {
-    let k = tuning();
-    let lost = s.seen_health - e.vitals.health;
-    let poise = s.seen_poise - e.vitals.poise;
-    let by_hit = e.vitals.stagger > 0 && s.seen_stagger == 0;
-    if !s.seen_guarded || e.state == Gen::Gone || (lost <= 0.0 && poise <= 0.0 && !by_hit) {
-        return;
+/// How it books a blow. Guarding, a fifth of the damage gets through and none
+/// of the poise: the guard's own poise takes it, and a broken guard staggers
+/// it. In the counter beat a heavy blow is turned aside: nothing booked, and
+/// the smasher is shoved in its next step.
+pub(crate) fn takes(e: &mut Enemy, hit: &Hit, _from_x: f32, _t: &Tuning) -> Option<Takes> {
+    let mut s = load(e);
+    if !guarded(e, &s) {
+        return None;
     }
-    let parry = s.seen_counter && poise >= HEAVY_POISE && !s.riposted;
-    // Give back what the guard stops.
-    let stopped = if parry { 1.0 } else { 1.0 - GUARD_DAMAGE };
-    if lost > 0.0 {
-        e.vitals.health = (e.vitals.health + lost * stopped).min(k.vitals.health);
-    }
-    if poise > 0.0 {
-        e.vitals.poise = (e.vitals.poise + poise).min(k.vitals.poise);
-    }
-    if by_hit {
-        // Its poise did not break; only the guard's can.
-        e.vitals.stagger = 0;
-        if e.state == Gen::Stagger && s.seen_state != Gen::Stagger {
-            e.state = s.seen_state;
-            e.state_tick = s.seen_tick;
-            e.state_len = s.seen_len;
-        }
-    }
-    e.vel_x = 0.0;
-    if parry {
+    let counter = e.state == Gen::Notice && s.sub == Sub::Counter;
+    if counter && hit.poise >= HEAVY_POISE && !s.riposted {
         s.riposted = true;
-        shove(e, crabs, t, blows);
-        return;
+        s.shove = true;
+        store(e, s);
+        return Some(Takes::Handled(combat::Took {
+            broke_poise: false,
+            died: false,
+        }));
     }
     s.guard_unhit = 0;
-    s.guard -= poise.max(0.0);
+    s.guard -= hit.poise;
     if s.guard <= 0.0 {
         s.guard = 0.0;
         s.sub = Sub::Broken;
         e.enter(Gen::Stagger, GUARD_BREAK_TICKS);
         s.denned = s.denned && e.fled;
     }
+    store(e, s);
+    Some(Takes::Scale(Scale {
+        damage: GUARD_DAMAGE,
+        poise: 0.0,
+        knock: 0.0,
+    }))
 }
 
 /// The parry's shove: poise and a push on the crab that smashed, no health.
@@ -486,7 +458,9 @@ pub(crate) fn step(
     if e.state == Gen::Gone {
         return Some(blows);
     }
-    settle(e, &mut s, crabs, t, &mut blows);
+    if std::mem::take(&mut s.shove) {
+        shove(e, crabs, t, &mut blows);
+    }
     e.vitals.tick(&k.vitals);
     // A poise break from the crab's blows (the generic rules staggered it).
     if e.state == Gen::Stagger && !matches!(s.sub, Sub::Broken | Sub::Parried | Sub::Dazed) {
@@ -699,14 +673,6 @@ pub(crate) fn step(
     e.reach += (want - e.reach).clamp(-REACH_RATE, REACH_RATE);
     walk(e, vx, level, t);
 
-    s.seen_health = e.vitals.health;
-    s.seen_poise = e.vitals.poise;
-    s.seen_stagger = e.vitals.stagger;
-    s.seen_state = e.state;
-    s.seen_tick = e.state_tick;
-    s.seen_len = e.state_len;
-    s.seen_guarded = guarded(e, &s);
-    s.seen_counter = e.state == Gen::Notice && s.sub == Sub::Counter;
     store(e, s);
     Some(blows)
 }

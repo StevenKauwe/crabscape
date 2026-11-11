@@ -53,9 +53,6 @@ fn until(sim: &mut Sim, c: Controls, max: u32, f: impl Fn(&Sim) -> bool) -> u32 
 fn set_health(sim: &mut Sim, h: f32) {
     let e = &mut sim.enemies_mut()[0];
     e.vitals.health = h;
-    if let Extra::Isopod(s) = &mut e.creature {
-        s.seen_health = h;
-    }
 }
 
 /// A smash-sized blow straight onto the enemy, then one tick to settle.
@@ -195,7 +192,7 @@ fn a_parry_takes_no_damage_and_turns_it_on_its_back() {
     assert_eq!(sim.enemies()[0].state, State::Stagger);
     assert_eq!(phase(&sim), "flipped");
     assert_eq!(sim.enemies()[0].state_len, isopod::FLIP_TICKS);
-    assert_eq!(iso(&sim).armour, FLIPPED);
+    assert_eq!(isopod::armour(&sim.enemies()[0]), FLIPPED);
     // It rights itself afterwards.
     until(&mut sim, Controls::default(), 400, |s| {
         phase(s) == "righting"
@@ -257,17 +254,17 @@ fn its_back_takes_a_quarter_its_bared_belly_double_and_a_flipped_one_double() {
     // Reared (belly bared, first half of the bite's tell).
     let mut sim = arena();
     to_bite_tell(&mut sim, Controls::default());
-    assert_eq!(iso(&sim).armour, BELLY);
+    assert_eq!(isopod::armour(&sim.enemies()[0]), BELLY);
     let before = sim.enemies()[0].vitals.health;
     blow(&mut sim, 12.0, 0.0);
     assert_eq!(sim.enemies()[0].vitals.health, before - 12.0 * BELLY);
     // The cocked second half covers it again.
     until(&mut sim, Controls::default(), 100, |s| phase(s) == "cocked");
     tick(&mut sim, Controls::default());
-    assert_eq!(iso(&sim).armour, ARMOUR);
+    assert_eq!(isopod::armour(&sim.enemies()[0]), ARMOUR);
     // The settle after the bite bares it once more.
     until(&mut sim, Controls::default(), 200, |s| phase(s) == "settle");
-    assert_eq!(iso(&sim).armour, BELLY);
+    assert_eq!(isopod::armour(&sim.enemies()[0]), BELLY);
 }
 
 #[test]
@@ -295,7 +292,7 @@ fn hurt_to_30_percent_it_rolls_up_then_crawls_away() {
     set_health(&mut sim, 27.0);
     tick(&mut sim, Controls::default());
     assert_eq!(phase(&sim), "rolled");
-    assert_eq!(iso(&sim).armour, ROLLED);
+    assert_eq!(isopod::armour(&sim.enemies()[0]), ROLLED);
     let at = sim.enemies()[0].pos;
     let before = sim.enemies()[0].vitals.health;
     blow(&mut sim, 12.0, 0.0);

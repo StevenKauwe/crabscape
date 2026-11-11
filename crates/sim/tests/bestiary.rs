@@ -121,3 +121,55 @@ fn every_bestiary_creature_is_placed_in_the_world() {
         );
     }
 }
+
+/// One blow of `damage` lands on a lone creature of `kind` with `health` left
+/// (put in `pose` first); the health it lost, and whether the blow killed it.
+fn one_blow(
+    kind: Kind,
+    health: f32,
+    damage: f32,
+    pose: impl FnOnce(&mut crabsim::Enemy),
+) -> (f32, bool) {
+    use crabsim::combat::{Hit, Source};
+    let mut sim = Sim::with_one_crab(Vec2::new(0.0, 0.0));
+    sim.spawn_enemy(kind, Vec2::new(300.0, 0.0));
+    let t = sim.tuning.clone();
+    let e = &mut sim.enemies_mut()[0];
+    e.vitals.health = health;
+    pose(e);
+    let hit = Hit::new(damage, 5.0, Source::Crab(P));
+    let took = e.takes(&hit, 0.0, &t).expect("it can be hit");
+    (health - e.vitals.health, took.died)
+}
+
+/// The old bug: the kill check used the raw damage and the armour was
+/// refunded a step later, so a blow its armour shrugs off could still kill.
+#[test]
+fn a_blow_its_armour_shrugs_off_does_not_kill_it() {
+    use creatures::{hermit, lobster};
+    // Guarded lobster (approaching, claws up): a fifth of the damage.
+    let (lost, died) = one_blow(Kind::Lobster, 10.0, 20.0, |e| {
+        e.state = crabsim::enemy::State::Approach;
+        e.facing = 1.0;
+    });
+    assert!(!died, "a guarded lobster at 10 survives a 20 blow");
+    assert!((lost - 20.0 * lobster::GUARD_DAMAGE).abs() < 1e-4, "{lost}");
+    // Withdrawn hermit: a tenth.
+    let (lost, died) = one_blow(Kind::HermitCrab, 10.0, 50.0, hermit::withdraw);
+    assert!(!died, "a withdrawn hermit at 10 survives a 50 blow");
+    assert!((lost - 50.0 * hermit::SHELL_SHARE).abs() < 1e-4, "{lost}");
+    // Isopod under its back armour: a quarter.
+    let (lost, died) = one_blow(Kind::GiantIsopod, 10.0, 30.0, |_| {});
+    assert!(!died, "an isopod at 10 survives a 30 blow on its back");
+    assert!(
+        (lost - 30.0 * creatures::isopod::ARMOUR).abs() < 1e-4,
+        "{lost}"
+    );
+    // The kill check is on the real damage: flipped, the same blow kills.
+    let (_, died) = one_blow(Kind::GiantIsopod, 8.0, 30.0, |_| {});
+    assert!(!died);
+    let (_, died) = one_blow(Kind::GiantIsopod, 8.0, 30.0, |e| {
+        e.state = crabsim::enemy::State::Stagger; // flipped: double
+    });
+    assert!(died, "flipped, the belly takes double");
+}

@@ -51,9 +51,12 @@ pub enum Sfx {
     Knock,
     /// The odd tunnel's cold draught: a thin low moan on D.
     Moan,
+    /// A goliath grouper's boom: a very low swell and thump on D1 and D2,
+    /// felt more than heard.
+    Throb,
 }
 
-const ALL: [Sfx; 13] = [
+const ALL: [Sfx; 14] = [
     Sfx::Swish,
     Sfx::Crunch,
     Sfx::Click,
@@ -67,6 +70,7 @@ const ALL: [Sfx; 13] = [
     Sfx::Rock,
     Sfx::Knock,
     Sfx::Moan,
+    Sfx::Throb,
 ];
 
 /// The steady tones under everything: started once, never retriggered, only
@@ -240,6 +244,11 @@ fn atmosphere(sim: Res<crabsim::Sim>, me: Res<crate::coop::LocalId>, mut last: L
                 };
                 backend::spatial(sfx, gain, groan_pitch(source), pan(source), Route::World);
             }
+            Cue::Boom { at: source } => {
+                // Additive only: a swell in the world bus that fades with distance.
+                let gain = 0.3 * (1.0 - source.distance(at) / 2200.0).max(0.0);
+                backend::spatial(Sfx::Throb, gain, 1.0, pan(source), Route::World);
+            }
             Cue::VentHum { at: source } => {
                 vent = vent.max(mute * 0.025 * (1.0 - source.distance(at) / 1600.0).max(0.0));
             }
@@ -296,6 +305,12 @@ pub fn synth(sfx: Sfx, rate: f32) -> Vec<f32> {
         ]),
         // Thin (its weight is in the second and third partials) and low.
         Sfx::Moan => groan(rate, d(-1), &[(1.0, 0.3), (2.0, 1.0), (3.0, 0.4)], 0.9, 1.8),
+        Sfx::Throb => mix(&[
+            // D1 and D2, swelling in over 0.5 s and dying over 1.8 s.
+            groan(rate, d(-2), &[(1.0, 1.0), (2.0, 0.6)], 0.5, 1.8),
+            // The thump: D2, quick in and quickly gone.
+            groan(rate, d(-1), &[(1.0, 1.0)], 0.06, 0.45),
+        ]),
         Sfx::Swish => {
             // Noise through a filter that opens and closes: a sweep of water.
             let n = len(0.2);
@@ -1234,6 +1249,9 @@ mod tests {
                 .abs()
                 < 1e-3
         );
+        // The grouper's boom plays at the pitch it was made.
+        let hz = loudest_hz(&synth(Sfx::Throb, rate), rate);
+        assert!(is_d(hz) && hz >= 30.0, "Throb: {hz} Hz");
         for depth in [-400.0, -1000.0, -4000.0, -10000.0] {
             let pitch = crabsim::world::cues::groan_pitch(Vec2::new(0.0, depth));
             for sfx in [Sfx::Bone, Sfx::Rock] {
@@ -1256,6 +1274,7 @@ mod tests {
             Sfx::Rock,
             Sfx::Knock,
             Sfx::Moan,
+            Sfx::Throb,
         ] {
             let top = top_db(&synth(sfx, rate), rate, 3000.0);
             eprintln!("{sfx:?}: top at {top:.1} dB");
@@ -1375,7 +1394,7 @@ mod tests {
         for sfx in ALL {
             let s = synth(sfx, 44100.0);
             let secs = s.len() as f32 / 44100.0;
-            let longest = if matches!(sfx, Sfx::Bone | Sfx::Rock | Sfx::Moan) {
+            let longest = if matches!(sfx, Sfx::Bone | Sfx::Rock | Sfx::Moan | Sfx::Throb) {
                 2.0
             } else {
                 0.7

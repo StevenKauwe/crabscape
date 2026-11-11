@@ -246,7 +246,7 @@ fn the_withdrawn_shell_takes_a_tenth_cannot_stagger_and_stings_the_attacker() {
     let mut sim = fight(60.0);
     hermit::withdraw(hm(&mut sim));
     assert_eq!(hermit::phase(h(&sim)), Some("withdrawn"));
-    let hp = st(&sim).banked;
+    let hp = h(&sim).vitals.health;
     tick(
         &mut sim,
         Controls {
@@ -259,10 +259,10 @@ fn the_withdrawn_shell_takes_a_tenth_cannot_stagger_and_stings_the_attacker() {
     }
     let s = st(&sim);
     assert!(
-        (hp - s.banked - 1.2).abs() < 0.01,
-        "banked {} -> {}",
+        (hp - h(&sim).vitals.health - 1.2).abs() < 0.01,
+        "health {} -> {}",
         hp,
-        s.banked
+        h(&sim).vitals.health
     );
     assert_eq!(h(&sim).state, State::Idle);
     assert!(
@@ -353,12 +353,7 @@ fn a_jab_lands_before_it_can_shut_in_but_a_smash_finds_the_shell_sometimes() {
         for _ in 0..14 {
             tick(&mut sim, Controls::default());
         }
-        let s = st(&sim);
-        let real = if s.posture == hermit::Posture::Out {
-            h(&sim).vitals.health
-        } else {
-            s.banked
-        };
+        let real = h(&sim).vitals.health;
         jabs += (real < 50.0) as u32;
         for _ in 0..400 {
             tick(&mut sim, Controls::default());

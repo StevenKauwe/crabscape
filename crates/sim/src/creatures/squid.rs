@@ -229,12 +229,13 @@ pub fn spots(level: &Level) -> Vec<Vec2> {
     let Some(shelf) = places.iter().find(|l| l.name == "canyon shelf crossing") else {
         return Vec::new();
     };
-    // Above the deep water the sixgill hunts (the two crossings overlap).
-    let deep_top = places
+    // 450 over the shelf, and never down in the sixgill's deep water (the
+    // stepped map overlaps the two boxes).
+    let deep = places
         .iter()
         .find(|l| l.name == "canyon deep water")
         .map_or(f32::NEG_INFINITY, |l| l.rect.max.y);
-    let y = (shelf.rect.min.y + 450.0).max(deep_top + 60.0);
+    let y = (shelf.rect.min.y + 450.0).max(deep + 450.0);
     let refuges: Vec<Rect> = places
         .iter()
         .filter(|l| matches!(l.kind, Place::Refuge | Place::Mouth))

@@ -157,6 +157,32 @@ fn the_tell_lasts_1_2_seconds_swells_and_the_gulp_is_12_ticks() {
     assert!(swell.is_some_and(|(crab, _)| crab == P), "{swell:?}");
 }
 
+#[test]
+fn each_boom_cues_one_deep_thump_before_the_tell() {
+    let mut sim = encounter(300.0);
+    let (mut booms, mut boom_tick, mut tell_tick) = (0, None, None);
+    for _ in 0..600 {
+        tick(&mut sim, Controls::default());
+        let now = sim.tick_count();
+        for event in sim.cues().iter().filter(|e| e.tick == now) {
+            match event.cue {
+                Cue::Boom { at } => {
+                    booms += 1;
+                    boom_tick = Some(now);
+                    assert_eq!(at, sim.enemies()[0].pos);
+                }
+                Cue::Tell { .. } => tell_tick = tell_tick.or(Some(now)),
+                _ => {}
+            }
+        }
+        if tell_tick.is_some() {
+            break;
+        }
+    }
+    assert_eq!(booms, 1, "exactly one Boom per boom");
+    assert!(boom_tick < tell_tick, "{boom_tick:?} before {tell_tick:?}");
+}
+
 /// Put it mid-gulp aiming straight at the crab (or `turn` radians away).
 fn force_gulp(sim: &mut Sim, turn: f32) {
     let at = middle(sim);

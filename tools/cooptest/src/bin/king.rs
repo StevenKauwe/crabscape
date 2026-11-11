@@ -11,9 +11,7 @@ use std::{
     thread::sleep,
     time::{Duration, Instant},
 };
-fn failure_evidence(browser: &mut Chrome) {
-    let directory = Path::new("target/webtest/king");
-    let _ = std::fs::create_dir_all(directory);
+fn diagnostic_state(browser: &mut Chrome) -> Result<serde_json::Value> {
     const STATE: &str = r#"(() => {
       const c = document.getElementById('crabscape');
       return {window:[innerWidth,innerHeight,devicePixelRatio],
@@ -32,15 +30,21 @@ fn failure_evidence(browser: &mut Chrome) {
         storage:c?.getAttribute('data-cell-page-state'),
         region:c?.getAttribute('data-cell-region-state'),
         timing:window.kingProbe,
+        measures:performance.getEntriesByType('measure').map(m => [m.name,m.startTime,m.duration]),
         now:performance.now()};
     })()"#;
+    browser.eval(STATE)
+}
+fn failure_evidence(browser: &mut Chrome) {
+    let directory = Path::new("target/webtest/king");
+    let _ = std::fs::create_dir_all(directory);
     // Capture the timed-out state before asking Chrome for a screenshot:
     // a software-rendered capture may itself take time or trigger a paint.
-    if let Ok(state) = browser.eval(STATE) {
+    if let Ok(state) = diagnostic_state(browser) {
         let _ = std::fs::write(directory.join("failure-state.json"), state.to_string());
     }
     let _ = browser.screenshot(&directory.join("failure.png"));
-    if let Ok(state) = browser.eval(STATE) {
+    if let Ok(state) = diagnostic_state(browser) {
         let _ = std::fs::write(directory.join("failure-after-shot.json"), state.to_string());
     }
 }
@@ -100,17 +104,29 @@ fn reload_castle(browser: &mut Chrome) -> Result<()> {
     browser.eval("window.kingtestOld = true")?;
     browser.reload()?;
     let until = Instant::now() + Duration::from_secs(120);
+    let mut progress = ReloadProgress::default();
     loop {
-        if browser.eval(
+        let state = browser.eval(
             r#"(() => {
               const c = document.getElementById('crabscape');
-              return window.kingtestOld !== true &&
+              const ready = window.kingtestOld !== true &&
                 document.getElementById('message')?.hidden === true &&
                 document.activeElement === c &&
                 c?.getAttribute('data-king-ddd') === 'castle';
+              if (ready && window.kingProbe && window.kingProbe.reloadReady === undefined)
+                window.kingProbe.reloadReady = performance.now();
+              return {ready,tick:c?.getAttribute('data-king-ddd-tick')};
             })()"#,
-        )? == true
-        {
+        )?;
+        // The loaded castle marker and tick come from the saved position
+        // and clock. They can be published while initial terrain paging
+        // still prevents every simulation tick. Complete readiness only
+        // after that replacement document actually advances, with no
+        // movement input and within the same original loading deadline.
+        let ready = state["ready"] == true;
+        let tick = state["tick"].as_str().and_then(|v| v.parse().ok());
+        if progress.observe(ready, tick) && Instant::now() <= until {
+            browser.eval("window.kingProbe.reloadProgressReady = performance.now()")?;
             return Ok(());
         }
         if let Some(e) = browser.trouble() {
@@ -118,9 +134,48 @@ fn reload_castle(browser: &mut Chrome) -> Result<()> {
         }
         if Instant::now() > until {
             failure_evidence(browser);
-            return Err("The new castle document did not finish loading with game focus".into());
+            return Err(format!(
+                "The new castle document did not become focused and advance its restored simulation: {state}"
+            ));
         }
         sleep(Duration::from_millis(100));
+    }
+}
+
+#[derive(Default)]
+struct ReloadProgress {
+    baseline: Option<u64>,
+}
+impl ReloadProgress {
+    fn observe(&mut self, ready: bool, tick: Option<u64>) -> bool {
+        if !ready {
+            self.baseline = None;
+            return false;
+        }
+        let Some(tick) = tick else { return false };
+        let Some(baseline) = self.baseline else {
+            self.baseline = Some(tick);
+            return false;
+        };
+        tick > baseline
+    }
+}
+
+#[derive(Debug, PartialEq)]
+enum WalkStatus {
+    Moving,
+    Arrived,
+    TimedOut,
+}
+fn walk_status(distance: f64, reach: f64, elapsed: Duration, budget: Duration) -> WalkStatus {
+    // A slow browser reply must not turn a late target observation into
+    // success. Readiness never resets or extends this movement budget.
+    if elapsed > budget {
+        WalkStatus::TimedOut
+    } else if distance < reach {
+        WalkStatus::Arrived
+    } else {
+        WalkStatus::Moving
     }
 }
 fn position(browser: &mut Chrome) -> Result<[f64; 3]> {
@@ -205,18 +260,22 @@ fn walk_to(browser: &mut Chrome, target: f64, seconds: u64) -> Result<()> {
         browser.set_key("KeyW", true)?;
     }
     let started = Instant::now();
-    let until = started + Duration::from_secs(seconds);
+    let budget = Duration::from_secs(seconds);
     let mut trace = VecDeque::new();
     let mut held = None;
     loop {
-        let p = position(browser)?;
+        // One protocol turn correlates the displayed position with the
+        // current tick, input and paging markers. These markers can still
+        // have different publication cadences; retain them rather than
+        // claiming an old DOM sample proves the simulation was ready.
+        let observation = browser.eval("window.kingProbe.capture()")?;
+        let p = parse_position(observation["crab"].as_str().ok_or("No crab position")?)?;
         if trace.len() == 12 {
             trace.pop_front();
         }
         trace.push_back(format!(
-            "{:.2}s {p:?} tick={:?}",
+            "{:.2}s {observation}",
             started.elapsed().as_secs_f32(),
-            browser.attr("data-king-ddd-tick")
         ));
         // A gripped crab can stay at the edge of its 48-unit reach. Do not
         // demand the rope's centre after the approach has already caught it.
@@ -224,14 +283,20 @@ fn walk_to(browser: &mut Chrome, target: f64, seconds: u64) -> Result<()> {
         // of walking). Aim within the actual interaction/pickup reach,
         // rather than oscillate over a sub-frame 16-unit target forever.
         // The tour still asserts every collected page, bell and reward.
-        if (p[0] - target).abs() < if rope { 48.1 } else { 50.0 } {
-            break;
-        }
-        if Instant::now() > until {
-            failure_evidence(browser);
-            return Err(format!(
-                "Walk toward {target} stopped at {p:?}; observations={trace:?}"
-            ));
+        match walk_status(
+            (p[0] - target).abs(),
+            if rope { 48.1 } else { 50.0 },
+            started.elapsed(),
+            budget,
+        ) {
+            WalkStatus::Arrived => break,
+            WalkStatus::TimedOut => {
+                failure_evidence(browser);
+                return Err(format!(
+                    "Walk toward {target} stopped at {p:?}; observations={trace:?}"
+                ));
+            }
+            WalkStatus::Moving => {}
         }
         let right = p[0] < target;
         let command = Instant::now();
@@ -247,11 +312,22 @@ fn walk_to(browser: &mut Chrome, target: f64, seconds: u64) -> Result<()> {
         }
         sleep(Duration::from_millis(40));
     }
+    let reached = started.elapsed();
     // Release the key actually held first. A redundant opposite-key CDP
     // roundtrip can take several software-rendered frames, during which
     // the crab would keep walking past the target and off the landing.
     if let Some(right) = held {
         browser.set_key(if right { "ArrowRight" } else { "ArrowLeft" }, false)?;
+    }
+    if target == 240.0 {
+        // Keep a passing comparison too: one green run must not be mistaken
+        // for proof that the missing timing evidence fixed the earlier stall.
+        println!("Return walk completed in {:.2}s", reached.as_secs_f32());
+        let directory = Path::new("target/webtest/king");
+        let _ = std::fs::create_dir_all(directory);
+        if let Ok(state) = diagnostic_state(browser) {
+            let _ = std::fs::write(directory.join("return-state.json"), state.to_string());
+        }
     }
     if !rope {
         sleep(Duration::from_millis(250));
@@ -563,6 +639,62 @@ fn castle_tour(browser: &mut Chrome, dir: &Path) -> Result<()> {
     );
     Ok(())
 }
+fn install_probe(browser: &mut Chrome) -> Result<()> {
+    browser.install_script(
+        r#"(() => {
+          const p = window.kingProbe = {longTasks:[],keys:[],measures:[],frames:[],samples:[],lastFrame:null,frameCount:0};
+          const bounded = (list, value, limit=128) => {
+            list.push(value);
+            if (list.length>limit) list.shift();
+          };
+          p.capture = () => {
+            const c = document.getElementById('crabscape');
+            return {now:performance.now(),lastFrame:p.lastFrame,frameCount:p.frameCount,
+              tick:c?.getAttribute('data-king-ddd-tick'),
+              crab:c?.getAttribute('data-crab'),controls:c?.getAttribute('data-cell-controls'),
+              storage:c?.getAttribute('data-cell-page-state'),region:c?.getAttribute('data-cell-region-state'),
+              loading:!document.getElementById('message')?.hidden,ready:document.readyState,
+              focus:document.activeElement?.id,visible:document.visibilityState,
+              hasFocus:document.hasFocus(),king:c?.getAttribute('data-king-ddd')};
+          };
+          let sampled = -Infinity;
+          new MutationObserver(() => {
+            const now = performance.now();
+            if (now-sampled<200) return;
+            sampled=now;
+            bounded(p.samples,p.capture());
+          }).observe(document,{subtree:true,attributes:true,attributeFilter:[
+            'data-king-ddd-tick','data-crab','data-cell-controls','data-cell-page-state','data-cell-region-state']});
+          let previousFrame;
+          const frame = now => {
+            if (previousFrame !== undefined && now-previousFrame>100)
+              bounded(p.frames,[previousFrame,now-previousFrame]);
+            previousFrame=now;
+            p.lastFrame=now;
+            p.frameCount++;
+            requestAnimationFrame(frame);
+          };
+          requestAnimationFrame(frame);
+          new PerformanceObserver(list => {
+            for (const t of list.getEntries()) {
+              bounded(p.longTasks,[Math.round(t.startTime),Math.round(t.duration)]);
+            }
+          }).observe({type:'longtask',buffered:true});
+          new PerformanceObserver(list => {
+            for (const m of list.getEntries())
+              bounded(p.measures,[m.name,m.startTime,m.duration],256);
+          }).observe({type:'measure',buffered:true});
+          for (const type of ['keydown','keyup']) addEventListener(type, e => {
+            bounded(p.keys,[Math.round(performance.now()),type,e.code,e.target?.id],32);
+          });
+          addEventListener('DOMContentLoaded', () => {
+            const c = document.getElementById('crabscape');
+            c?.setAttribute('data-cell-control-probe','');
+            c?.setAttribute('data-cell-work-profile','');
+          }, {once:true});
+        })()"#,
+    )
+}
 fn main() -> Result<()> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     let train = args.iter().any(|a| a == "--train");
@@ -595,26 +727,7 @@ fn main() -> Result<()> {
             ..Options::default()
         },
     )?;
-    b.install_script(
-        r#"(() => {
-          const p = window.kingProbe = {longTasks:[],keys:[]};
-          new PerformanceObserver(list => {
-            for (const t of list.getEntries()) {
-              p.longTasks.push([Math.round(t.startTime),Math.round(t.duration)]);
-              if (p.longTasks.length>16) p.longTasks.shift();
-            }
-          }).observe({type:'longtask',buffered:true});
-          for (const type of ['keydown','keyup']) addEventListener(type, e => {
-            p.keys.push([Math.round(performance.now()),type,e.code,e.target?.id]);
-            if (p.keys.length>16) p.keys.shift();
-          });
-          addEventListener('DOMContentLoaded', () => {
-            const c = document.getElementById('crabscape');
-            c?.setAttribute('data-cell-control-probe','');
-            c?.setAttribute('data-cell-work-profile','');
-          }, {once:true});
-        })()"#,
-    )?;
+    install_probe(&mut b)?;
     b.touch_screen(true)?;
     let sep = if site.contains('?') { '&' } else { '?' };
     b.go(&format!("{site}{sep}king-ddd"))?;
@@ -809,6 +922,82 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn restored_clock_is_not_progress_and_new_readiness_resets_the_baseline() {
+        let mut progress = ReloadProgress::default();
+        assert!(!progress.observe(false, Some(99)));
+        assert!(!progress.observe(true, Some(17703)));
+        assert!(!progress.observe(true, Some(17703)));
+        assert!(!progress.observe(true, Some(17702)));
+        assert!(progress.observe(true, Some(17704)));
+        assert!(!progress.observe(false, Some(17705)));
+        assert!(!progress.observe(true, Some(17705)));
+        assert!(progress.observe(true, Some(17706)));
+    }
+
+    #[test]
+    fn missing_tick_never_proves_readiness_and_zero_is_a_valid_baseline() {
+        let mut progress = ReloadProgress::default();
+        assert!(!progress.observe(true, None));
+        assert!(!progress.observe(true, Some(0)));
+        assert!(!progress.observe(true, None));
+        assert!(!progress.observe(true, Some(0)));
+        assert!(progress.observe(true, Some(1)));
+    }
+
+    #[test]
+    fn movement_keeps_its_deadline_even_when_a_late_sample_reaches_the_target() {
+        let budget = Duration::from_secs(12);
+        assert_eq!(walk_status(100.0, 50.0, budget, budget), WalkStatus::Moving);
+        assert_eq!(walk_status(49.9, 50.0, budget, budget), WalkStatus::Arrived);
+        for distance in [0.0, 49.9, 100.0] {
+            assert_eq!(
+                walk_status(distance, 50.0, budget + Duration::from_nanos(1), budget),
+                WalkStatus::TimedOut
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "requires installed Chrome; no game build or network"]
+    fn timing_probe_keeps_bounded_serializable_history() -> Result<()> {
+        let directory =
+            std::env::temp_dir().join(format!("crab-king-probe-{}", std::process::id()));
+        let mut browser =
+            Chrome::start_without_clipboard("king-probe-test", &directory, Options::default())?;
+        install_probe(&mut browser)?;
+        browser.go("data:text/html,<canvas id='crabscape' tabindex='0'></canvas><p id='message' hidden></p>")?;
+        browser.eval(
+            r#"new Promise(done => {
+              const c = document.getElementById('crabscape');
+              c.focus();
+              c.setAttribute('data-crab','455.0 5720.0 1');
+              c.setAttribute('data-king-ddd-tick','123');
+              c.setAttribute('data-cell-controls','walk=-1');
+              c.setAttribute('data-cell-page-state','reading=true');
+              for (let i=0;i<300;i++) {
+                performance.measure('probe', {start:i,duration:1});
+                c.dispatchEvent(new KeyboardEvent('keydown',{code:'ArrowLeft',bubbles:true}));
+              }
+              setTimeout(() => done(true),100);
+            })"#,
+        )?;
+        let state = diagnostic_state(&mut browser)?;
+        assert_eq!(state["crab"], "455.0 5720.0 1");
+        assert_eq!(state["tick"], "123");
+        assert_eq!(state["timing"]["keys"].as_array().map(Vec::len), Some(32));
+        assert_eq!(
+            state["timing"]["measures"].as_array().map(Vec::len),
+            Some(256)
+        );
+        assert_eq!(state["timing"]["measures"][255][1], 299);
+        let sample = &state["timing"]["samples"][0];
+        assert_eq!(sample["controls"], "walk=-1");
+        assert_eq!(sample["storage"], "reading=true");
+        assert_eq!(sample["tick"], "123");
+        Ok(())
+    }
 
     #[test]
     fn rampart_arrival_rejects_the_gallery_and_an_airborne_crab() {

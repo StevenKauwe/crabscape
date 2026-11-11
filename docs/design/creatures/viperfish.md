@@ -74,8 +74,8 @@ it loses you.
 - **Eats:** lanternfish and crustaceans (not modelled).
 
 ## Where it lives and the encounter
-- **Placement:** midwater over the **"vent field"** landmark (lower canyon, open water): two fish, at 420 and 700 units
-  above the floor, 30% and 70% across the field, anchored by landmark name and `floor_height`. Both at least 400 units
+- **Placement:** midwater over the **"vent field"** landmark (lower canyon, open water): two fish, at 700 and 900 units
+  above the floor, 30% and 70% across the field (nudged along it until 450 clear of every refuge, mouth, tunnel and chamber), anchored by landmark name and `floor_height`. Both at least 400 units
   from the field's coral-stand refuges, outside tunnels. No phases: it is a wandering ambush, not an arena.
 - **What the player learns:** the lantern is a lure for things as well as a light. In the lower canyon the crab can
   dim it to slip past; walking bright from stand to stand is paid for in tells. Dim lights in the dark, one is a mouth.
