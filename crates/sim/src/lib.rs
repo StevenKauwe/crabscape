@@ -55,6 +55,7 @@ pub mod seed_compact;
 
 pub mod canyon_drift;
 pub mod cell_codec;
+pub mod chimney;
 pub mod codes;
 pub mod combat;
 pub mod craft;
@@ -72,6 +73,7 @@ pub mod physics;
 pub mod prepared_food;
 pub mod progress;
 pub mod replay;
+pub mod ride;
 pub mod rng;
 pub mod royal;
 pub mod salvage;

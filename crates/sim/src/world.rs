@@ -2388,10 +2388,12 @@ impl Sim {
                     STEP,
                 ));
             } else {
-                ev.merge(
-                    self.level
-                        .step_with_tether(&mut crab.mover, &controls, &self.tuning),
-                );
+                ev.merge(crate::chimney::step(
+                    &mut self.level,
+                    &mut crab.mover,
+                    &controls,
+                    &self.tuning,
+                ));
             }
             if let Some(angle) = held_angle {
                 crab.mover.water_angle = angle;
@@ -3065,7 +3067,10 @@ impl Sim {
             };
             if heavy && swing.fully_charged() {
                 for (i, rock) in self.level.brittle.iter_mut().enumerate() {
-                    if !rock.cracked && !hitbox.intersect(rock.rect).is_empty() {
+                    if !rock.cracked
+                        && !hitbox.intersect(rock.rect).is_empty()
+                        && crate::chimney::may_crack(rock.rect, crab.mover.pos)
+                    {
                         rock.cracked = true;
                         crab.events.cracked_rock = true;
                         if let Some(n) = &mut self.net {
