@@ -191,7 +191,7 @@ fn run() -> Result<()> {
     }
     let dir = std::env::temp_dir().join(format!("crab-frame-probe-{}", std::process::id()));
     std::fs::create_dir(&dir).map_err(|e| e.to_string())?;
-    let mut b = Chrome::start(
+    let mut b = Chrome::start_without_clipboard(
         "probe",
         &dir.join("profile"),
         Options {

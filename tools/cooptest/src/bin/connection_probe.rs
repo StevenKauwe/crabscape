@@ -32,6 +32,8 @@ fn main() -> Result<()> {
         }
         sleep(Duration::from_millis(100));
     }
+    // Keep initial renderer/asset startup out of the fixed-workload sequence.
+    sleep(Duration::from_secs(3));
     let result = browser.eval(r#"(async()=>{
  const name='crab-connection-probe-'+Date.now();
  const open=()=>new Promise((resolve,reject)=>{const r=indexedDB.open(name,1);r.onupgradeneeded=()=>r.result.createObjectStore('pages');r.onerror=()=>reject(r.error);r.onsuccess=()=>resolve(r.result)});
