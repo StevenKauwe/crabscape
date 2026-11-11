@@ -45,26 +45,30 @@ impl Kit {
     }
 }
 
-/// The key places, as boxes (x0, x1, y0, y1) on the legacy level.
+/// The key places, as boxes (x0, x1, y0, y1) on the Plate D map: the world
+/// steps down to the right (home shelf, basin, the hub behind the net, the
+/// canyon's floor at -6,000, the far rim 2,000 lower than it was, the eastern
+/// step and Coral Rise, the lower canyon deepest). The first box that holds a
+/// point names it.
 pub const PLACES: &[(&str, [f32; 4])] = &[
     ("surface", [0.0, 1300.0, 4600.0, 6000.0]),
     ("trench floor", [1301.0, 1819.0, -300.0, -200.0]),
     ("far ledge", [1820.0, 2716.0, 0.0, 400.0]),
     ("cliff crest", [2717.0, 2800.0, 850.0, 1000.0]),
     ("basin", [2800.0, 3300.0, -720.0, 1000.0]),
-    ("pit", [3300.0, 4300.0, -8500.0, -720.0]),
-    ("pit floor", [3300.0, 4300.0, -8800.0, -8500.0]),
-    ("alcove", [4060.0, 4300.0, -5205.0, -5080.0]),
-    ("net passage", [4300.0, 4490.0, -4400.0, -4230.0]),
+    ("basin floor", [3300.0, 4354.0, -720.0, -500.0]),
     ("hub", [4490.0, 5371.0, -720.0, 1500.0]),
     ("ridge crest", [4300.0, 4370.0, 2990.0, 3200.0]),
     ("doorstep", [5371.0, 5900.0, -1520.0, -1000.0]),
     ("notch", [5500.0, 5700.0, 540.0, 800.0]),
     ("canyon shelf", [5900.0, 6150.0, -3420.0, -3000.0]),
-    ("canyon floor", [6150.0, 7900.0, -9420.0, -9000.0]),
+    ("canyon floor", [6150.0, 7900.0, -6020.0, -5600.0]),
     ("far-wall cave", [7700.0, 7901.0, -5210.0, -5030.0]),
-    ("far rim", [7900.0, 8800.0, -1920.0, 3100.0]),
-    ("east of the rim", [8800.0, 30000.0, -20000.0, 20000.0]),
+    ("far rim", [7900.0, 8800.0, -3920.0, 1100.0]),
+    ("eastern step", [15800.0, 17600.0, -5200.0, -3000.0]),
+    ("slump dam", [17600.0, 17781.0, -4600.0, -4400.0]),
+    ("lower canyon", [17781.0, 30000.0, -10100.0, -4400.0]),
+    ("east of the rim", [8800.0, 17600.0, -20000.0, 20000.0]),
 ];
 
 pub fn place_of(p: Vec2) -> Option<&'static str> {

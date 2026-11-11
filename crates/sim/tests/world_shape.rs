@@ -696,11 +696,11 @@ fn refuges_make_no_new_climb() {
         glass: false,
         ..FULL_KIT
     };
-    let mut start = route::start_node(kit, Vec2::new(6900.0, -9400.0), false);
+    let mut start = route::start_node(kit, Vec2::new(6900.0, -5990.0), false);
     start.sim.tuning.tide.up_speed = 0.0;
     start.sim.tuning.tide.down_speed = 0.0;
     start.sim.tuning.tide.upwelling_speed = 0.0;
-    let s = route::survey_from(start, kit, |n| n.mover().pos.y > -8000.0, route::BUDGET);
+    let s = route::survey_from(start, kit, |n| n.mover().pos.y > -4000.0, route::BUDGET);
     let highest = s
         .nodes
         .iter()

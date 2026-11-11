@@ -195,7 +195,7 @@ fn route_wormhole_edge_makes_a_box_reachable() {
     let kit = Kit::eggs(0);
     let edge = Wormhole {
         from: [200.0, 400.0, -10.0, 10.0],
-        to: Vec2::new(8100.0, -1800.0),
+        to: Vec2::new(8100.0, -3800.0),
         reserve_cost: 0.25,
         needs: |k| k.scissors,
     };
@@ -220,7 +220,7 @@ fn route_wormhole_edge_makes_a_box_reachable() {
     assert!(s.describe(i).contains("Wormhole"));
 
     let back = Wormhole {
-        from: [7900.0, 8800.0, -1920.0, 3100.0],
+        from: [7900.0, 8800.0, -3920.0, 1100.0],
         to: HOME,
         reserve_cost: 0.125,
         needs: |k| k.scissors,
