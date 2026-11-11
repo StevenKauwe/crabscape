@@ -166,6 +166,7 @@ impl super::World {
     }
     pub fn acknowledge_sleeping(&mut self, saved: &[SleepingCut]) {
         self.sleeping.acknowledge(saved);
+        self.evict_clean_sleeping(crate::page_cache::RESIDENT_PAGE_LIMIT);
     }
     pub fn resident_sleeping_chunks(&self) -> usize {
         self.sleeping.len()
@@ -218,6 +219,21 @@ impl super::World {
 }
 
 impl super::World {
+    pub(crate) fn prepare_home_return(&mut self) {
+        let side = super::TERRAIN_CHUNK_CELLS as usize;
+        // Both unaligned windows, including each below-edge row, and the
+        // material kernel's bounded 16-page offscreen-fall footprint. This is
+        // 170 extra slots for the usual 640-by-360 active field, not a larger
+        // steady-state cache or a budget proportional to explored terrain.
+        let window = (self.width.div_ceil(side) + 1) * ((self.height + 1).div_ceil(side) + 1);
+        self.sleeping.cache.begin_transition(2 * window + 16);
+    }
+    fn finish_home_return(&mut self) {
+        if self.sleeping.cache.finish_transition() {
+            self.sleeping.cache.begin_interest();
+            self.evict_clean_sleeping(crate::page_cache::RESIDENT_PAGE_LIMIT);
+        }
+    }
     pub fn enable_paging(&mut self) {
         self.sleeping
             .cache
@@ -247,8 +263,9 @@ impl super::World {
             self.sleeping.cache.loaded(ticket.coordinate);
             return Ok(true);
         }
-        self.evict_clean_sleeping(crate::page_cache::RESIDENT_PAGE_LIMIT - 1);
-        if self.sleeping.cache.known.len() >= crate::page_cache::RESIDENT_PAGE_LIMIT {
+        let limit = self.sleeping.cache.resident_limit();
+        self.evict_clean_sleeping(limit - 1);
+        if self.sleeping.cache.known.len() >= limit {
             return Ok(false);
         }
         let page = match bytes {
@@ -296,6 +313,16 @@ impl super::World {
         if !self.sleeping.cache.enabled {
             return true;
         }
+        // Terrain may be ready while a full personal-memory cache waits for a
+        // coherent save. Do not spend the fall catch-up budget a second time
+        // when that same paused tick retries after memory becomes available.
+        if self.sleeping.prepared_follow.is_some()
+            && self.sleeping.cache.operation == Some(tick)
+            && self.preview_window(x, y).is_none()
+        {
+            return true;
+        }
+        self.sleeping.prepared_follow = None;
         if self.sleeping.cache.operation != Some(tick) {
             self.sleeping.cache.operation = Some(tick);
             self.sleeping.cache.begin_interest();
@@ -330,6 +357,7 @@ impl super::World {
             && self.pending_falls.is_empty()
             && !self.bottom_open.is_empty()
         {
+            self.finish_home_return();
             return true;
         }
         let mut candidate = self.active_copy();
@@ -338,10 +366,11 @@ impl super::World {
         if self.sleeping.cache.waiting() {
             return false;
         }
-        if candidate.sleeping.pages.len() > crate::page_cache::RESIDENT_PAGE_LIMIT {
+        if candidate.sleeping.pages.len() > self.sleeping.cache.resident_limit() {
             return false;
         }
         candidate.sleeping.prepared_follow = Some(shifted);
+        candidate.finish_home_return();
         *self = candidate;
         true
     }
@@ -448,8 +477,9 @@ impl super::World {
             .cache
             .protected
             .extend(written.iter().copied());
-        self.evict_clean_sleeping(crate::page_cache::RESIDENT_PAGE_LIMIT.saturating_sub(extra));
-        if self.sleeping.cache.known.len() + extra > crate::page_cache::RESIDENT_PAGE_LIMIT {
+        let limit = self.sleeping.cache.resident_limit();
+        self.evict_clean_sleeping(limit.saturating_sub(extra));
+        if self.sleeping.cache.known.len() + extra > limit {
             return false;
         }
         for key in written {
@@ -473,7 +503,7 @@ impl super::World {
         candidate.sleeping = self.sleeping.clone();
         let work = operation(&mut candidate);
         if self.sleeping.cache.waiting()
-            || candidate.sleeping.pages.len() > crate::page_cache::RESIDENT_PAGE_LIMIT
+            || candidate.sleeping.pages.len() > self.sleeping.cache.resident_limit()
         {
             return 0;
         }

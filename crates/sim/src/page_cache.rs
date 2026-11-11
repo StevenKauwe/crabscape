@@ -41,8 +41,34 @@ pub(crate) struct PageCache {
     pub pinned: BTreeSet<Coordinate>,
     pub operation: Option<u64>,
     pub revision: u64,
+    transition_pages: usize,
 }
 impl PageCache {
+    pub fn resident_limit(&self) -> usize {
+        RESIDENT_PAGE_LIMIT + self.transition_pages
+    }
+    /// A discontinuous Home command needs one bounded working set before its
+    /// new player position can be saved. Repeated commands replace this budget,
+    /// never add to it. Replies for an abandoned route remain authenticated but
+    /// no longer reserve slots needed by the new operation.
+    pub fn begin_transition(&mut self, pages: usize) {
+        if !self.enabled {
+            return;
+        }
+        self.transition_pages = pages;
+        self.operation = None;
+        self.begin_interest();
+        self.requests.lock().expect("page request lock").clear();
+        self.urgent
+            .lock()
+            .expect("urgent page request lock")
+            .clear();
+    }
+    /// Existing excess dirty pages stay resident until a valid save acknowledges
+    /// them, but ordinary movement cannot keep filling the emergency budget.
+    pub fn finish_transition(&mut self) -> bool {
+        std::mem::take(&mut self.transition_pages) != 0
+    }
     pub fn enable(&mut self, known: impl IntoIterator<Item = Coordinate>) {
         *self = Self {
             enabled: true,
@@ -95,7 +121,7 @@ impl PageCache {
         // same lookahead ring, or unreadable slots would cycle every frame.
         let needed = !urgent.is_empty();
         let recent = self.recent.lock().expect("page access lock");
-        let free = RESIDENT_PAGE_LIMIT.saturating_sub(self.known.len());
+        let free = self.resident_limit().saturating_sub(self.known.len());
         let replaceable = || {
             self.known
                 .iter()
@@ -193,6 +219,36 @@ impl PageCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn home_transition_budget_is_bounded_and_cancels_only_abandoned_demand() {
+        let mut cache = PageCache::default();
+        cache.enable((0..RESIDENT_PAGE_LIMIT as i32).map(|x| (x, 0)));
+        assert!(!cache.require((400, 0)));
+        cache.begin_transition(170);
+        assert_eq!(cache.resident_limit(), 426);
+        assert!(!cache.waiting());
+        assert!(cache.requests(12, |_| true).is_empty());
+        assert!(!cache.require((500, 0)));
+        let ticket = cache.requests(12, |_| true).pop().unwrap();
+        assert_eq!(ticket.coordinate, (500, 0));
+        cache.loaded(ticket.coordinate);
+        cache.begin_transition(170);
+        assert_eq!(
+            cache.resident_limit(),
+            426,
+            "repeated Home never adds capacity"
+        );
+        assert!(cache.finish_transition());
+        assert_eq!(cache.resident_limit(), RESIDENT_PAGE_LIMIT);
+        assert_eq!(cache.known.len(), 257, "dirty excess is never discarded");
+        assert!(!cache.require((600, 0)));
+        assert!(
+            cache.requests(12, |_| true).is_empty(),
+            "normal movement waits for a safe save"
+        );
+        assert_eq!(cache.evict(RESIDENT_PAGE_LIMIT, &BTreeSet::new()).len(), 1);
+    }
 
     #[test]
     fn speculative_ring_does_not_repeatedly_evict_an_offscreen_material_page() {

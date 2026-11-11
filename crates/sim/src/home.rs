@@ -184,6 +184,9 @@ impl Sim {
         let recorded = self.crabs().iter().find(|c| !c.remote).map(|c| c.id) == Some(id);
         let tick = self.tick_count();
         let (_, den) = self.level.door_and_den(Place::Home);
+        if let Some(cells) = self.level.cells.as_mut() {
+            cells.prepare_home_return();
+        }
         let fresh = Fighter::new(&self.tuning);
         let seized = self
             .crab(id)
