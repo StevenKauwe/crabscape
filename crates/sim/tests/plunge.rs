@@ -603,7 +603,11 @@ fn the_whole_plunge_works_on_the_real_map() {
         let secs = n as f32 * STEP;
         println!("real map: vent ride {secs:.1} s");
         assert!((15.0..=25.0).contains(&secs));
-        assert!(pos(&s, A).distance(p.home_landing()) < 1.0, "{}", pos(&s, A));
+        assert!(
+            pos(&s, A).distance(p.home_landing()) < 1.0,
+            "{}",
+            pos(&s, A)
+        );
         let c = s.crab(A).expect("crab");
         assert_eq!(c.fighter.vitals.health, full, "never hurt on the way");
         assert!(c.fighter.dead.is_none());
