@@ -87,7 +87,6 @@ fn sinking_home_from_the_cave_past_the_jelly_with_claws_up_is_safe() {
 }
 
 #[test]
-#[ignore = "REAL RULE BREAK for the lead: the canyon's drifting spots moved up 3,400 with the floor, so the jelly (y -3,100 / -4,000) now hangs above the egg cave (y -5,170) and no longer lies on the way down from it; move a drifting spot to about y -5,600 (between the cave and the floor) and un-ignore"]
 fn sinking_home_from_the_cave_claws_down_meets_the_jelly() {
     let (bare, landed) = sink_from_the_cave(false);
     assert!(

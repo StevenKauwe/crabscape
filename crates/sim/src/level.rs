@@ -580,7 +580,7 @@ impl Level {
             // Under the rock at the end of the far rim, back to the wall.
             den: Rect::new(8350.0, -1900.0, 8800.0, -1620.0),
             // Still water by the far wall, deep in the canyon.
-            drifting: vec![Vec2::new(7520.0, -5500.0), Vec2::new(7510.0, -5750.0)],
+            drifting: vec![Vec2::new(7520.0, -5380.0), Vec2::new(7510.0, -5390.0)],
             min_x: 0.0,
             max_x: 8800.0,
         };

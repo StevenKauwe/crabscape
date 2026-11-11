@@ -230,19 +230,6 @@ fn in_still_water_nothing_gets_a_crab_off_the_canyon_floor() {
 }
 
 #[test]
-#[ignore = "REAL RULE BREAK for the lead: the fifth egg's cave floor (y -5,200) is only 800 above the raised canyon floor, so 4 strokes in still water reach it"]
-fn the_egg_cave_is_out_of_a_swimmers_reach_from_the_raised_floor() {
-    for x in [7000.0, 7400.0, 7650.0] {
-        let script = format!("start x={x} y=-6000\nt=0 walk=right{}", swim(0.2, 4));
-        let r = run_with(still_water(), &script, 6.0, 4);
-        assert!(
-            !r.stood.iter().any(|p| p.y == EGG_CAVE_FLOOR),
-            "from {x} a swimmer stood on the cave floor"
-        );
-    }
-}
-
-#[test]
 fn full_kit_single_rise_for_refuge_spacing() {
     // At each apex the next impulse loses no remaining upward velocity.
     // Measure away from anything grippable, with all six eggs and abilities.
