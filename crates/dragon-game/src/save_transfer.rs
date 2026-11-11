@@ -175,6 +175,9 @@ fn normalize(value: &Value, slot: RiderSlot) -> Result<Value, TransferError> {
 /// Plan replacement of an EXISTING explicit slot. `expected_original` must be the
 /// exact rider string in the archive. `profile` is a complete, already normalized
 /// current v3/xpv2 profile, not a patch; invalid data is rejected, never repaired.
+/// Live source profiles may retain Date.now() in last.at (the source's reload
+/// normalizer clamps it to 1e9) and omit loadout/charms/daily on first build.
+/// Those runtime shapes are preserved exactly rather than rewritten.
 /// `updated_at` is an explicit finite nonnegative JS timestamp, supplied by caller.
 /// Rider identity (`rider`, `rid`) must remain the original normalized identity;
 /// appearance and canonical gameplay data may change. Unknown caller fields are
@@ -210,7 +213,27 @@ pub fn plan_replacement(
     dragons(raw)?;
     dragons(profile)?;
     let prior = normalize(raw, slot)?;
-    let canonical = normalize(profile, slot)?;
+    let mut canonical = normalize(profile, slot)?;
+    if let Some(at) = profile["last"].get("at").and_then(Value::as_f64)
+        && at > 1e9
+    {
+        // Date.now() is a JS number; reject unsafe/unbounded timestamps instead
+        // of treating arbitrary noncanonical numbers as a live-runtime quirk.
+        if !at.is_finite() || at > 9_007_199_254_740_991.0 {
+            return Err(TransferError::InvalidTimestamp);
+        }
+        canonical["last"]["at"] = profile["last"]["at"].clone();
+    }
+    for optional in ["loadout", "charms", "daily"] {
+        if profile.get(optional).is_none() && raw.get(optional).is_none() {
+            // newProfile omits these, unlike normalizeProfile. Only retain an
+            // absence when no original value could accidentally be resurrected.
+            canonical
+                .as_object_mut()
+                .expect("normalized object")
+                .remove(optional);
+        }
+    }
     if !equivalent(profile, &canonical) {
         return Err(TransferError::NotNormalized);
     }

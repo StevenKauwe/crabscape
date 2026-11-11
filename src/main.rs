@@ -126,6 +126,8 @@ mod stamina;
 mod style;
 mod triggerfish;
 mod tuning;
+mod valmora;
+mod valmora_entry;
 mod view;
 mod voice;
 
@@ -206,6 +208,8 @@ fn run_app() {
         ))
         .add_plugins(monkeys::MonkeysPlugin)
         .add_plugins(king_ddd::KingDddPlugin)
+        .add_plugins(valmora::ValmoraPlugin)
+        .add_plugins(valmora_entry::ValmoraEntryPlugin)
         .add_plugins(cellular::CellularPlugin)
         .add_plugins(salvage::SalvagePlugin)
         .add_plugins(canyon_drift::CanyonDriftPlugin)

@@ -10,6 +10,7 @@ use serde_json::Value;
 #[derive(Default)]
 pub struct AdventureUi {
     pub notice: String,
+    pub checkpoint_requested: bool,
     story: Option<Value>,
     hatch_name: String,
     release: Option<String>,
@@ -22,6 +23,7 @@ pub struct Controls {
     pub swap: bool,
     pub spell: Option<dragon_game::abilities::Spell>,
     pub select: Option<usize>,
+    pub edit_rider: bool,
     pub fire: bool,
     pub direction: [bool; 4],
 }
@@ -29,6 +31,11 @@ impl AdventureUi {
     pub fn events(&mut self, events: Vec<Event>) {
         for event in events {
             match event {
+                Event::Dirty
+                | Event::Flush
+                | Event::Gate {
+                    value: dragon_game::roost_gate::Event::SaveFrozen { .. },
+                } => self.checkpoint_requested = true,
                 Event::Story { page, .. } => self.story = Some(page),
                 Event::Roost {
                     value: dragon_game::roost::Event::Toast { text },
@@ -58,7 +65,7 @@ impl AdventureUi {
             }
         });
         ui.small(
-            "Native port preview: progress is kept in memory; your original save is untouched.",
+            "Native port preview. Original saves are untouched; checkpoint status appears above.",
         );
         if !self.notice.is_empty() {
             ui.label(&self.notice);
@@ -161,6 +168,7 @@ impl AdventureUi {
             }
             "roost" | "skills" => {
                 ui.horizontal(|ui| {
+                    controls.edit_rider = ui.button("Change my look").clicked();
                     if ui.button("Mission map").clicked() {
                         self.result(adventure.to_map());
                     }

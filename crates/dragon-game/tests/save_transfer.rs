@@ -231,3 +231,98 @@ fn missing_original_rid_uses_source_derived_identity_not_a_new_identity() {
     assert_eq!(exported["build"]["name"], "New Name");
     assert!(save.raw().get("rid").is_none());
 }
+
+#[test]
+fn live_builder_and_completion_preserve_real_timestamps_and_optional_absence() {
+    use dragon_game::{profile, roost};
+    let now = 1_790_000_000_123_u64;
+    // The actual builder starts with new_profile, not normalize_profile, and
+    // copies these four cleaned build fields into the bonded dragon.
+    let mut runtime = profile::new_profile("alexa");
+    let build =
+        profile::clean_build(&json!({"name":"Nova","dname":"Ember","path":"forge","dkind":"fire"}))
+            .unwrap();
+    runtime["rid"] = json!("synthetic-new-rider");
+    for (to, from) in [
+        ("name", "dname"),
+        ("color", "dcolor"),
+        ("horn", "horn"),
+        ("kind", "dkind"),
+    ] {
+        runtime["party"][0][to] = build[from].clone();
+    }
+    runtime["build"] = build;
+    runtime["last"] = json!({"text":"hatched Ember","at":now});
+    assert!(runtime.get("loadout").is_none());
+    let original_text = serde_json::to_string(&runtime).unwrap();
+    let original = BrowserSave::parse(&original_text).unwrap();
+    let archive = StorageArchive::parse(
+        &serde_json::to_string(&std::collections::BTreeMap::from([(
+            "vdf-save-alexa",
+            &original_text,
+        )]))
+        .unwrap(),
+    )
+    .unwrap();
+    let initial =
+        plan_replacement(&archive, RiderSlot::Alexa, &original, &runtime, now as f64).unwrap();
+    let initial_value: Value = serde_json::from_str(initial.replacement_rider()).unwrap();
+    assert_eq!(initial_value["last"]["at"], now);
+    assert!(initial_value.get("loadout").is_none());
+    roost::complete_mission(
+        &mut runtime,
+        &[],
+        false,
+        &roost::Completion {
+            mission_id: "m1".into(),
+            champion: false,
+            ok: true,
+            carry: 7.,
+            banked: 0.,
+            bonks: 0,
+            elapsed: 30.,
+            par: 90.,
+            had_objective: false,
+            day: 20_740,
+            now_ms: now + 1000,
+        },
+    )
+    .unwrap();
+    let completed = plan_replacement(
+        &archive,
+        RiderSlot::Alexa,
+        &original,
+        &runtime,
+        (now + 1000) as f64,
+    )
+    .unwrap();
+    let value: Value = serde_json::from_str(completed.replacement_rider()).unwrap();
+    assert_eq!(value["last"], runtime["last"]);
+    assert_eq!(value["earned"], runtime["earned"]);
+    assert_eq!(completed.backup_rider(), original_text);
+    let mut bad = runtime.clone();
+    bad["last"]["at"] = json!("1790000000123");
+    assert!(plan_replacement(&archive, RiderSlot::Alexa, &original, &bad, 0.).is_err());
+    bad["last"]["at"] = json!(9_007_199_254_740_992_u64);
+    assert!(plan_replacement(&archive, RiderSlot::Alexa, &original, &bad, 0.).is_err());
+    bad["last"]["at"] = json!(-1);
+    assert!(plan_replacement(&archive, RiderSlot::Alexa, &original, &bad, 0.).is_err());
+}
+
+#[test]
+fn omitted_loadout_cannot_resurrect_an_original_loadout() {
+    let (archive, save, mut profile) = fixture();
+    // Even an empty explicit original loadout must not be silently dropped.
+    let mut raw = save.raw().clone();
+    raw["loadout"] = json!(["naina"]);
+    let text = serde_json::to_string(&raw).unwrap();
+    let save = BrowserSave::parse(&text).unwrap();
+    let mut entries = archive.entries().clone();
+    entries.insert("vdf-save-alexa".into(), text);
+    let archive = StorageArchive::parse(&serde_json::to_string(&entries).unwrap()).unwrap();
+    profile.as_object_mut().unwrap().remove("loadout");
+    assert_eq!(
+        plan_replacement(&archive, RiderSlot::Alexa, &save, &profile, 0.).unwrap_err(),
+        TransferError::NotNormalized
+    );
+}

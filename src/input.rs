@@ -97,6 +97,7 @@ pub(crate) struct PointerUi;
 pub(crate) struct InputUi<'w, 's> {
     settings: Res<'w, crate::settings::panel::Open>,
     court: Option<Res<'w, crate::king_ddd::Court>>,
+    valmora: Option<Res<'w, crate::valmora::Valmora>>,
     inventory: Res<'w, crate::shell_inventory::Open>,
     chat: Res<'w, crate::codes::CodeBox>,
     panels: Query<
@@ -115,6 +116,7 @@ pub(crate) struct InputUi<'w, 's> {
 impl InputUi<'_, '_> {
     pub(crate) fn modal(&self) -> bool {
         self.court.as_ref().is_some_and(|c| c.owns_input())
+            || self.valmora.as_ref().is_some_and(|v| v.owns_input())
             || self.settings.is_open()
             || self.inventory.0
             || self.chat.open

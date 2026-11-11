@@ -69,6 +69,10 @@ impl Note {
 }
 
 pub struct VoicePlugin;
+#[cfg(any(target_arch = "wasm32", test))]
+fn mic_grant_allowed(request_epoch: u64, current_epoch: u64, private_mode: bool) -> bool {
+    !private_mode && request_epoch == current_epoch
+}
 
 impl Plugin for VoicePlugin {
     fn build(&self, _app: &mut App) {
@@ -181,6 +185,7 @@ impl Meter {
 #[cfg(target_arch = "wasm32")]
 pub(crate) use web::{
     calls, friend_streams, loudness, mic_track, mic_trouble, say_host, say_line, say_writes,
+    valmora_privacy,
 };
 #[cfg(target_arch = "wasm32")]
 pub use web::{forget, forget_all, hear, meet, outbox};
@@ -249,6 +254,8 @@ mod web {
         mic: Option<MediaStreamTrack>,
         /// Asked the browser for the microphone; waiting for the answer.
         asking: bool,
+        private_mode: bool,
+        mic_epoch: u64,
         /// Why the browser last said no.
         refused: Option<MicTrouble>,
     }
@@ -611,12 +618,18 @@ mod web {
     /// Turn the microphone on (the browser asks the player first) or off.
     fn set_mic(on: bool) {
         if !on {
-            let mic = with(|v| v.mic.take());
+            let mic = with(|v| {
+                v.mic_epoch = v.mic_epoch.wrapping_add(1);
+                v.mic.take()
+            });
             if let Some(mic) = mic {
                 mic.stop();
                 plug(None);
                 crate::sound::recording(Mic::Voice, false);
             }
+            return;
+        }
+        if with(|v| v.private_mode) {
             return;
         }
         if with(|v| v.mic.is_some() || v.asking) {
@@ -643,6 +656,7 @@ mod web {
             }
         };
         with(|v| v.asking = true);
+        let epoch = with(|v| v.mic_epoch);
         spawn_local(async move {
             let track = match JsFuture::from(ask).await {
                 Ok(s) => s
@@ -659,6 +673,12 @@ mod web {
             };
             let track = with(|v| {
                 v.asking = false;
+                if !super::mic_grant_allowed(epoch, v.mic_epoch, v.private_mode) {
+                    if let Ok(track) = track {
+                        track.stop();
+                    }
+                    return None;
+                }
                 v.refused = track.as_ref().err().copied();
                 v.mic = track.ok();
                 v.mic.clone()
@@ -668,6 +688,16 @@ mod web {
                 None => crate::sound::recording(Mic::Voice, false),
             }
         });
+    }
+    /// Entering Valmora revokes even a pending microphone grant. Leaving never
+    /// turns the microphone back on; only a later explicit Mic action can do that.
+    pub(crate) fn valmora_privacy(active: bool) {
+        with(|v| v.private_mode = active);
+        if active {
+            set_mic(false);
+            crate::sound::recording(Mic::Voice, false);
+        }
+        scribe::valmora_privacy(active);
     }
 
     /// Why the browser refused the microphone with `error`, logged so it
@@ -1067,5 +1097,15 @@ mod tests {
         assert_eq!(Note::from_bytes(b"\xff\x00 nonsense"), None);
         let huge = Note::Offer("x".repeat(NOTE_MAX)).to_bytes();
         assert_eq!(Note::from_bytes(&huge), None, "too long to be a real note");
+    }
+}
+
+#[cfg(test)]
+mod valmora_privacy_tests {
+    #[test]
+    fn a_late_permission_grant_stays_revoked_after_return() {
+        assert!(!super::mic_grant_allowed(1, 1, true));
+        assert!(!super::mic_grant_allowed(1, 2, false));
+        assert!(super::mic_grant_allowed(2, 2, false));
     }
 }

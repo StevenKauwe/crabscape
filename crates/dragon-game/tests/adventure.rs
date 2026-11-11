@@ -287,3 +287,35 @@ fn pending_wrong_answer_after_navigation_mutates_active_profile() {
     assert_eq!(a.state(), "roost");
     assert_eq!(a.profile()["eggAwake"], false);
 }
+
+#[test]
+fn changing_look_keeps_import_identity_progress_and_adventure_random_stream() {
+    let mut a = start(json!({"rid":"r-original","earned":25,"seenIntro":true}));
+    let mut b = start(json!({"rid":"r-original","earned":25,"seenIntro":true}));
+    let original = a.initial_profile().clone();
+    a.to_roost().unwrap();
+    b.to_roost().unwrap();
+    let events = a
+        .change_look(
+            &json!({"name":"Skye","dname":"Comet","path":"storm","dkind":"frost"}),
+            500,
+        )
+        .unwrap();
+    assert!(events.iter().any(|e| matches!(e, Event::Dirty)));
+    assert_eq!(a.initial_profile(), &original);
+    assert_eq!(a.profile()["rid"], "r-original");
+    assert_eq!(a.profile()["earned"].as_f64(), Some(25.));
+    assert_eq!(a.profile()["party"][0]["id"], "bond");
+    assert_eq!(a.profile()["party"][0]["name"], "Comet");
+    for adventure in [&mut a, &mut b] {
+        adventure.to_map().unwrap();
+        adventure.choose_mission("m1", false).unwrap();
+        if adventure.state() == "story" {
+            adventure.close_story(true).unwrap();
+        }
+    }
+    assert_eq!(
+        a.game.as_ref().unwrap().rng.state,
+        b.game.as_ref().unwrap().rng.state
+    );
+}

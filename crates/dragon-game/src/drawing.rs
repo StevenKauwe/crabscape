@@ -132,6 +132,13 @@ pub struct Canvas {
     path: Vec<PathCommand>,
 }
 impl Canvas {
+    /// Reset a frame while retaining the top-level command, path and state-stack capacity.
+    pub fn reset(&mut self) {
+        self.commands.clear();
+        self.path.clear();
+        self.stack.clear();
+        self.state = State::default();
+    }
     pub fn save(&mut self) {
         self.stack.push(self.state.clone());
     }
@@ -2658,4 +2665,600 @@ pub fn draw_shot(
     c.fill_style(g);
     circle(c, x, y, r * 1.8);
     c.additive(false);
+}
+
+#[derive(Default)]
+pub struct BackgroundArt {
+    pub sky: Canvas,
+    pub far: Canvas,
+    pub land: Canvas,
+}
+/// Original cached background layers. World coordinates are logical pixels (DPR is the GPU's job).
+pub fn draw_background(
+    view: crate::flight::Viewport,
+    realm_index: usize,
+    song: bool,
+) -> BackgroundArt {
+    let mut out = BackgroundArt::default();
+    let (w, h, s, gy, top) = (
+        view.width,
+        view.height,
+        view.scale,
+        view.ground_y,
+        view.top_limit,
+    );
+    let realm = realm_index.min(5);
+    let skies = [
+        ["#050c24", "#15285a", "#2c3a6e"],
+        ["#04120f", "#0f2f2a", "#24483a"],
+        ["#061230", "#1b3a6e", "#5b7fb3"],
+        ["#04122a", "#0d3050", "#1d5a7a"],
+        ["#14050a", "#3e1210", "#8a3418"],
+        ["#02030f", "#150f48", "#3a2a7a"],
+    ][realm];
+    let mut rng = crate::random::Mulberry32 {
+        state: 11 + realm as u32,
+    };
+    let g = &mut out.sky;
+    let sky = g.linear(
+        [0., 0., 0., h],
+        &[
+            (0., skies[0].into()),
+            (0.55, skies[1].into()),
+            (1., skies[2].into()),
+        ],
+    );
+    g.fill_style(sky);
+    g.fill_rect(0., 0., w, h);
+    let mx = w * 0.84;
+    let my = (h * 0.24).max(top + s * 1.4);
+    let mr = s * 1.05;
+    let glow = g.radial(
+        [mx, my, mr * 0.6, mx, my, mr * 3.4],
+        &[
+            (0., "rgba(234,242,255,0.3)".into()),
+            (1., "rgba(234,242,255,0)".into()),
+        ],
+    );
+    g.fill_style(glow);
+    circle(g, mx, my, mr * 3.4);
+    g.fill_style(if realm == 4 { "#ffcfa8" } else { "#eaf2ff" });
+    circle(g, mx, my, mr);
+    g.fill_style("rgba(159,182,255,0.45)");
+    for [dx, dy, r] in [[-0.32, -0.2, 0.2], [0.28, 0.12, 0.25], [-0.08, 0.42, 0.13]] {
+        circle(g, mx + dx * mr, my + dy * mr, r * mr);
+    }
+    if song {
+        let pts = [
+            [0.08, 0.2],
+            [0.13, 0.16],
+            [0.18, 0.18],
+            [0.23, 0.14],
+            [0.27, 0.17],
+            [0.31, 0.22],
+            [0.2, 0.25],
+            [0.15, 0.27],
+        ];
+        g.stroke_style("rgba(255,243,214,0.25)");
+        g.width(1.5);
+        g.begin();
+        for (i, [x, y]) in pts.into_iter().enumerate() {
+            let (px, py) = (w * 0.04 + x * w * 0.9, top + y * h * 0.8);
+            if i == 0 {
+                g.move_to(px, py)
+            } else {
+                g.line_to(px, py)
+            }
+        }
+        g.stroke();
+        g.fill_style("#fff6dd");
+        for [x, y] in pts {
+            circle(g, w * 0.04 + x * w * 0.9, top + y * h * 0.8, 2.6);
+        }
+    }
+    if realm >= 3 {
+        draw_far_realm(&mut out.far, &mut out.land, view, realm, &mut rng);
+        background_fog(&mut out.far, view, skies[2], 0.4);
+        return out;
+    }
+    let g = &mut out.far;
+    let tall = if realm == 2 {
+        0.3
+    } else if realm == 1 {
+        0.12
+    } else {
+        0.17
+    };
+    let mut peaks = Vec::new();
+    g.fill_style(["#1c2b5e", "#12302a", "#2a4a7e"][realm]);
+    g.begin();
+    g.move_to(0., h);
+    g.line_to(0., gy - h * 0.1);
+    let mut x = 0.;
+    while x <= w + 80. {
+        let step = 70. + rng.next_unit() * 80.;
+        let py = gy - h * (0.12 + rng.next_unit() * tall);
+        g.line_to(x + step / 2., py);
+        peaks.push([x + step / 2., py, step]);
+        x += step;
+        g.line_to(x, gy - h * (0.05 + rng.next_unit() * 0.05));
+    }
+    g.line_to(w + 160., h);
+    g.close();
+    g.fill();
+    if realm != 1 {
+        g.fill_style(if realm == 2 {
+            "rgba(240,248,255,0.85)"
+        } else {
+            "rgba(234,242,255,0.5)"
+        });
+        for [px, py, step] in peaks {
+            let k = if realm == 2 { 0.22 } else { 0.13 };
+            tri(
+                g,
+                px,
+                py,
+                px - step * k,
+                py + step * k * 1.2,
+                px + step * k,
+                py + step * k * 1.2,
+            );
+        }
+    }
+    background_fog(g, view, skies[2], 0.55);
+    let g = &mut out.land;
+    if realm == 1 {
+        for (col, hs) in [("#0b2420", 1.6), ("#071a17", 1.1)] {
+            g.fill_style(col);
+            let mut x = -10.;
+            while x < w + 20. {
+                let hh = s * (0.9 + rng.next_unit() * hs);
+                tri(
+                    g,
+                    x,
+                    gy + 4.,
+                    x + hh * 0.26,
+                    gy - hh,
+                    x + hh * 0.52,
+                    gy + 4.,
+                );
+                x += 12. + rng.next_unit() * 12.;
+            }
+        }
+        g.fill_style("#0a1d12");
+    } else if realm == 2 {
+        g.fill_style("#dfeeff");
+    } else {
+        g.fill_style("#0d1a38");
+        let mut x = w * 0.05;
+        while x < w * 0.6 {
+            let ww = s * (0.9 + rng.next_unit() * 0.6);
+            let hh = s * (0.7 + rng.next_unit() * 0.6);
+            g.fill_style("#0d1a38");
+            g.fill_rect(x, gy - hh, ww, hh);
+            tri(
+                g,
+                x - s * 0.1,
+                gy - hh,
+                x + ww / 2.,
+                gy - hh - s * 0.5,
+                x + ww + s * 0.1,
+                gy - hh,
+            );
+            let gx = x + ww * 0.3 + s * 0.09;
+            let yy = gy - hh * 0.6 + s * 0.1;
+            let gl = g.radial(
+                [gx, yy, 0., gx, yy, s * 0.9],
+                &[
+                    (0., "rgba(255,215,110,0.35)".into()),
+                    (1., "rgba(255,215,110,0)".into()),
+                ],
+            );
+            g.fill_style(gl);
+            g.fill_rect(x - s, gy - hh - s, ww + s * 2., hh + s * 2.);
+            g.fill_style("#ffd76e");
+            g.fill_rect(x + ww * 0.3, gy - hh * 0.6, s * 0.18, s * 0.2);
+            x += s * (1.4 + rng.next_unit());
+        }
+        g.fill_style("#0a1430");
+    }
+    g.fill_rect(0., gy, w, h - gy);
+    if realm == 2 {
+        g.fill_style("#b9d4f0");
+        g.fill_rect(0., gy, w, 4.);
+    }
+    out
+}
+fn background_fog(c: &mut Canvas, v: crate::flight::Viewport, col: &str, a: f64) {
+    let g = c.linear(
+        [0., v.ground_y - v.height * 0.32, 0., v.ground_y + 2.],
+        &[(0., hex_a(col, 0.)), (1., hex_a(col, a))],
+    );
+    c.fill_style(g);
+    c.fill_rect(
+        0.,
+        v.ground_y - v.height * 0.32,
+        v.width,
+        v.height * 0.32 + 2.,
+    );
+}
+fn draw_far_realm(
+    far: &mut Canvas,
+    g: &mut Canvas,
+    v: crate::flight::Viewport,
+    realm: usize,
+    rng: &mut crate::random::Mulberry32,
+) {
+    let (w, h, s, gy, top) = (v.width, v.height, v.scale, v.ground_y, v.top_limit);
+    match realm {
+        3 => {
+            far.fill_style("#0a2a40");
+            for [x, ww, hh] in [[0.55, 0.18, 0.05], [0.78, 0.12, 0.035], [0.32, 0.1, 0.025]] {
+                far.begin();
+                far.ellipse(w * x, gy, w * ww, h * hh, 0., PI, TAU);
+                far.fill();
+            }
+            g.fill_style("#0b2233");
+            g.begin();
+            g.move_to(0., gy);
+            g.line_to(0., gy - h * 0.3);
+            g.line_to(w * 0.07, gy - h * 0.32);
+            g.line_to(w * 0.11, gy - h * 0.2);
+            g.line_to(w * 0.15, gy);
+            g.close();
+            g.fill();
+            let (lx, ly, lw, lh) = (w * 0.05, gy - h * 0.31, s * 0.5, s * 1.8);
+            g.fill_style("#e8e0d0");
+            g.begin();
+            g.move_to(lx - lw * 0.5, ly);
+            g.line_to(lx - lw * 0.35, ly - lh);
+            g.line_to(lx + lw * 0.35, ly - lh);
+            g.line_to(lx + lw * 0.5, ly);
+            g.close();
+            g.fill();
+            g.fill_style("#c0453f");
+            g.fill_rect(lx - lw * 0.45, ly - lh * 0.4, lw * 0.9, lh * 0.15);
+            g.fill_rect(lx - lw * 0.4, ly - lh * 0.8, lw * 0.8, lh * 0.12);
+            g.fill_style("#ffd76e");
+            g.fill_rect(lx - lw * 0.3, ly - lh - s * 0.35, lw * 0.6, s * 0.35);
+            g.fill_style("#2a2a3a");
+            tri(
+                g,
+                lx - lw * 0.45,
+                ly - lh - s * 0.35,
+                lx,
+                ly - lh - s * 0.7,
+                lx + lw * 0.45,
+                ly - lh - s * 0.35,
+            );
+            let bm = g.linear(
+                [lx, 0., lx + w * 0.45, 0.],
+                &[
+                    (0., "rgba(255,230,150,0.28)".into()),
+                    (1., "rgba(255,230,150,0)".into()),
+                ],
+            );
+            g.fill_style(bm);
+            tri(
+                g,
+                lx,
+                ly - lh - s * 0.18,
+                lx + w * 0.45,
+                ly - lh - s * 1.4,
+                lx + w * 0.45,
+                ly - lh + s * 0.9,
+            );
+            let sea = g.linear(
+                [0., gy, 0., h],
+                &[(0., "#13506a".into()), (1., "#062030".into())],
+            );
+            g.fill_style(sea);
+            g.fill_rect(0., gy, w, h - gy);
+            g.fill_style("rgba(234,242,255,0.35)");
+            for k in 0..7 {
+                let k = k as f64;
+                let ww = s * (1.6 - k * 0.15);
+                g.fill_rect(
+                    w * 0.84 - ww / 2. + rng.next_unit() * s * 0.4,
+                    gy + 6. + k * (h - gy) / 8.,
+                    ww,
+                    2.,
+                );
+            }
+            g.stroke_style("rgba(190,250,255,0.35)");
+            g.width(2.);
+            for _ in 0..18 {
+                g.begin();
+                g.arc(
+                    rng.next_unit() * w,
+                    gy + 8. + rng.next_unit() * (h - gy - 12.),
+                    s * 0.25,
+                    PI * 1.1,
+                    PI * 1.9,
+                );
+                g.stroke();
+            }
+            g.fill_style("rgba(200,255,250,0.6)");
+            g.fill_rect(0., gy, w, 2.);
+        }
+        4 => {
+            for (x0, w0, h0, col) in [
+                (0.25, 0.3, 0.36, "#2a0f0c"),
+                (0.68, 0.36, 0.46, "#33130e"),
+                (0.97, 0.22, 0.28, "#2a0f0c"),
+            ] {
+                let (cx, yy, half) = (w * x0, gy - h * h0, w * w0 / 2.);
+                let cw = half * 0.18;
+                far.fill_style(col);
+                far.begin();
+                far.move_to(cx - half, gy);
+                far.line_to(cx - cw, yy);
+                far.line_to(cx + cw, yy);
+                far.line_to(cx + half, gy);
+                far.close();
+                far.fill();
+                let gl = far.radial(
+                    [cx, yy, 0., cx, yy, half * 0.7],
+                    &[
+                        (0., "rgba(255,140,50,0.55)".into()),
+                        (1., "rgba(255,90,30,0)".into()),
+                    ],
+                );
+                far.fill_style(gl);
+                circle(far, cx, yy, half * 0.7);
+                far.fill_style("#ff8a3d");
+                ell(far, cx, yy + 2., cw, cw * 0.3);
+                far.stroke_style("rgba(255,120,40,0.75)");
+                far.width((s * 0.08).max(2.));
+                far.begin();
+                let mut x = cx + cw * 0.3;
+                let mut y = yy;
+                far.move_to(x, y);
+                while y < gy {
+                    y += s * 0.6;
+                    x += (rng.next_unit() - 0.3) * s * 0.5;
+                    far.line_to(x, y);
+                }
+                far.stroke();
+                far.fill_style("rgba(90,55,55,0.35)");
+                for k in 0..4 {
+                    let k = k as f64;
+                    circle(
+                        far,
+                        cx + (rng.next_unit() - 0.5) * s + k * s * 0.4,
+                        yy - s * (0.6 + k * 0.7),
+                        s * (0.5 + k * 0.25),
+                    );
+                }
+            }
+            g.fill_style("#1a0d0b");
+            g.fill_rect(0., gy, w, h - gy);
+            g.stroke_style("rgba(255,110,40,0.8)");
+            g.width(2.);
+            for _ in 0..10 {
+                let mut x = rng.next_unit() * w;
+                let mut y = gy + 6. + rng.next_unit() * (h - gy) * 0.6;
+                g.begin();
+                g.move_to(x, y);
+                for _ in 0..4 {
+                    x += s * (0.3 + rng.next_unit() * 0.5);
+                    y += (rng.next_unit() - 0.5) * s * 0.3;
+                    g.line_to(x, y);
+                }
+                g.stroke();
+            }
+            g.fill_style("#ff7b3a");
+            g.fill_rect(0., gy, w, 3.);
+        }
+        _ => {
+            for (y0, col) in [
+                (0.22, "rgba(98,240,212,0.13)"),
+                (0.32, "rgba(255,111,181,0.1)"),
+            ] {
+                far.fill_style(col);
+                far.begin();
+                far.move_to(0., h * y0);
+                let mut x = 0.;
+                while x <= w + s {
+                    far.line_to(x, h * y0 + (x / (s * 3.) + y0 * 9.).sin() * s * 0.8);
+                    x += s;
+                }
+                x = w + s;
+                while x >= 0. {
+                    far.line_to(
+                        x,
+                        h * y0 + s * 1.6 + (x / (s * 2.4) + y0 * 5.).sin() * s * 0.6,
+                    );
+                    x -= s;
+                }
+                far.close();
+                far.fill();
+            }
+            for [x0, y0, w0] in [[0.16, 0.56, 0.11], [0.6, 0.44, 0.08], [0.88, 0.62, 0.13]] {
+                let (cx, cy, ww) = (w * x0, top + (gy - top) * y0, w * w0);
+                far.fill_style("#3a2f6a");
+                far.begin();
+                far.move_to(cx - ww, cy);
+                far.quad(cx, cy + ww * 0.9, cx + ww, cy);
+                far.close();
+                far.fill();
+                far.fill_style("rgba(190,230,255,0.4)");
+                far.fill_rect(cx + ww * 0.35, cy, s * 0.12, (gy - cy) * 0.8);
+                far.fill_style("#4f8f6a");
+                ell(far, cx, cy, ww, ww * 0.15);
+                far.fill_style("#2f6a4a");
+                for k in 0..3 {
+                    let tx = cx - ww * 0.6 + k as f64 * ww * 0.5;
+                    tri(g, tx - s * 0.2, cy, tx, cy - s * 0.7, tx + s * 0.2, cy);
+                }
+            }
+            g.fill_style("#d8d0f0");
+            g.fill_rect(0., gy, w, h - gy);
+            g.fill_style("#eee8ff");
+            let mut x = -s;
+            while x < w + s {
+                g.begin();
+                g.arc(
+                    x + rng.next_unit() * s * 0.4,
+                    gy + s * 0.1,
+                    s * (0.5 + rng.next_unit() * 0.4),
+                    PI,
+                    TAU,
+                );
+                g.fill();
+                x += s * 1.1;
+            }
+        }
+    }
+}
+
+fn hash01(i: f64, k: f64) -> f64 {
+    let v = (i * 127.1 + k * 311.7).sin() * 43758.5453;
+    v - v.floor()
+}
+/// Original ground scenery and wind streaks, keyed to travelled distance rather than frame RNG.
+pub fn draw_scenery(
+    c: &mut Canvas,
+    v: crate::flight::Viewport,
+    realm: usize,
+    scroll: f64,
+    scroll_v: f64,
+) {
+    let (w, s, ground, top) = (v.width, v.scale, v.ground_y, v.top_limit);
+    let sp = s * 2.3;
+    let i0 = (scroll / sp).floor() as i64 - 1;
+    let i1 = i0 + (w / sp).ceil() as i64 + 3;
+    let gy = ground + 1.;
+    for i in i0..i1 {
+        let i = i as f64;
+        if hash01(i, 1.) < 0.35 {
+            continue;
+        }
+        let x = i * sp - scroll + hash01(i, 2.) * sp * 0.6;
+        let k = s * (0.3 + hash01(i, 3.) * 0.3);
+        let kind = hash01(i, 4.);
+        match realm {
+            0 => {
+                if kind < 0.55 {
+                    c.fill_style("#12301e");
+                    circle(c, x, gy - k * 0.3, k * 0.55);
+                    circle(c, x + k * 0.5, gy - k * 0.2, k * 0.42);
+                } else if kind < 0.8 {
+                    c.fill_style("#3a2a1e");
+                    c.fill_rect(x, gy - k, k * 0.14, k);
+                    c.fill_rect(x + k * 0.8, gy - k, k * 0.14, k);
+                    c.fill_rect(x - k * 0.1, gy - k * 0.75, k * 1.1, k * 0.1);
+                    c.fill_rect(x - k * 0.1, gy - k * 0.4, k * 1.1, k * 0.1);
+                } else {
+                    c.fill_style("#8a6a2a");
+                    c.begin();
+                    c.arc(x, gy, k * 0.7, PI, TAU);
+                    c.fill();
+                    c.fill_style("rgba(255,220,120,0.25)");
+                    c.begin();
+                    c.arc(x - k * 0.15, gy - k * 0.2, k * 0.3, PI, TAU);
+                    c.fill();
+                }
+            }
+            1 => {
+                c.fill_style(if kind < 0.6 { "#0b2a1f" } else { "#123a28" });
+                if kind < 0.6 {
+                    tri(c, x - k * 0.5, gy, x, gy - k * 1.8, x + k * 0.5, gy);
+                    tri(
+                        c,
+                        x - k * 0.4,
+                        gy - k * 0.7,
+                        x,
+                        gy - k * 2.3,
+                        x + k * 0.4,
+                        gy - k * 0.7,
+                    );
+                } else {
+                    circle(c, x, gy - k * 0.25, k * 0.5);
+                    circle(c, x + k * 0.45, gy - k * 0.15, k * 0.38);
+                }
+            }
+            2 => {
+                if kind < 0.5 {
+                    c.fill_style("#5a6a86");
+                    c.begin();
+                    c.ellipse(x, gy, k * 0.7, k * 0.5, 0., PI, TAU);
+                    c.fill();
+                    c.fill_style("#f0f6ff");
+                    ell(c, x, gy - k * 0.36, k * 0.5, k * 0.16);
+                } else {
+                    c.fill_style("#1e3a5a");
+                    tri(c, x - k * 0.5, gy, x, gy - k * 1.9, x + k * 0.5, gy);
+                    c.fill_style("#f0f6ff");
+                    tri(
+                        c,
+                        x - k * 0.2,
+                        gy - k * 1.2,
+                        x,
+                        gy - k * 1.9,
+                        x + k * 0.2,
+                        gy - k * 1.2,
+                    );
+                }
+            }
+            3 => {
+                if kind < 0.75 {
+                    c.fill_style("#0c2a3a");
+                    c.begin();
+                    c.ellipse(x, gy + k * 0.1, k * 0.7, k * 0.45, 0., PI, TAU);
+                    c.fill();
+                    c.stroke_style("rgba(220,250,255,0.6)");
+                    c.width(2.);
+                    c.begin();
+                    c.move_to(x - k * 0.9, gy + k * 0.12);
+                    c.quad(x, gy - k * 0.05, x + k * 0.9, gy + k * 0.12);
+                    c.stroke();
+                } else {
+                    c.fill_style("#e8e0d0");
+                    c.fill_rect(x - k * 0.15, gy - k * 0.7, k * 0.3, k * 0.7);
+                    c.fill_style("#c0453f");
+                    c.fill_rect(x - k * 0.15, gy - k * 0.45, k * 0.3, k * 0.18);
+                    c.fill_style("#ffd76e");
+                    circle(c, x, gy - k * 0.8, k * 0.12);
+                }
+            }
+            4 => {
+                c.fill_style("#241210");
+                c.begin();
+                c.move_to(x - k * 0.7, gy);
+                c.line_to(x - k * 0.3, gy - k * 0.8);
+                c.line_to(x + k * 0.2, gy - k * 0.6);
+                c.line_to(x + k * 0.7, gy);
+                c.close();
+                c.fill();
+                c.stroke_style("rgba(255,120,40,0.8)");
+                c.width(2.);
+                c.begin();
+                c.move_to(x - k * 0.25, gy - k * 0.6);
+                c.line_to(x - k * 0.05, gy - k * 0.3);
+                c.line_to(x - k * 0.2, gy);
+                c.stroke();
+            }
+            _ => {
+                c.fill_style("rgba(240,236,255,0.85)");
+                circle(c, x, gy - k * 0.15, k * 0.5);
+                circle(c, x + k * 0.45, gy - k * 0.05, k * 0.38);
+                circle(c, x - k * 0.45, gy - k * 0.02, k * 0.34);
+            }
+        }
+    }
+    let a = scroll_v / (s * 4.2);
+    if a > 0.05 {
+        c.stroke_style(format!("rgba(234,242,255,{})", 0.16 * a));
+        c.width(2.);
+        for k in 0..7 {
+            let y = top + (0.08 + ((k as f64 * 0.37) % 1.) * 0.8) * (ground - top);
+            let x = w + s * 2. - ((scroll * 1.8 + k as f64 * w * 0.41) % (w + s * 4.));
+            let len = s * (1. + (k % 3) as f64 * 0.6) * a;
+            c.begin();
+            c.move_to(x, y);
+            c.line_to(x + len, y);
+            c.stroke();
+        }
+    }
 }

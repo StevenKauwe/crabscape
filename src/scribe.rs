@@ -616,6 +616,10 @@ impl<P: Copy + PartialEq> Desk<P> {
 }
 
 pub struct ScribePlugin;
+#[cfg(any(target_arch = "wasm32", test))]
+fn accept_voice_result(private_mode: bool, ignore_before: f64, at: f64) -> bool {
+    !private_mode && at.is_finite() && at > ignore_before
+}
 
 impl bevy::app::Plugin for ScribePlugin {
     fn build(&self, _app: &mut bevy::app::App) {
@@ -701,6 +705,8 @@ pub(crate) mod web {
         shown: Option<String>,
         /// When the note hides (seconds since 1970).
         note_until: f64,
+        private_mode: bool,
+        ignore_before: f64,
     }
 
     thread_local! {
@@ -713,6 +719,42 @@ pub(crate) mod web {
 
     fn now() -> f64 {
         js_sys::Date::now() / 1000.0
+    }
+    /// Discard unfinished audio instead of stop()'s normal flush-to-transcription.
+    /// Existing history is retained, and late pre-entry worker results are ignored.
+    pub(crate) fn valmora_privacy(active: bool) {
+        let (captures, who) = with(|s| {
+            s.private_mode = active;
+            s.sent.clear();
+            s.sent_mine = None;
+            if !active {
+                return (Vec::new(), String::new());
+            }
+            s.ignore_before = now();
+            let captures = std::mem::take(&mut s.captures);
+            for capture in &captures {
+                let _ = s.desk.stop(capture.voice);
+            }
+            (captures, s.desk.me.clone())
+        });
+        for capture in captures {
+            capture.node.set_onaudioprocess(None);
+            let _ = capture.source.disconnect();
+            let _ = capture.node.disconnect();
+            let _ = capture.sink.disconnect();
+        }
+        if active {
+            crate::voice::say_writes(None, &who, false);
+            for peer in crate::voice::calls() {
+                crate::voice::say_host(
+                    peer,
+                    HostSays {
+                        skip: None,
+                        you: false,
+                    },
+                );
+            }
+        }
     }
 
     fn keep(t: &Transcript) {
@@ -752,6 +794,9 @@ pub(crate) mod web {
         me: Res<LocalId>,
         sim: Res<Sim>,
     ) {
+        if with(|s| s.private_mode) {
+            return;
+        }
         let mic = crate::voice::mic_track();
         let mic_on = mic.is_some();
         let room = crate::coop::in_room();
@@ -973,6 +1018,9 @@ pub(crate) mod web {
 
     /// `voice`'s utterance at `rate` to the worker, unless it's behind.
     fn write_down(voice: Voice<PeerId>, utterance: Vec<f32>, rate: f32) {
+        if with(|s| s.private_mode) {
+            return;
+        }
         let at = now() - f64::from(utterance.len() as f32 / rate);
         let go = with(|s| {
             if s.desk.pending >= PENDING_MAX {
@@ -1006,6 +1054,10 @@ pub(crate) mod web {
     /// it couldn't): kept, and sent to everyone with the speaker's name.
     pub fn heard(voice: Voice<PeerId>, at: f64, text: Option<String>) {
         let line = with(|s| {
+            if !super::accept_voice_result(s.private_mode, s.ignore_before, at) {
+                s.desk.pending = s.desk.pending.saturating_sub(1);
+                return None;
+            }
             let Some(text) = text else {
                 s.desk.pending = s.desk.pending.saturating_sub(1);
                 return None;
@@ -1028,6 +1080,9 @@ pub(crate) mod web {
 
     /// The host's device sent a line.
     pub fn friend_said(who: &str, text: &str, ago: f32) {
+        if with(|s| s.private_mode) {
+            return;
+        }
         with(|s| {
             s.book.friend_said(who, text, ago, now());
             keep(&s.book.transcript);
@@ -1513,5 +1568,17 @@ mod tests {
             .collect();
         assert!(loudness(&resample(&high, 48_000.0, 16_000.0)) < 0.2);
         assert_eq!(resample(&one, 16_000.0, 16_000.0).len(), 48_000);
+    }
+}
+
+#[cfg(test)]
+mod valmora_privacy_tests {
+    #[test]
+    fn pending_pre_entry_results_are_not_kept_or_shared_after_return() {
+        assert!(!super::accept_voice_result(true, 100., 110.));
+        assert!(!super::accept_voice_result(false, 100., 99.));
+        assert!(!super::accept_voice_result(false, 100., 100.));
+        assert!(!super::accept_voice_result(false, 100., f64::NAN));
+        assert!(super::accept_voice_result(false, 100., 101.));
     }
 }

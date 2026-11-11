@@ -14,6 +14,8 @@ pub struct Gem {
     pub value: f64,
     pub r: f64,
     pub lost_one: bool,
+    #[serde(default)]
+    pub color: String,
 }
 pub fn update_gems(
     gems: &mut Vec<Gem>,

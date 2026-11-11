@@ -6,6 +6,14 @@ use bevy_egui::EguiPlugin;
 use dragon_game::{flight::Viewport, profile, save::BrowserSave};
 fn main() {
     let args: Vec<_> = std::env::args().skip(1).collect();
+    if args.is_empty() {
+        let mut state = valmora::Valmora::default();
+        match state.open_new(2, 42) {
+            Ok(()) => run(state),
+            Err(error) => eprintln!("Cannot start: {error}"),
+        }
+        return;
+    }
     if args.len() != 2 {
         eprintln!(
             "Usage: dragon_adventure <explicit-profile.json> <alexa|tavian|rider3|rider4|rider5|rider6>"
@@ -48,6 +56,10 @@ fn main() {
             return;
         }
     };
+    run(state);
+}
+fn run(mut state: valmora::Valmora) {
+    state.enter();
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(EguiPlugin::default())

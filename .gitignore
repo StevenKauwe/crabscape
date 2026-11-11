@@ -56,3 +56,6 @@ __pycache__/
 /web/kingworker/kingworker-version.txt
 
 /web/king-ddd
+
+# Native Valmora checkpoints are private local progress.
+/.crabscape-valmora-v1/

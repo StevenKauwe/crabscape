@@ -187,6 +187,40 @@ impl Adventure {
     pub fn initial_profile(&self) -> &Value {
         &self.initial
     }
+    /// Apply finishBuild's edit branch without resetting adventure RNG or original import.
+    pub fn change_look(&mut self, draft: &Value, now_ms: u64) -> Result<Vec<Event>, Error> {
+        if !matches!(self.state(), "roost" | "skills") || self.game.is_some() {
+            return Err(Error::InvalidState);
+        }
+        let build = crate::profile::clean_build(draft).map_err(|_| Error::InvalidProfile)?;
+        if !build.is_object() {
+            return Err(Error::InvalidProfile);
+        }
+        let dragon = self.profile["party"]
+            .as_array_mut()
+            .and_then(|party| party.first_mut())
+            .and_then(Value::as_object_mut)
+            .ok_or(Error::InvalidProfile)?;
+        for (to, from) in [
+            ("name", "dname"),
+            ("color", "dcolor"),
+            ("horn", "horn"),
+            ("kind", "dkind"),
+        ] {
+            dragon.insert(to.into(), build[from].clone());
+        }
+        self.profile["build"] = build;
+        self.profile["last"] = json!({"text":"changed their look","at":now_ms});
+        let mut events = vec![
+            Event::Dirty,
+            Event::Flush,
+            Event::Sound {
+                name: "pick".into(),
+            },
+        ];
+        events.extend(self.to_roost()?);
+        Ok(events)
+    }
     pub fn state(&self) -> &str {
         &self.gate.state
     }

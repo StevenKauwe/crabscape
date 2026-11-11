@@ -295,6 +295,10 @@ fn clip(mut p: Vec<Pos2>, boundary: &[Pos2]) -> Vec<Pos2> {
 }
 /// Paints recorded paths in source order. Coordinates are egui logical screen pixels.
 pub fn paint(painter: &egui::Painter, canvas: &Canvas) {
+    painter.extend(shapes(canvas));
+}
+fn shapes(canvas: &Canvas) -> Vec<Shape> {
+    let mut out = Vec::new();
     for d in &canvas.commands {
         let mut mesh = Mesh::default();
         for (mut p, closed) in paths(&d.path, d.transform) {
@@ -312,14 +316,18 @@ pub fn paint(painter: &egui::Painter, canvas: &Canvas) {
                     let col = color(d, p[0]);
                     if !stroke.dash.is_empty() {
                         for dash in dashed_path(&p, &stroke.dash, scale) {
-                            painter.add(Shape::line(dash, Stroke::new(width, col)));
+                            out.push(Shape::line(dash, Stroke::new(width, col)));
                         }
                         continue;
                     }
-                    painter.add(Shape::line(p.clone(), Stroke::new(width, col)));
+                    out.push(Shape::line(p.clone(), Stroke::new(width, col)));
                     if stroke.cap == "round" {
-                        painter.circle_filled(p[0], width * 0.5, col);
-                        painter.circle_filled(*p.last().expect("nonempty"), width * 0.5, col);
+                        out.push(Shape::circle_filled(p[0], width * 0.5, col));
+                        out.push(Shape::circle_filled(
+                            *p.last().expect("nonempty"),
+                            width * 0.5,
+                            col,
+                        ));
                     }
                     continue;
                 }
@@ -339,9 +347,10 @@ pub fn paint(painter: &egui::Painter, canvas: &Canvas) {
             }
         }
         if !mesh.indices.is_empty() {
-            painter.add(Shape::mesh(mesh));
+            out.push(Shape::mesh(mesh));
         }
     }
+    out
 }
 
 fn dashed_path(points: &[Pos2], pattern: &[f64], scale: f32) -> Vec<Vec<Pos2>> {
@@ -421,11 +430,96 @@ fn breath(kind: &str) -> Option<[String; 3]> {
         .map(str::to_owned),
     )
 }
+
+/// At most one viewport/realm backdrop is retained. Dynamic commands reuse their outer
+/// vector; inner paths/paints and dynamic GPU meshes still allocate and need profiling.
+#[derive(Default)]
+pub struct ArtCache {
+    canvas: Canvas,
+    background_key: Option<([f64; 5], usize, bool)>,
+    sky: Vec<Shape>,
+    far: [Vec<Shape>; 2],
+    land: [Vec<Shape>; 2],
+}
+fn mirrored(source: &[Shape], width: f32) -> Vec<Shape> {
+    source
+        .iter()
+        .cloned()
+        .map(|mut shape| {
+            match &mut shape {
+                Shape::Mesh(mesh) => {
+                    for v in &mut std::sync::Arc::make_mut(mesh).vertices {
+                        v.pos.x = width - v.pos.x;
+                    }
+                }
+                Shape::Path(path) => {
+                    for p in &mut path.points {
+                        p.x = width - p.x;
+                    }
+                }
+                Shape::Circle(circle) => circle.center.x = width - circle.center.x,
+                _ => {}
+            }
+            shape
+        })
+        .collect()
+}
+impl ArtCache {
+    fn background(
+        &mut self,
+        painter: &egui::Painter,
+        view: dragon_game::flight::Viewport,
+        realm: usize,
+        song: bool,
+        scroll: f64,
+    ) {
+        let key = (
+            [
+                view.width,
+                view.height,
+                view.scale,
+                view.ground_y,
+                view.top_limit,
+            ],
+            realm,
+            song,
+        );
+        if self.background_key != Some(key) {
+            let b = dragon_game::drawing::draw_background(view, realm, song);
+            self.sky = shapes(&b.sky);
+            self.far[0] = shapes(&b.far);
+            self.far[1] = mirrored(&self.far[0], view.width as f32);
+            self.land[0] = shapes(&b.land);
+            self.land[1] = mirrored(&self.land[0], view.width as f32);
+            self.background_key = Some(key);
+        }
+        painter.extend(self.sky.iter().cloned());
+        for (layer, speed) in [(&self.far, 0.22), (&self.land, 0.55)] {
+            let off = (scroll * speed).rem_euclid(view.width * 2.);
+            let mut x = -off;
+            let mut k = 0;
+            while x < view.width {
+                let clip = painter.clip_rect().intersect(egui::Rect::from_min_size(
+                    egui::pos2(x as f32, 0.),
+                    egui::vec2(view.width as f32, view.height as f32),
+                ));
+                let p = painter.with_clip_rect(clip);
+                p.extend(layer[k % 2].iter().cloned().map(|mut shape| {
+                    shape.translate(egui::vec2(x as f32, 0.));
+                    shape
+                }));
+                x += view.width;
+                k += 1;
+            }
+        }
+    }
+}
 /// Original team/enemy layers with separate source global and flap clocks.
 /// Random dadTrail particles remain unimplemented.
 /// The source geometry itself is retained; this adapter does not claim pixel-identical rasterization.
 pub fn paint_game(
     painter: &egui::Painter,
+    cache: &mut ArtCache,
     game: &dragon_game::game::Game,
     view: dragon_game::flight::Viewport,
     animation_time: f64,
@@ -436,7 +530,15 @@ pub fn paint_game(
         DragonArt, EnemyArt, RiderArt, SceneArt, draw_cracks, draw_dragon, draw_enemy_fx,
         draw_hazard, draw_mark, draw_objective, draw_star, draw_strike, draw_warning,
     };
-    let mut c = Canvas::default();
+    let song = game
+        .profile
+        .as_ref()
+        .and_then(|p| p["hatched"].as_u64())
+        .unwrap_or(0)
+        >= 3;
+    cache.background(painter, view, game.definition.realm, song, game.scroll);
+    let mut c = std::mem::take(&mut cache.canvas);
+    c.reset();
     let time = animation_time;
     let p = &game.player;
     let scene = SceneArt {
@@ -445,6 +547,13 @@ pub fn paint_game(
         scale: view.scale,
         time,
     };
+    dragon_game::drawing::draw_scenery(
+        &mut c,
+        view,
+        game.definition.realm,
+        game.scroll,
+        game.scroll_v,
+    );
     // Local visual randomness never advances the gameplay stream.
     let mut bolt_rng = dragon_game::random::Mulberry32 {
         state: (time * 1000.) as u32,
@@ -532,6 +641,35 @@ pub fn paint_game(
     let dad = string(build, "name", "")
         .trim()
         .eq_ignore_ascii_case("daddio");
+    for gem in &game.gems {
+        // Empty colors occur only in synthetic/older in-memory inputs.
+        dragon_game::drawing::draw_gem(
+            &mut c,
+            gem,
+            if !gem.color.is_empty() {
+                &gem.color
+            } else if gem.golden {
+                "#ffd76e"
+            } else {
+                "#62f0d4"
+            },
+            &scene,
+        );
+    }
+    for ally in &game.allies {
+        c.alpha(0.9);
+        draw_dragon(
+            &mut c,
+            ally.x,
+            ally.y,
+            view.scale * 0.75,
+            &ally.color,
+            if ally.vx == 0. { 1. } else { ally.vx.signum() },
+            ally.t * 1.2,
+            &DragonArt::default(),
+        );
+        c.alpha(1.);
+    }
     if let Some(party) = party {
         for d in party {
             if d["bonded"] == true {
@@ -630,7 +768,7 @@ pub fn paint_game(
             spin: p.spin,
             dizzy: p.dizzy > 0.,
             fire: main == bond && p.fire_flash > 0.,
-            fire_cols,
+            fire_cols: fire_cols.clone(),
             rider,
             aura: st == 3 && !dad,
             eye: Some(eye),
@@ -671,7 +809,25 @@ pub fn paint_game(
     for hazard in &game.hazards {
         draw_hazard(&mut c, hazard, &scene, realm);
     }
+    for shot in &game.shots {
+        let owner = party.and_then(|a| {
+            a.iter()
+                .find(|d| d["id"].as_str() == Some(shot.owner.as_str()))
+        });
+        let cols = if owner.is_some_and(|d| d["bonded"] == true) || shot.owner == "bond" {
+            fire_cols.clone()
+        } else {
+            breath(match shot.kind {
+                dragon_game::combat::Kind::Spark => "spark",
+                dragon_game::combat::Kind::Frost => "frost",
+                dragon_game::combat::Kind::Star => "star",
+                _ => "flame",
+            })
+        };
+        dragon_game::drawing::draw_shot(&mut c, shot, cols.as_ref(), &scene);
+    }
     paint(painter, &c);
+    cache.canvas = c;
     if let Some(ob) = &game.objective {
         if ob.max_hp > 0 {
             label(
@@ -741,6 +897,36 @@ fn label(painter: &egui::Painter, text: &str, x: f64, y: f64, color: Color32, si
 mod tests {
     use super::*;
     use dragon_game::drawing::{DragonArt, draw_dragon};
+    #[test]
+    fn mirrored_cached_layer_keeps_vertical_geometry() {
+        let mut c = Canvas::default();
+        c.fill_rect(10., 20., 30., 40.);
+        let source = shapes(&c);
+        let mirrored = mirrored(&source, 100.);
+        let (Shape::Mesh(a), Shape::Mesh(b)) = (&source[0], &mirrored[0]) else {
+            panic!("filled rectangle mesh");
+        };
+        for (a, b) in a.vertices.iter().zip(&b.vertices) {
+            assert_eq!(a.pos.y, b.pos.y);
+            assert_eq!(a.pos.x + b.pos.x, 100.);
+            assert_eq!(a.color, b.color);
+        }
+    }
+    #[test]
+    fn dash_phase_continues_across_polyline_corners() {
+        let d = dashed_path(
+            &[egui::pos2(0., 0.), egui::pos2(6., 0.), egui::pos2(6., 14.)],
+            &[10., 5.],
+            1.,
+        );
+        assert_eq!(
+            d,
+            vec![
+                vec![egui::pos2(0., 0.), egui::pos2(6., 0.), egui::pos2(6., 4.)],
+                vec![egui::pos2(6., 9.), egui::pos2(6., 14.)]
+            ]
+        );
+    }
     #[test]
     fn concave_polygon_is_not_filled_as_a_fan() {
         let mut c = Canvas::default();

@@ -2,7 +2,7 @@
 
 This branch is an additive port, not a replacement for Dragon. The existing
 `web/dragon/index.html`, browser save keys and public game remain unchanged. The PR's
-web preview is still the existing JS game, not the native Rust prototypes.
+standalone Dragon preview remains the existing JS game. The CrabScape preview now has an explicitly labeled native-port castle trip.
 
 ## Run
 
@@ -22,19 +22,24 @@ web preview is still the existing JS game, not the native Rust prototypes.
 - `cargo run --bin dragon_adventure -- exported-rider.json rider3`: native adventure
   presentation for an explicitly supplied built profile. Story, unlocked mission map,
   roost feeding/crafting/skills, egg questions/hatching, results, pause and touch controls
-  use the ported adventure state machine. It never writes the input file. A visible
-  notice says progress remains in memory. The castle route is not activated yet.
+  use the ported adventure state machine. It never writes the input file. This explicit-file harness remains in-memory. The main CrabScape route uses separate native checkpoints.
+- With no arguments, `dragon_adventure` starts the two-step new-rider builder in an
+  isolated, in-memory rider3 profile. Existing riders can change their look at the
+  roost without resetting progression, identity, original import or adventure RNG.
 
 The flight/mission harnesses use placeholder shapes. The adventure uses original
 procedural dragon/rider and enemy geometry, attack warnings, strikes, hazards and
-objective glyphs, tessellated into egui meshes. Shots/gems, scenery, narration/audio,
-builder/lobby and complete screen layouts remain unfinished. Canvas antialiasing,
+objective glyphs, shots/gems/allies and the six source backdrops/scenery, tessellated
+into egui meshes. Narration/audio, lobby, optional ambient/foreground particles and
+complete screen layouts remain unfinished. Canvas antialiasing,
 stroke joins and anisotropic strokes are approximations; command equality is not
-pixel equality. The presentation currently allocates paths/meshes per frame and has
-not been profiled on phones. Headless Bevy ECS startup/input/pause tests
+pixel equality. One viewport/realm/song backdrop is cached and dynamic outer buffers
+are reused, but nested paths/paints and dynamic meshes still allocate per frame. No
+phone performance improvement is claimed or measured. Headless Bevy ECS startup/input/pause tests
 run without opening windows. Actual rendering and feel still need visual verification.
-There is no microphone, transcription, live network connection or persistence in these
-entry points.
+There is no live Dragon network connection yet. Boarding the castle dragon turns off
+CrabScape microphone capture and transcription, drops pending transcription results,
+and rejects late microphone permission callbacks. Returning does not turn the mic on.
 
 ## Implemented core
 
@@ -49,13 +54,13 @@ entry points.
 - Player bumps/bonks, hazard and lightning timing, gem movement/collection geometry.
 - Integrated solo m1–m24 lifecycle, including all objective types and enemy effects,
   retirement and success/failure results. Normalized profile parties, wings, crafts,
-  skills, charms, specials and spells are integrated. Completion mutates only the
-  in-memory profile. Champion variants and milestone wild allies are integrated;
+  skills, charms, specials and spells are integrated. Completion mutates the
+  profile, with separate checkpoints in the castle route. Champion variants and milestone wild allies are integrated;
   live co-op is not yet integrated.
 - All specials, eight spells and Daddio powers, with explicit ordered world effects.
 - Roost hatch/release/milestones and source completion rewards, with injected time,
   day and RNG. The mission harness uses synthetic day/time. Adventure obtains the
-  system's local-day offset (including DST); daily persistence is still unfinished.
+  system's local-day offset (including DST); the castle route checkpoints the complete profile.
 - Source times-table hatch gate and freeze/reload/countdown state with injected time,
   including the five-answer requirement and delayed wrong-answer deadline. UI/storage
   callbacks are intents, not live writes.
@@ -124,8 +129,9 @@ JavaScriptCore oracles that extract actual legacy functions. Coverage includes:
 - all 24 base-mission lifecycle/objective regressions and source realm/effect checks;
 - original story/content catalog and 3,072 mission-unlock cases;
 - times/freeze interaction traces and 421 local-day/reload boundaries;
-- 198 original Canvas command streams covering dragons/riders, every enemy kind,
-  squash and attack warnings, hazards/strikes and objective geometry;
+- 268 original Canvas command streams covering dragons/riders, every enemy kind,
+  squash/attack warnings, hazards/strikes, objectives, shots/gems and backgrounds/scenery;
+- 32 source builder-default/RNG-order comparisons, plus edit identity and progression checks;
 - mission definitions/lifecycle, objective geometry, profile normalization and
   progression mutations against synthetic source-JS fixtures.
 
@@ -178,3 +184,33 @@ its `rgb(...)` result back into `shade`; parsing that string follows the origina
 NaN/bitwise behavior. A conventional color helper would silently change those colors.
 Body, wing, rider and enemy geometry should be compared independently before complete
 scene images. Placeholder prototype rectangles are not evidence of visual parity.
+
+## Castle preview checkpoint lifecycle
+
+The roof dragon at x=2300 admits a grounded nearby player using V or the boarding
+button. A cancellable flight opens the native rider menu, and return keeps the
+existing CrabScape world/player rather than replacing its save or teleporting it.
+Input ownership blocks underlying shortcuts and clears stale held inputs on return.
+This is a preview route, not an announcement of full behavioral or visual parity.
+
+Native progress uses a private `.crabscape-valmora-v1` directory (gitignored); WASM
+uses an isolated IndexedDB namespace, including per-PR/branch preview isolation.
+No legacy browser keys are discovered or overwritten. Selecting a slot loads its
+checkpoint or offers the source two-step builder. Explicit pasted profile/archive
+imports retain original bytes and unknown fields; explicit copy buttons provide
+current profile, saved compatible export and original archive backup separately.
+Native durable writes currently support Unix and fail closed elsewhere.
+
+A bounded asynchronous driver admits one operation, retains the last successful
+revision token until commit confirmation, and blocks writes after uncertain/stale
+failures until an explicit reload. Dirty/flush events and a two-second comparison
+checkpoint live progression without per-frame disk/JSON writes. Freeze state is
+atomic with the profile; admission scans all six slots for a still-active freeze.
+An error keeps unsaved progress in memory and exposes recovery export before the
+explicit discard/reload action. Checkpoints do not resume a live mission or RNG.
+
+Synthetic tests cover actual builder completion, native torn writes/concurrency,
+IndexedDB transaction races, quota failure, malformed preservation and freeze expiry.
+Actual isolated Chromium ran the storage adapter; full root journey screenshots,
+phone controls/performance and browser/native live co-op remain validation gates.
+The home-server disk format remains unverified.

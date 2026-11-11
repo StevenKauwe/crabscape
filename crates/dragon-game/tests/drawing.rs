@@ -25,6 +25,20 @@ fn canvas_restores_state_but_not_current_path() {
     );
 }
 #[test]
+fn canvas_frame_reset_keeps_outer_buffer_and_resets_style() {
+    let mut c = Canvas::default();
+    c.alpha(0.3);
+    c.translate(20., 30.);
+    c.fill_rect(0., 0., 10., 10.);
+    let capacity = c.commands.capacity();
+    c.reset();
+    assert!(c.commands.is_empty());
+    assert_eq!(c.commands.capacity(), capacity);
+    c.fill_rect(0., 0., 10., 10.);
+    assert_eq!(c.commands[0].alpha, 1.);
+    assert_eq!(c.commands[0].transform, Affine::default());
+}
+#[test]
 fn dragon_options_retain_clip_and_rider_layers() {
     let mut c = Canvas::default();
     draw_dragon(
@@ -292,15 +306,94 @@ fn original_canvas_command_streams_match() {
         rust.push(json!(c.commands));
         inputs.push(json!({"warning":js,"hot":mode%2==0}));
     }
+    for kind in [
+        "bond", "flame", "spark", "boulder", "frost", "star", "arrow", "hammer", "area",
+    ] {
+        for mode in 0..4 {
+            let shot = dragon_game::combat::Shot {
+                x: 230.,
+                y: 210.,
+                vx: -130.,
+                vy: 24.,
+                r: 9.,
+                spin: 0.3,
+                kind: serde_json::from_value(json!(kind)).unwrap(),
+                dad: mode == 1,
+                spear: mode == 2,
+                ..Default::default()
+            };
+            let cols = (mode == 3).then(|| ["#ffffff".into(), "#abcdef".into(), "#aabbcc".into()]);
+            let mut c = Canvas::default();
+            draw_shot(&mut c, &shot, cols.as_ref(), &scene);
+            rust.push(json!(c.commands));
+            let mut js = json!(shot);
+            js["cols"] = json!(cols);
+            inputs.push(json!({"shot":js}));
+        }
+    }
+    for golden in [false, true] {
+        for life in [1., 3.] {
+            let gem = dragon_game::gems::Gem {
+                x: 210.,
+                y: 140.,
+                r: 10.,
+                t: 0.3,
+                golden,
+                life,
+                ..Default::default()
+            };
+            let mut c = Canvas::default();
+            draw_gem(&mut c, &gem, "#c79bff", &scene);
+            rust.push(json!(c.commands));
+            let mut js = json!(gem);
+            js["color"] = json!("#c79bff");
+            inputs.push(json!({"gem":js}));
+        }
+    }
+    for realm in 0..6 {
+        for song in [false, true] {
+            let view = dragon_game::flight::Viewport {
+                width: 1000.,
+                height: 700.,
+                scale: 48.,
+                ground_y: 600.,
+                top_limit: 80.,
+                dragon_scale: 0.62,
+            };
+            let b = draw_background(view, realm, song);
+            rust.push(json!([b.sky.commands, b.far.commands, b.land.commands]));
+            inputs.push(json!({"background":true,"realm":realm,"song":song}));
+        }
+    }
+    for realm in 0..6 {
+        for scroll in [0., 1234., 9999.] {
+            let view = dragon_game::flight::Viewport {
+                width: 1000.,
+                height: 700.,
+                scale: 48.,
+                ground_y: 600.,
+                top_limit: 80.,
+                dragon_scale: 0.62,
+            };
+            let mut c = Canvas::default();
+            draw_scenery(&mut c, view, realm, scroll, 123.);
+            rust.push(json!(c.commands));
+            inputs.push(json!({"scenery":true,"realm":realm,"scroll":scroll}));
+        }
+    }
     let mut script = String::from(
         r#"
 const TAU=Math.PI*2; let time=2.4, P={x:300,y:190}, groundY=600,S=48,ctx,realmIdx=0,REALMS=[{id:'hollow'}],topLimit=80;
 const rand=(a,b)=>a+(b-a)*0.4,nameTag=()=>{},placeName=x=>x,hurtsNow=e=>e.hot;
+const SHOT_COLORS={flame:['#fff6c2','#ffb347','#ff5a1f']};
+let W=1000,H=700,DPR=1,VIEW=1,me=true,song=false,bg={},land={},far={},cv={width:1000,height:700},bgx,landx,farx; const msReached=()=>song;
+let scroll=0,scrollV=123;const FLY_SPEED=4.2,hash01=(i,k)=>{const v=Math.sin(i*127.1+k*311.7)*43758.5453;return v-Math.floor(v);};
 const dist=(a,b,c,d)=>Math.hypot(a-c,b-d),clamp=(x,a,b)=>Math.max(a,Math.min(b,x)),isDaddio=r=>r.daddio,safeColor=(c,f)=>/^#[0-9a-f]{6}$/i.test(c)?c:f;
 class Recorder {
  constructor(){this.commands=[];this.path=[];this.stack=[];this.s={transform:[1,0,0,1,0,0],fillStyle:{Solid:'#000000'},strokeStyle:{Solid:'#000000'},globalAlpha:1,lineWidth:1,lineCap:'butt',lineJoin:'miter',dash:[],globalCompositeOperation:'source-over',clips:[]};}
  save(){this.stack.push(JSON.parse(JSON.stringify(this.s)));} restore(){this.s=this.stack.pop();}
  transform(g,h,i,j,k,l){let[a,b,c,d,e,f]=this.s.transform;this.s.transform=[a*g+c*h,b*g+d*h,a*i+c*j,b*i+d*j,a*k+c*l+e,b*k+d*l+f];}
+ setTransform(...v){this.s.transform=v;}
  translate(x,y){this.transform(1,0,0,1,x,y);}scale(x,y){this.transform(x,0,0,y,0,0);}rotate(a){this.transform(Math.cos(a),Math.sin(a),-Math.sin(a),Math.cos(a),0,0);}
  beginPath(){this.path=[];}moveTo(...v){this.path.push({Move:v});}lineTo(...v){this.path.push({Line:v});}quadraticCurveTo(...v){this.path.push({Quad:v});}ellipse(...v){this.path.push({Ellipse:v});}arc(x,y,r,a,b){this.ellipse(x,y,r,r,0,a,b);}closePath(){this.path.push('Close');}
  setLineDash(v){this.s.dash=v.slice();}
@@ -352,11 +445,18 @@ for(let k of ['fillStyle','strokeStyle','globalAlpha','lineWidth','lineCap','lin
         "drawHazard",
         "drawStrike",
         "drawObjective",
+        "drawShot",
+        "drawGem",
+        "mulberry",
+        "paintBackground",
+        "paintFarRealm",
+        "paintConstellation",
+        "drawScenery",
     ] {
         script.push_str(source_function(name));
         script.push('\n');
     }
-    script.push_str(&format!("const cases={};print(JSON.stringify(cases.map(v=>{{ctx=new Recorder();if(v.dragon)drawDragon(ctx,230,180,v.s,'#3f5ad0',v.f,v.t,v.o);else if(v.hazard){{REALMS[0].id=v.realm;drawHazard(v.hazard);}}else if(v.strike)drawStrike(v.strike);else if(v.objective)drawObjective(v.objective);else if(v.fx)drawEnemyFx(v.fx);else if(v.warning){{v.warning.hot=v.hot;drawWarn(v.warning);}}else drawEnemy(v.e);return ctx.commands;}})));",json!(inputs)));
+    script.push_str(&format!("const cases={};print(JSON.stringify(cases.map(v=>{{ctx=new Recorder();if(v.background){{bgx=new Recorder();farx=new Recorder();landx=new Recorder();REALMS=['hollow','wood','frost','sea','ember','stars'].map(id=>({{id}}));realmIdx=v.realm;song=v.song;paintBackground();realmIdx=0;return [bgx.commands,farx.commands,landx.commands];}}if(v.scenery){{REALMS=['hollow','wood','frost','sea','ember','stars'].map(id=>({{id}}));realmIdx=v.realm;scroll=v.scroll;drawScenery();realmIdx=0;return ctx.commands;}}if(v.dragon)drawDragon(ctx,230,180,v.s,'#3f5ad0',v.f,v.t,v.o);else if(v.shot)drawShot(v.shot);else if(v.gem)drawGem(v.gem);else if(v.hazard){{REALMS[0].id=v.realm;drawHazard(v.hazard);}}else if(v.strike)drawStrike(v.strike);else if(v.objective)drawObjective(v.objective);else if(v.fx)drawEnemyFx(v.fx);else if(v.warning){{v.warning.hot=v.hot;drawWarn(v.warning);}}else drawEnemy(v.e);return ctx.commands;}})));",json!(inputs)));
     use std::{
         io::Write,
         process::{Command, Stdio},

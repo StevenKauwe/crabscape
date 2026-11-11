@@ -76,9 +76,12 @@ fn make_gem(
 ) -> Gem {
     let golden = draw() < 0.06;
     let t = draw() * 6.;
-    if !golden {
-        let _color = draw();
-    }
+    let color = if golden {
+        "#ffd76e"
+    } else {
+        const COLORS: [&str; 5] = ["#62f0d4", "#ff6fb5", "#8fd0ff", "#b9ff6b", "#c79bff"];
+        COLORS[((draw() * 5.).floor() as usize).min(4)]
+    };
     Gem {
         x,
         y,
@@ -90,6 +93,7 @@ fn make_gem(
         value: if golden { 3. } else { 1. },
         r: view.scale * if golden { 0.3 } else { 0.22 },
         lost_one: false,
+        color: color.into(),
     }
 }
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -573,6 +577,7 @@ impl Game {
                     t: draw() * 6.,
                     life: 10.,
                     golden: true,
+                    color: "#ffd76e".into(),
                     value: 3.,
                     r: self.view.scale * 0.3,
                     lost_one: false,
@@ -1707,6 +1712,7 @@ impl Game {
                                 t: draw() * 6.,
                                 life: 10.,
                                 golden: true,
+                                color: "#ffd76e".into(),
                                 value: 3.,
                                 r: s * 0.3,
                                 ..Gem::default()
