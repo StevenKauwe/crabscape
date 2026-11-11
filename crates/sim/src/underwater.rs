@@ -2260,8 +2260,12 @@ impl World {
         self.crab = None;
         self.other_crabs.clear();
     }
-    pub(crate) fn reserve_other_crabs(&mut self, bodies: Vec<(i32, i32, i32, i32)>) {
-        self.other_crabs = bodies;
+    pub(crate) fn reserve_other_crabs(
+        &mut self,
+        bodies: impl IntoIterator<Item = (i32, i32, i32, i32)>,
+    ) {
+        self.other_crabs.clear();
+        self.other_crabs.extend(bodies);
     }
     fn other_body_contains(&self, x: i32, y: i32, margin: i32) -> bool {
         self.other_crabs

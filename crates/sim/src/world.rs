@@ -1092,12 +1092,10 @@ impl Sim {
     }
 
     /// Which enemies this device runs, in the order they step.
-    fn runs_each(&self) -> Vec<bool> {
+    fn runs_each(&self, runs: &mut Vec<bool>) {
         let host = self.is_host();
-        self.enemies
-            .iter()
-            .map(|e| runs_here(host, &self.crabs, e))
-            .collect()
+        runs.clear();
+        runs.extend(self.enemies.iter().map(|e| runs_here(host, &self.crabs, e)));
     }
 
     /// The messages this device has to send since the last call.
@@ -2050,32 +2048,37 @@ impl Sim {
             // Do not leave an invisible crab-shaped exclusion behind when
             // the player leaves the experimental cell field.
             cells.clear_game_crab();
-            let bodies: Vec<_> = self
-                .crabs
-                .iter()
-                .filter(|c| !c.remote)
-                .map(|c| {
-                    let m = &c.mover;
-                    let center = m.pos + Vec2::Y * m.material_half_height(&self.tuning);
-                    let (x, y) = cells.local_cell(center.x, center.y);
-                    (
-                        c.id,
+            // One crab has no other body to reserve. With several, snapshot
+            // every body before moving any crab so order cannot change the
+            // terrain reservations observed by a later crab.
+            let bodies: Vec<_> = if self.crabs.iter().filter(|c| !c.remote).nth(1).is_some() {
+                self.crabs
+                    .iter()
+                    .filter(|c| !c.remote)
+                    .map(|c| {
+                        let m = &c.mover;
+                        let center = m.pos + Vec2::Y * m.material_half_height(&self.tuning);
+                        let (x, y) = cells.local_cell(center.x, center.y);
                         (
-                            x as i32,
-                            y as i32,
-                            (m.half_width(&self.tuning) / 4.0).ceil().max(1.0) as i32,
-                            (m.height(&self.tuning) / 8.0).ceil().max(1.0) as i32,
-                        ),
-                    )
-                })
-                .collect();
+                            c.id,
+                            (
+                                x as i32,
+                                y as i32,
+                                (m.half_width(&self.tuning) / 4.0).ceil().max(1.0) as i32,
+                                (m.height(&self.tuning) / 8.0).ceil().max(1.0) as i32,
+                            ),
+                        )
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
             for crab in self.crabs.iter_mut().filter(|c| !c.remote) {
                 cells.reserve_other_crabs(
                     bodies
                         .iter()
                         .filter(|(id, _)| *id != crab.id)
-                        .map(|(_, body)| *body)
-                        .collect(),
+                        .map(|(_, body)| *body),
                 );
                 let m = &mut crab.mover;
                 let center = m.pos + Vec2::Y * m.material_half_height(&self.tuning);
@@ -2685,7 +2688,11 @@ impl Sim {
             let middle = c.mover.pos + Vec2::new(0.0, c.mover.height(t) / 2.0);
             c.fighter.blinded = clouds.iter().any(|at| at.distance(middle) <= r);
         }
-        self.claws_meet_enemies();
+        // Ownership is snapshotted separately at each stage: a hit or enemy
+        // step can change authority before the next stage. Reuse its storage
+        // without carrying the earlier decisions forward.
+        let mut runs = Vec::new();
+        self.claws_meet_enemies(&mut runs);
         crate::alarm_jelly::attract(&mut self.enemies, &self.tuning, &self.level);
         let animals: Vec<enemy::AnimalPrey> = if self.level.cells.is_some() {
             self.enemies
@@ -2708,8 +2715,8 @@ impl Sim {
             Vec::new()
         };
         let mut animal_bites = Vec::new();
-        let runs = self.runs_each();
-        for (e, runs) in self.enemies.iter_mut().zip(runs) {
+        self.runs_each(&mut runs);
+        for (e, &runs) in self.enemies.iter_mut().zip(&runs) {
             let previous = e.pos;
             // Correct existing rock overlaps without allowing normal travel
             // through walls; move loose grains rather than deleting them.
@@ -2962,14 +2969,13 @@ impl Sim {
         }
         self.watchers.step(self.tick, &self.crabs, &self.tuning);
         self.tick += 1;
-        self.send_updates();
+        self.send_updates(&mut runs);
         true
     }
 
     /// Co-op: note what happened to this device's crabs, and every
     /// [`net::SEND_EVERY`] ticks send the state of everything it runs.
-    fn send_updates(&mut self) {
-        let runs = self.runs_each();
+    fn send_updates(&mut self, runs: &mut Vec<bool>) {
         let Some(net) = &mut self.net else {
             return;
         };
@@ -2982,6 +2988,12 @@ impl Sim {
         if !self.tick.is_multiple_of(net::SEND_EVERY) {
             return;
         }
+        runs.clear();
+        runs.extend(
+            self.enemies
+                .iter()
+                .map(|e| runs_here(net.host, &self.crabs, e)),
+        );
         let at = self.tick;
         for c in self.crabs.iter().filter(|c| !c.remote) {
             let events = net
@@ -2998,7 +3010,12 @@ impl Sim {
             };
             net.send(To::Everyone, Msg::Crab { at, crab });
         }
-        for (e, _) in self.enemies.iter().zip(runs).filter(|(_, runs)| *runs) {
+        for (e, _) in self
+            .enemies
+            .iter()
+            .zip(runs.iter())
+            .filter(|(_, runs)| **runs)
+        {
             let enemy = e.clone();
             net.send(To::Everyone, Msg::Enemy { at, enemy });
         }
@@ -3006,8 +3023,8 @@ impl Sim {
 
     /// Each crab's claw aims at what it can reach; its blow, while it is out,
     /// strikes the enemies it overlaps (each once per swing).
-    fn claws_meet_enemies(&mut self) {
-        let runs_each = self.runs_each();
+    fn claws_meet_enemies(&mut self, runs_each: &mut Vec<bool>) {
+        self.runs_each(runs_each);
         let t = &self.tuning;
         for crab in self.crabs.iter_mut().filter(|c| !c.remote) {
             let targets = self.enemies.iter().filter(|e| e.hittable(t));
@@ -3057,7 +3074,7 @@ impl Sim {
             // A harder blow (momentum, a charge) holds the freeze longer.
             let hitstop = (hitstop as f32 * strength).round() as u32;
             let mut landed = false;
-            for (e, &runs) in self.enemies.iter_mut().zip(&runs_each) {
+            for (e, &runs) in self.enemies.iter_mut().zip(runs_each.iter()) {
                 if swing.hits.contains(&e.id) {
                     continue;
                 }
@@ -3790,6 +3807,55 @@ pub fn fit_glass_grips(m: &mut Mover) {
 mod tests {
     use super::*;
     use crate::level::SPAWN;
+
+    #[test]
+    fn ownership_scratch_refreshes_at_each_stage() {
+        let mut sim = Sim::with_one_crab(SPAWN);
+        sim.populate();
+        sim.add_remote_crab(PlayerId(1), SPAWN);
+        sim.go_online(true);
+        sim.enemies[0].runner = Some(PlayerId(1));
+        sim.enemies[1].runner = None;
+        let mut runs = Vec::new();
+        sim.runs_each(&mut runs);
+        assert!(!runs[0]);
+        assert!(runs[1]);
+        let capacity = runs.capacity();
+
+        // Later stages must observe changed authority, while an earlier
+        // snapshot remains unchanged until it is explicitly refreshed.
+        sim.enemies[0].runner = Some(PlayerId(0));
+        assert!(!runs[0]);
+        sim.runs_each(&mut runs);
+        assert!(runs[0]);
+        assert_eq!(runs.capacity(), capacity);
+        sim.go_online(false);
+        sim.runs_each(&mut runs);
+        assert!(!runs[1]);
+
+        // Solo has no network update, and must not build another snapshot.
+        sim.net = None;
+        let previous = runs.clone();
+        sim.send_updates(&mut runs);
+        assert_eq!(runs, previous);
+    }
+
+    #[test]
+    fn terrain_reservations_replace_bodies_without_discarding_capacity() {
+        let mut cells = crate::underwater::World::new();
+        let initial = [(1, 2, 3, 4), (5, 6, 7, 8), (9, 10, 11, 12)];
+        cells.reserve_other_crabs(initial);
+        let allocation = cells.other_crabs.as_ptr();
+        let capacity = cells.other_crabs.capacity();
+        cells.reserve_other_crabs([(13, 14, 15, 16)]);
+        assert_eq!(cells.other_crabs, [(13, 14, 15, 16)]);
+        assert_eq!(cells.other_crabs.as_ptr(), allocation);
+        assert_eq!(cells.other_crabs.capacity(), capacity);
+        cells.clear_game_crab();
+        cells.reserve_other_crabs(std::iter::empty());
+        assert!(cells.other_crabs.is_empty());
+        assert_eq!(cells.other_crabs.as_ptr(), allocation);
+    }
 
     #[test]
     fn state_hash_preserves_the_replay_format_without_pending_controls() {
