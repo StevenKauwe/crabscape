@@ -678,3 +678,44 @@ fn a_crab_held_by_a_staggered_worm_is_freed_at_once() {
         "the hold ends with the worm's stagger, not the hold timer"
     );
 }
+
+/// Feel pass (2026-11-11): a crab that walks straight on over the burrow is
+/// still struck (the worm turns after it through the flick); one that hops at
+/// the flick clears it.
+#[test]
+fn walking_on_over_the_burrow_is_struck_but_a_hop_clears_it() {
+    let walk = Controls {
+        walk: -1.0,
+        ..Controls::default()
+    };
+    let mut sim = world(160.0);
+    for _ in 0..150 {
+        tick(&mut sim, walk);
+    }
+    assert!(health(&sim) < 100.0, "a walker over the burrow is bitten");
+
+    let mut sim = world(160.0);
+    let mut hopped = false;
+    for _ in 0..150 {
+        let telling = worm(&sim).state == State::Tell;
+        let c = if telling && !hopped {
+            hopped = true;
+            Controls {
+                walk: -1.0,
+                jump_pressed: true,
+                jump_held: true,
+                ..Controls::default()
+            }
+        } else if hopped && worm(&sim).state == State::Tell {
+            Controls {
+                walk: -1.0,
+                jump_held: true,
+                ..Controls::default()
+            }
+        } else {
+            walk
+        };
+        tick(&mut sim, c);
+    }
+    assert_eq!(health(&sim), 100.0, "a hop at the flick clears the lunge");
+}
