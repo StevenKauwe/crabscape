@@ -97,7 +97,11 @@ fn the_level_has_crevices_out_past_the_trench_on_solid_floor() {
                     && rock.max.x >= p.x + grown_half_width
             })
     };
-    assert_eq!(crevices.len(), 4, "two original (the pit's is gone) and two eastern havens");
+    assert_eq!(
+        crevices.len(),
+        4,
+        "two original (the pit's is gone) and two eastern havens"
+    );
     let (_, trench_right) = level.trench();
     for c in crevices {
         // Out in the level, supported by the seabed or a broad rock shelf,

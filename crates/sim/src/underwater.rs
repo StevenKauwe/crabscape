@@ -7405,11 +7405,14 @@ mod strata_tests {
                         let gx = (body.frame.min.x / GAME_CELL) as i32 + x;
                         let gy = ((wy - GAME_BOTTOM) / GAME_CELL).floor() as i32;
                         let wx = (gx as f32 + 0.5) * GAME_CELL;
-                        let at = bevy_math::Vec2::new(wx, wy);
+                        // Half-open, like the generator.
+                        let inside = |r: &bevy_math::Rect| {
+                            wx >= r.min.x && wx < r.max.x && wy >= r.min.y && wy < r.max.y
+                        };
                         // Silt shafts and water cavities override the layers.
-                        let expected = if body.shafts.iter().any(|r| r.contains(at)) {
+                        let expected = if body.shafts.iter().any(|r| inside(r)) {
                             Cell::Sand
-                        } else if body.voids.iter().any(|r| r.contains(at)) {
+                        } else if body.voids.iter().any(|r| inside(r)) {
                             Cell::Water
                         } else {
                             material

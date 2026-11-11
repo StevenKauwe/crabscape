@@ -68,7 +68,7 @@ fn right(r: Rect, y: f32, open: bool) -> Gap {
 pub(super) const BONE_PRIZE: Vec2 = Vec2::new(3600.0, -2420.0);
 pub(super) const BONE_TOOTH: Vec2 = Vec2::new(3680.0, -2530.0);
 /// The sponge that was the eastern gallery's second find lies here now.
-pub(super) const CATHEDRAL_PRIZE: Vec2 = Vec2::new(16100.0, -5750.0);
+pub(super) const CATHEDRAL_PRIZE: Vec2 = Vec2::new(16260.0, -5750.0);
 pub(super) const SEEP_GARDEN_PRIZE: Vec2 = Vec2::new(19160.0, -10470.0);
 pub(super) const WARM_SEAM_PRIZE: Vec2 = Vec2::new(20420.0, -11410.0);
 /// The home burrow's first-dig clam and the two in its gallery floor.
@@ -167,38 +167,45 @@ fn build_specs() -> Vec<Frame> {
     ));
 
     // s2, under the eastern step (floor y -5000).
-    let cath = Rect::new(15920.0, -5800.0, 16320.0, -5020.0);
+    // The warren is the westmost: no walking hunter's leash may reach a
+    // tunnel's door, and the mantis guarding Coral Rise stands east of it.
+    let warren = Rect::new(15840.0, -5500.0, 16040.0, -5020.0);
+    out.push(full(
+        "pebble warren",
+        warren,
+        Some(Tunnel),
+        vec![top(warren, 15940.0, W, true), right(warren, -5300.0, true)],
+    ));
+    let cath = Rect::new(16080.0, -5800.0, 16480.0, -5020.0);
     out.push(Frame {
         name: "clay cathedral",
         rect: cath,
         kind: Some(Chamber),
         gaps: vec![
-            top(cath, 16120.0, W, true),
-            right(cath, -5300.0, true),
+            top(cath, 16280.0, W, true),
+            left(cath, -5300.0, true),
             right(cath, -5700.0, true),
         ],
         doors: Vec::new(),
         shafts: Vec::new(),
-        voids: vec![Rect::new(15960.0, -5760.0, 16320.0, -5020.0)],
+        voids: vec![Rect::new(16080.0, -5760.0, 16480.0, -5020.0)],
         chamber: Some((
-            Rect::new(16060.0, -5060.0, 16180.0, -5020.0),
+            Rect::new(16220.0, -5060.0, 16340.0, -5020.0),
             CATHEDRAL_PRIZE,
         )),
     });
-    let warren = Rect::new(16360.0, -5500.0, 16560.0, -5020.0);
-    out.push(full(
-        "pebble warren",
-        warren,
-        Some(Tunnel),
-        vec![top(warren, 16460.0, W, true), left(warren, -5300.0, true)],
-    ));
-    let cseep = Rect::new(16360.0, -5800.0, 17781.0, -5600.0);
-    out.push(full(
+    let cseep = Rect::new(16520.0, -5800.0, 17741.0, -5600.0);
+    let mut seep = full(
         "cathedral seep",
         cseep,
         Some(Tunnel),
         vec![left(cseep, -5700.0, true), right(cseep, -5700.0, true)],
-    ));
+    );
+    // The outlet runs on through the dam's last twenty units of rock to the
+    // face (the wall stays inside the dam, flush with the cliff).
+    seep.voids
+        .push(Rect::new(17761.0, -5760.0, 17781.0, -5640.0));
+    out.push(seep);
 
     // s3, under the vent field.
     let lc = Rect::new(720.0, -12800.0, 880.0, -10.0);

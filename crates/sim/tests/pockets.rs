@@ -189,6 +189,10 @@ fn every_pocket_has_two_exits_with_the_starting_reserve() {
                         ..Default::default()
                     },
                 );
+                // What the game does every frame: the cell window follows.
+                let mut cells = sim.level.cells.take().unwrap();
+                cells.follow_player(&sim.level, p.x, p.y);
+                sim.level.cells = Some(cells);
                 sim.tick();
             }
             if !reached || min_reserve <= 0.0 {
