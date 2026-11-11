@@ -26,3 +26,16 @@ feature doesn't make these 20 minutes better, it waits. Hook and rules: `vision.
   point (a region's entrance, the last crevice, home), and a big fight has one at its door, so a boss retry is
   instant with no trek. Valheim corpses: a mistake in the open leaves your cast-off shell and cargo where you died,
   and several can wait at once. Recovering one is always shorter than the trip out.
+
+## What's missing for the 20 minutes
+Each lead keeps their own lines here. `[x]` means it is in the game; the rest say which issue or PR carries them.
+
+**Loop systems** (skills, resources, crafting, building: `skills-and-resources.md`)
+- [x] Calm gathering nodes, near home too: 82 nodes, out of every foe's reach (#601)
+- [x] Farmable creatures drop parts that stay useful at every level (#601)
+- [x] Cooking buffs: ten foods, one buff at a time (#601)
+- [x] Level-ups say what they open (#601)
+- [ ] Home "pick a want": a task board of recipes missing one thing, with where it comes from (#617)
+- [ ] A pinned goal that follows you out and says when you have it (#617)
+- [ ] Home pieces that visibly change the shared home for everyone in the session, saved in the host's world (#617)
+- [ ] Nodes on the new Plate D map (#572, after #610)
