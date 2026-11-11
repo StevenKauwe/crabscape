@@ -118,17 +118,16 @@ fn build_specs() -> Vec<Frame> {
             Rect::new(124.0, -24.0, 220.0, -4.0),
             Rect::new(540.0, -24.0, 636.0, -4.0),
         ],
-        // Door one is a silt shaft (the first dig, resting on the frame's
-        // clay: nothing hangs over open water, unsupported sediment falls);
-        // door two is a cased water shaft: a crab cannot dig up through a
-        // long sealed column (grains need water within claw reach), so the
-        // way out is a swim. It stands east of the shallow shortcut's sand.
-        shafts: vec![Rect::new(124.0, -440.0, 220.0, 0.0)],
-        // The gallery hangs from the frame's own bedrock roof.
-        voids: vec![
-            Rect::new(240.0, -532.0, 636.0, -460.0),
-            Rect::new(540.0, -460.0, 636.0, 40.0),
+        // Two silt shafts, each resting on the frame's clay (nothing hangs
+        // over open water: unsupported sediment falls); the crab digs
+        // sideways through a clay wall into the gallery between them. The
+        // first stands clear of the shellwash rock (x 220 and up); the
+        // second east of the shallow shortcut's sand (x 500 to 540).
+        shafts: vec![
+            Rect::new(124.0, -440.0, 220.0, 0.0),
+            Rect::new(540.0, -440.0, 636.0, 0.0),
         ],
+        voids: vec![Rect::new(240.0, -532.0, 520.0, -460.0)],
         chamber: None,
     });
 
@@ -348,12 +347,6 @@ pub(super) fn shape(level: &mut Level) {
     for spec in specs() {
         frame(level, spec);
     }
-    // A rock casing around the home burrow's water shaft, so the floor's
-    // sand cannot slump down it into the gallery.
-    level.rocks.extend([
-        Rect::new(524.0, -100.0, 540.0, 34.0),
-        Rect::new(636.0, -100.0, 652.0, 50.0),
-    ]);
     // The warm seam sits behind a crust that only a full crusher charge
     // cracks; the long chimney's crust plug caps its top (see `frame`).
     level.brittle.push(Brittle {

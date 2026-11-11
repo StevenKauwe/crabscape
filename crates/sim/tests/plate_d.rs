@@ -184,7 +184,7 @@ fn baked_cavities_stay_open_water() {
     }
     // The walking corridor between the doors (the water shaft's foot is
     // where the floor's sand lands).
-    let gallery = Rect::new(240.0, -532.0, 540.0, -460.0);
+    let gallery = Rect::new(240.0, -532.0, 520.0, -460.0);
     assert!(water_fraction(&level, gallery) >= 0.8, "gallery filled in");
 }
 
@@ -293,7 +293,7 @@ fn home_burrow_round_trip_is_cheap() {
     let mut sim = dig_sim(Vec2::new(172.0, 40.0));
     let mut min_reserve = 1.0_f32;
     let mut phase = 0;
-    for tick in 0..120 * 40 {
+    for tick in 0..120 * 25 {
         let p = sim.crab(PlayerId(0)).unwrap().mover.pos;
         if tick % 240 == 0 {
             eprintln!(
@@ -331,8 +331,8 @@ fn home_burrow_round_trip_is_cheap() {
                 return;
             }
             _ => Controls {
-                jump_held: true,
-                jump_pressed: tick % 40 == 0,
+                dig_held: true,
+                dig_up: true,
                 ..Default::default()
             },
         };
