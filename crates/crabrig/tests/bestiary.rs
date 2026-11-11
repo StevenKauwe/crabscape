@@ -26,7 +26,7 @@ fn placeholder_rigs_and_ink_exports_match_the_committed_files() {
             },
         )
         .unwrap_or_else(|e| panic!("{name}: {e}"));
-        assert_eq!(export.parts, 3, "{name}");
+        assert!(export.parts >= 3, "{name}");
         assert_eq!(
             export.json,
             read(format!("assets/creatures/{name}-parts.json")),

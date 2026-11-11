@@ -1,7 +1,6 @@
 //! The ten bestiary creatures' game side: shared puppet helpers, and each creature's plugin
 //! (`src/creatures/<name>.rs`). Until a creature's lane draws it properly, it is an ink-only placeholder that
 //! leans back in its tell, lunges in its attack and wobbles when staggered.
-use crate::creature_art::{CreatureArt, ScentRoot};
 use crate::creatures::*;
 use crate::memory::{Known, Remembered};
 use bevy::prelude::*;
@@ -29,21 +28,6 @@ impl Plugin for BestiaryPlugin {
 /// A bestiary creature's puppet root, by enemy id.
 #[derive(Component)]
 pub struct Puppet(pub u32);
-
-/// Spawn the puppet root for `e` with all of `art`'s pieces under it. The caller adds its own marker.
-pub fn spawn_puppet(commands: &mut Commands, e: &Enemy, art: &CreatureArt) -> Entity {
-    let root = commands
-        .spawn((
-            Puppet(e.id),
-            ScentRoot(e.id),
-            Transform::default(),
-            Visibility::Hidden,
-            Remembered(e.pos),
-        ))
-        .id();
-    art.spawn(commands, root);
-    root
-}
 
 /// How the whole puppet tilts and lunges for the enemy's state: (angle in radians, forward shift in units).
 /// Tell leans back (head up), attack lunges forward with the head down, stagger wobbles.

@@ -7,81 +7,250 @@
  ],
  "px_per_unit": 0.6,
  "ground": [
-  1415.3,
-  968.7
+  1315.95,
+  914.6
  ],
  "anchors": {},
  "parts": [
   {
+   "name": "tail",
+   "parent": "body",
+   "pivot": [
+    570.6,
+    512.0
+   ],
+   "bbox": [
+    53.3,
+    314.0,
+    550.7,
+    421.5
+   ],
+   "rect": [
+    125,
+    429,
+    331,
+    253
+   ],
+   "z": 0,
+   "members": [
+    "tail",
+    "tail-ray-0",
+    "tail-ray-1",
+    "tail-ray-2",
+    "tail-ray-3"
+   ]
+  },
+  {
+   "name": "dorsal",
+   "parent": "body",
+   "pivot": [
+    1274.6,
+    196.0
+   ],
+   "bbox": [
+    648.2,
+    94.0,
+    1231.5,
+    265.8
+   ],
+   "rect": [
+    3,
+    713,
+    739,
+    160
+   ],
+   "z": 1,
+   "members": [
+    "dorsal",
+    "dorsal-ray-0",
+    "dorsal-ray-1",
+    "dorsal-ray-2",
+    "dorsal-ray-3",
+    "dorsal-ray-4"
+   ]
+  },
+  {
+   "name": "anal",
+   "parent": "body",
+   "pivot": [
+    1034.6,
+    790.0
+   ],
+   "bbox": [
+    605.5,
+    690.5,
+    454.2,
+    230.1
+   ],
+   "rect": [
+    745,
+    713,
+    273,
+    139
+   ],
+   "z": 2,
+   "members": [
+    "anal"
+   ]
+  },
+  {
    "name": "body",
    "parent": null,
    "pivot": [
-    1310.0,
-    550.8
+    1314.6,
+    512.0
    ],
    "bbox": [
-    55.2,
-    92.3,
-    2401.4,
-    882.4
+    530.5,
+    157.7,
+    2041.2,
+    698.4
    ],
    "rect": [
     3,
     6,
-    1441,
-    530
+    1225,
+    420
    ],
-   "z": 0,
+   "z": 3,
    "members": [
-    "body"
+    "body",
+    "body-belly",
+    "gill",
+    "body-mouth",
+    "body-spot-0",
+    "body-spot-1",
+    "body-spot-2",
+    "body-spot-3",
+    "body-spot-4",
+    "body-spot-5",
+    "body-spot-6",
+    "body-spot-7"
    ]
   },
   {
-   "name": "head",
+   "name": "mouth-in",
    "parent": "body",
    "pivot": [
-    2098.0,
-    550.8
+    2258.6,
+    644.0
    ],
    "bbox": [
-    1925.6,
-    249.3,
-    849.8,
-    602.1
+    2247.4,
+    555.0,
+    329.4,
+    130.9
+   ],
+   "rect": [
+    252,
+    876,
+    198,
+    79
+   ],
+   "z": 5,
+   "members": [
+    "mouth-in"
+   ]
+  },
+  {
+   "name": "jaw",
+   "parent": "body",
+   "pivot": [
+    2258.6,
+    644.0
+   ],
+   "bbox": [
+    2168.7,
+    562.9,
+    409.9,
+    189.8
    ],
    "rect": [
     3,
-    539,
-    510,
-    362
+    876,
+    246,
+    114
    ],
-   "z": 1,
+   "z": 6,
    "members": [
-    "head"
+    "jaw"
+   ]
+  },
+  {
+   "name": "operculum",
+   "parent": "body",
+   "pivot": [
+    2034.6,
+    296.0
+   ],
+   "bbox": [
+    1890.9,
+    288.3,
+    196.9,
+    467.4
+   ],
+   "rect": [
+    3,
+    429,
+    119,
+    281
+   ],
+   "z": 8,
+   "members": [
+    "operculum"
+   ]
+  },
+  {
+   "name": "pectoral",
+   "parent": "body",
+   "pivot": [
+    1906.6,
+    600.0
+   ],
+   "bbox": [
+    1566.7,
+    505.5,
+    383.0,
+    302.4
+   ],
+   "rect": [
+    459,
+    429,
+    230,
+    182
+   ],
+   "z": 9,
+   "members": [
+    "pectoral",
+    "pectoral-ray-0",
+    "pectoral-ray-1",
+    "pectoral-ray-2"
    ]
   },
   {
    "name": "eye",
-   "parent": "head",
+   "parent": "body",
    "pivot": [
-    2497.0,
-    487.8
+    2324.6,
+    416.0
    ],
    "bbox": [
-    2431.3,
-    423.8,
-    130.7,
-    128.5
+    2273.8,
+    367.2,
+    100.9,
+    98.3
    ],
    "rect": [
-    516,
-    539,
-    79,
-    78
+    453,
+    876,
+    61,
+    59
    ],
-   "z": 2,
+   "z": 10,
    "members": [
-    "eye"
+    "eye",
+    "eye-pupil",
+    "eye-glint"
    ]
   }
  ]

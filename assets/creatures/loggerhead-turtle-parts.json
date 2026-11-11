@@ -3,59 +3,136 @@
  "atlas": "loggerhead-turtle-atlas.png",
  "atlas_size": [
   1024,
-  256
+  512
  ],
  "px_per_unit": 0.6,
  "ground": [
-  660.3,
-  429.7
+  668.9,
+  437.0
  ],
  "anchors": {},
  "parts": [
   {
+   "name": "flipper-front-far",
+   "parent": "body",
+   "pivot": [
+    906.0,
+    308.7
+   ],
+   "bbox": [
+    889.8,
+    287.6,
+    336.0,
+    137.7
+   ],
+   "rect": [
+    3,
+    178,
+    202,
+    83
+   ],
+   "z": 0,
+   "members": [
+    "flipper-front-far"
+   ]
+  },
+  {
+   "name": "flipper-hind-far",
+   "parent": "body",
+   "pivot": [
+    266.0,
+    328.7
+   ],
+   "bbox": [
+    106.5,
+    316.7,
+    166.0,
+    102.0
+   ],
+   "rect": [
+    320,
+    178,
+    100,
+    62
+   ],
+   "z": 1,
+   "members": [
+    "flipper-hind-far"
+   ]
+  },
+  {
+   "name": "tail",
+   "parent": "body",
+   "pivot": [
+    152.0,
+    292.7
+   ],
+   "bbox": [
+    52.9,
+    270.6,
+    107.6,
+    48.6
+   ],
+   "rect": [
+    423,
+    178,
+    65,
+    30
+   ],
+   "z": 2,
+   "members": [
+    "tail"
+   ]
+  },
+  {
    "name": "body",
    "parent": null,
    "pivot": [
-    620.0,
-    271.8
+    696.0,
+    236.7
    ],
    "bbox": [
-    55.2,
-    92.3,
-    1098.7,
-    343.4
+    131.2,
+    93.8,
+    967.0,
+    286.4
    ],
    "rect": [
     3,
     3,
-    660,
-    207
+    581,
+    172
    ],
-   "z": 0,
+   "z": 3,
    "members": [
-    "body"
+    "body",
+    "body-scute-0",
+    "body-scute-1",
+    "body-scute-2",
+    "body-scute-3",
+    "body-scute-4"
    ]
   },
   {
    "name": "head",
    "parent": "body",
    "pivot": [
-    1004.0,
-    271.8
+    1080.0,
+    244.7
    ],
    "bbox": [
-    935.6,
-    152.2,
-    329.8,
-    238.1
+    1041.2,
+    163.2,
+    234.2,
+    152.4
    ],
    "rect": [
-    666,
+    812,
     3,
-    198,
-    143
+    141,
+    92
    ],
-   "z": 1,
+   "z": 4,
    "members": [
     "head"
    ]
@@ -64,24 +141,72 @@
    "name": "eye",
    "parent": "head",
    "pivot": [
-    1156.0,
-    247.8
+    1196.0,
+    216.7
    ],
    "bbox": [
-    1127.0,
-    219.8,
-    57.5,
-    56.1
+    1175.5,
+    197.3,
+    40.6,
+    39.2
    ],
    "rect": [
-    867,
-    3,
-    35,
-    34
+    491,
+    178,
+    25,
+    24
    ],
-   "z": 2,
+   "z": 5,
    "members": [
     "eye"
+   ]
+  },
+  {
+   "name": "flipper-front-near",
+   "parent": "body",
+   "pivot": [
+    928.0,
+    312.7
+   ],
+   "bbox": [
+    915.2,
+    287.3,
+    369.7,
+    155.7
+   ],
+   "rect": [
+    587,
+    3,
+    222,
+    94
+   ],
+   "z": 6,
+   "members": [
+    "flipper-front-near"
+   ]
+  },
+  {
+   "name": "flipper-hind-near",
+   "parent": "body",
+   "pivot": [
+    286.0,
+    336.7
+   ],
+   "bbox": [
+    113.1,
+    325.3,
+    180.5,
+    105.3
+   ],
+   "rect": [
+    208,
+    178,
+    109,
+    64
+   ],
+   "z": 7,
+   "members": [
+    "flipper-hind-near"
    ]
   }
  ]
