@@ -84,8 +84,9 @@ fn wall_coral() -> crabsim::level::Climb {
 
 #[test]
 fn only_with_the_feat_do_the_legs_rest_on_a_stalk() {
-    // Hanging on the pit's coral, legs spent.
-    let at = Vec2::new(3500.0, -5000.0);
+    // Hanging on the wall's coral, legs spent.
+    let coral = wall_coral();
+    let at = Vec2::new(coral.x, (coral.bottom + coral.top) * 0.5);
     let plain = play_script(gripping(at, 4, 0.0, false), "t=0 walk=stop", 1.0);
     assert!(mover(&plain).climbing);
     assert_eq!(mover(&plain).stamina, 0.0, "no rest without the feat");
@@ -102,11 +103,17 @@ fn only_with_the_feat_do_the_legs_rest_on_a_stalk() {
 #[test]
 fn kelp_and_coral_climb_the_same_with_the_feat() {
     let level = Sim::with_one_crab(Vec2::ZERO).level;
-    let (_, _, bottom) = level.pit();
-    let script = "t=0 jump; t=0.2 release; t=0.3 jump walk=left";
-    let start = Vec2::new(3500.0, bottom);
-    let plain = play_script(crab(start, 0, false), script, 40.0);
-    let grown = play_script(crab(start, 0, true), script, 40.0);
+    // The long climb now starts at home's kelp (the basin's pit, and the
+    // coral that grew in it, are gone).
+    let script = "t=0 jump; t=0.2 release; t=0.3 jump";
+    let start = Vec2::new(280.0, level.floor_height(280.0));
+    let plain = play_script(crab(start, 1, false), script, 12.0);
+    let grown = play_script(crab(start, 1, true), script, 12.0);
+    assert!(
+        mover(&plain).pos.y > start.y + 500.0,
+        "it climbed the kelp: {}",
+        mover(&plain).pos
+    );
     assert_eq!(mover(&plain).pos, mover(&grown).pos);
     assert_eq!(plain.tick_count(), grown.tick_count());
 }

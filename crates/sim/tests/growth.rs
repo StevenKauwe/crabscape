@@ -102,14 +102,23 @@ fn size_is_the_body_against_the_level_and_in_a_fight() {
     let g = mover(&big).grown(&big.tuning);
     play(&mut plain, &walk, ticks(5.0), |_| {});
     play(&mut big, &walk, ticks(5.0), |_| {});
-    // The boulder starts at x = 640: a bigger shell stops further from it.
+    // The first wall to the right of home (the casing of the home burrow's
+    // second shaft, now nearer than the boulder at x = 640): a bigger shell
+    // stops further from it.
+    let wall = plain
+        .level
+        .rocks
+        .iter()
+        .filter(|r| r.min.x > SPAWN.x && r.min.y <= 0.0 && r.max.y > 0.0)
+        .map(|r| r.min.x)
+        .fold(f32::MAX, f32::min);
     let half = big.tuning.body_half_width;
-    assert!((mover(&plain).pos.x - (640.0 - half)).abs() < 0.5);
+    assert!((mover(&plain).pos.x - (wall - half)).abs() < 0.5);
     assert!(
-        (mover(&big).pos.x - (640.0 - half * g)).abs() < 0.5,
+        (mover(&big).pos.x - (wall - half * g)).abs() < 0.5,
         "{} vs {}",
         mover(&big).pos.x,
-        640.0 - half * g
+        wall - half * g
     );
     // Its body box in a fight is bigger by the same.
     let (p, b) = (
@@ -195,7 +204,7 @@ fn a_bigger_crab_strides_further_and_sinks_faster_but_jumps_as_high() {
     );
     // Sinking in open water, the heavier crab sinks faster...
     let sink = |moults: u32| {
-        let mut sim = grown_at(Vec2::new(3600.0, -2000.0), moults);
+        let mut sim = grown_at(Vec2::new(3600.0, 400.0), moults);
         play(
             &mut sim,
             &Replay::parse("t=0 walk=stop").unwrap(),

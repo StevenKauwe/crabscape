@@ -724,38 +724,10 @@ fn the_basin_has_a_way_back_up() {
 }
 
 #[test]
-fn the_pit_is_deep_and_the_climb_gets_you_out() {
-    let level = crabsim::Level::test_level();
-    let (left, _, bottom) = level.pit();
-    // Walk off the lip: a long, slow sink to the bottom.
-    let dive = run("start x=3200 y=-700; t=0 walk=right; t=1.6 walk=stop", 40.0);
-    let down = dive.first("landed").unwrap();
-    println!("sank to the bottom in {down:.1} s");
-    assert_eq!(dive.crab().pos.y, bottom);
-    assert!(down > 15.0, "deep: {down:.1} s down");
-    // From the bottom, with no strokes at all: jump, grip the coral, hold
-    // jump to climb, and come out on the rim (pressing towards it).
-    let climb = run(
-        &format!("start x=3500 y={bottom}; t=0 jump; t=0.2 release; t=0.3 jump walk=left"),
-        90.0,
-    );
-    let out = climb.first("landed").unwrap();
-    println!("climbed out in {out:.1} s");
-    assert_eq!(climb.count("gripped"), 1);
-    assert_eq!(climb.count("paddled"), 0);
-    assert_eq!(climb.crab().pos.y, -700.0);
-    assert!(
-        climb.crab().pos.x < left + 100.0,
-        "on the lip or the floor beside it"
-    );
-    // No paddle strokes, but the climb is paid from the reserve: in one go
-    // it runs dry and the last stretch is slow (`dive_budget.rs`).
-    assert!(out > 32.0 && out < 90.0, "a tiring climb: {out:.1} s");
-}
-
-#[test]
 fn climbing_goes_up_and_down_and_steps_off_sideways() {
-    let kelp = "start x=3500 y=-2000; t=0.3 tap";
+    // Home's kelp (x 280) is the stalk in open water now that the basin's
+    // pit and its kelp are gone; the water above the shallows is deep enough.
+    let kelp = "start x=280 y=2000; t=0.3 tap";
     // A tap grips the kelp while sinking past it, and the crab hangs there.
     let hang = run(kelp, 1.5);
     assert!(hang.crab().climbing);
@@ -770,36 +742,34 @@ fn climbing_goes_up_and_down_and_steps_off_sideways() {
     // A quick fidget sideways just shuffles along the stalk.
     let fidget = run(&format!("{kelp}; t=1.5 walk=right; t=1.7 walk=stop"), 2.5);
     assert!(fidget.crab().climbing, "a fidget doesn't drop the crab");
-    assert!(fidget.crab().pos.x > 3510.0, "it shuffled");
+    assert!(fidget.crab().pos.x > 290.0, "it shuffled");
     // Pushing on past the edge of the reach steps off: sinking again.
     let off = run(&format!("{kelp}; t=1.5 walk=right"), 3.0);
     assert!(!off.crab().climbing);
-    assert!(off.crab().pos.y < y - 100.0 && off.crab().pos.x > 3560.0);
+    assert!(off.crab().pos.y < y - 100.0 && off.crab().pos.x > 340.0);
     // Jump with a direction kicks off the stalk: up and away that way.
     let leap = run(&format!("{kelp}; t=1.5 walk=right jump"), 1.8);
     assert!(!leap.crab().climbing);
     assert!(
-        leap.crab().pos.y > y + 40.0 && leap.crab().pos.x > 3540.0,
+        leap.crab().pos.y > y + 40.0 && leap.crab().pos.x > 320.0,
         "{}",
         leap.crab().pos
     );
     assert_eq!(leap.count("jumped"), 1);
     // A direction already held when gripping doesn't count.
-    let held = run("start x=3500 y=-2000; t=0.3 tap walk=right", 1.5);
+    let held = run("start x=280 y=2000; t=0.3 tap walk=right", 1.5);
     assert!(held.crab().climbing);
     // Away from the stalks a press is a stroke as usual, not a grip.
-    let swim = run_with(strokes(1), "start x=3900 y=-2000; t=0.3 jump", 1.0, |_| {
-        false
-    });
+    let swim = run_with(strokes(1), "start x=680 y=2000; t=0.3 jump", 1.0, |_| false);
     assert_eq!((swim.count("paddled"), swim.count("gripped")), (1, 0));
 }
 
 #[test]
 fn holding_jump_while_steering_into_kelp_grips_after_the_paddle() {
-    for (x, direction) in [(3440, "right"), (3650, "left")] {
+    for (x, direction) in [(220, "right"), (430, "left")] {
         let r = run_with(
             strokes(1),
-            &format!("start x={x} y=-2000; t=0.2 jump walk={direction}"),
+            &format!("start x={x} y=2000; t=0.2 jump walk={direction}"),
             1.0,
             |_| false,
         );
@@ -807,13 +777,13 @@ fn holding_jump_while_steering_into_kelp_grips_after_the_paddle() {
         assert_eq!(r.count("gripped"), 1, "approach from {direction}");
         assert!(r.crab().climbing);
         assert!(
-            r.crab().pos.y > -1800.0,
+            r.crab().pos.y > 2200.0,
             "the held button continues climbing"
         );
     }
     let pass = run_with(
         strokes(1),
-        "start x=3440 y=-2000; t=0.2 tap walk=right",
+        "start x=220 y=2000; t=0.2 tap walk=right",
         1.0,
         |_| false,
     );
@@ -826,7 +796,7 @@ fn holding_jump_while_steering_into_kelp_grips_after_the_paddle() {
     // Holding that press must not catch the same stalk again on the way out.
     let kick = run_with(
         strokes(1),
-        "start x=3440 y=-2000; t=0.2 jump walk=right; t=0.6 release; t=0.7 jump",
+        "start x=220 y=2000; t=0.2 jump walk=right; t=0.6 release; t=0.7 jump",
         1.0,
         |_| false,
     );
@@ -837,20 +807,14 @@ fn holding_jump_while_steering_into_kelp_grips_after_the_paddle() {
 
 #[test]
 fn the_crab_clings_on_the_side_it_came_from_and_climbs_round_obstacles() {
-    // Gripping the kelp (at x 3500) from its left or its right.
-    let left = run("start x=3470 y=-2000; t=0.3 tap", 1.0);
-    let right = run("start x=3530 y=-2000; t=0.3 tap", 1.0);
+    // Gripping the kelp (at x 280) from its left or its right.
+    let left = run("start x=250 y=2000; t=0.3 tap", 1.0);
+    let right = run("start x=310 y=2000; t=0.3 tap", 1.0);
     assert!(left.crab().climbing && right.crab().climbing);
     assert_eq!(
         (left.crab().climb_side, right.crab().climb_side),
         (-1.0, 1.0)
     );
-    // Climbing up the coral on the wall side, the shelf above is in the
-    // way: the crab swings round to the open side and keeps going.
-    let r = run("start x=3460 y=-3600; t=0.2 jump", 2.5);
-    assert!(r.crab().climbing, "still climbing");
-    assert!(r.crab().pos.y > -3200.0, "past the shelf: {}", r.crab().pos);
-    assert_eq!(r.crab().climb_side, 1.0, "round on the open side");
 }
 
 #[test]
@@ -938,11 +902,11 @@ fn a_crab_tucked_in_at_home_mends_its_shell_after_a_moment_unhit() {
 }
 
 #[test]
-fn a_culture_from_the_pit_bottom_goes_home_into_the_lantern() {
-    // At the bottom of the pit, walk over the glowing patch: a lump of it
-    // goes on the crab's back.
-    // (Walking on, the shell grit past it clings to its shell too.)
-    let found = run("start x=3800 y=-8700; t=0 walk=right", 1.5);
+fn a_culture_from_the_basin_floor_goes_home_into_the_lantern() {
+    // On the basin floor (the filled pit's culture and grit moved here),
+    // walk over the glowing patch: a lump of it goes on the crab's back.
+    // (The shell grit on the way clings to its shell too.)
+    let found = run("start x=3600 y=-700; t=0 walk=right", 3.0);
     assert_eq!(found.count("picked up"), 2);
     assert_eq!(found.crab().carrying, Some(crabsim::Carry::Culture));
     assert_eq!(found.crab().clinging, vec![crabsim::Carry::Grit]);
@@ -960,14 +924,9 @@ fn a_culture_from_the_pit_bottom_goes_home_into_the_lantern() {
 
 #[test]
 fn climbing_is_a_skill_that_levels_up() {
-    // One climb out of the pit from the bottom: Climbing level 3 (level 5,
-    // a feat, takes about that again and the shaft or the canyon's coral).
-    let level = crabsim::Level::test_level();
-    let (_, _, bottom) = level.pit();
-    let climb = run(
-        &format!("start x=3500 y={bottom}; t=0 jump; t=0.2 release; t=0.3 jump walk=left"),
-        40.0,
-    );
+    // One climb of home's kelp from its foot: Climbing level 2 (level 5,
+    // a feat, takes much more and the canyon's coral).
+    let climb = run("start x=280 y=0; t=0 jump; t=0.2 release; t=0.3 jump", 40.0);
     let t = Tuning::base();
     let crab = climb.crab();
     println!(
@@ -975,8 +934,11 @@ fn climbing_is_a_skill_that_levels_up() {
         crab.climb_xp,
         crab.climb_level(&t)
     );
-    assert_eq!(climb.count("levelled"), 2);
-    assert_eq!(crab.climb_level(&t), 3);
+    // (The filled pit was an 8,000-unit climb worth level 3; the longest
+    // climb a crab can start from the floor now is home's kelp, about 5,000
+    // units: level 2, with level 3 (60 experience) one short climb away.)
+    assert_eq!(climb.count("levelled"), 1);
+    assert_eq!(crab.climb_level(&t), 2);
     // ...and each level climbs faster.
     assert!(crab.climb_speed(&t) > t.climb_speed);
 }
@@ -984,8 +946,8 @@ fn climbing_is_a_skill_that_levels_up() {
 #[test]
 fn pushing_a_way_while_sinking_dives() {
     // Sinking in open water, pushing right: a little faster down and across.
-    let still = run("start x=3600 y=-2000; t=0 walk=stop", 1.5);
-    let dive = run("start x=3600 y=-2000; t=0 walk=right", 1.5);
+    let still = run("start x=3600 y=400; t=0 walk=stop", 1.5);
+    let dive = run("start x=3600 y=400; t=0 walk=right", 1.5);
     assert!(dive.crab().diving);
     assert!(
         dive.crab().pos.y < still.crab().pos.y - 20.0,
@@ -1000,7 +962,7 @@ fn pushing_a_way_while_sinking_dives() {
 
 #[test]
 fn falling_turn_replays_to_the_same_state() {
-    let mut live = Sim::with_one_crab(Vec2::new(3600.0, -2000.0));
+    let mut live = Sim::with_one_crab(Vec2::new(3600.0, 400.0));
     live.start_recording();
     for tick in 0..360 {
         live.set_controls(
@@ -1028,108 +990,94 @@ fn falling_turn_replays_to_the_same_state() {
 
 #[test]
 fn dodge_in_the_water_is_a_flip() {
-    let r = run("start x=3600 y=-2000; t=0.5 walk=left dodge", 0.7);
+    let r = run("start x=3600 y=400; t=0.5 walk=left dodge", 0.7);
     assert_eq!((r.count("flipped"), r.count("dodged")), (1, 0));
     assert_eq!(r.crab().flip_dir, -1.0);
     // It doesn't move the crab any further than not flipping.
-    let plain = run("start x=3600 y=-2000; t=0.5 walk=left", 0.7);
+    let plain = run("start x=3600 y=400; t=0.5 walk=left", 0.7);
     assert_eq!(r.crab().pos, plain.crab().pos);
     // One flip at a time: the dodge's rest applies.
-    let twice = run("start x=3600 y=-2000; t=0.5 dodge; t=0.7 dodge", 1.0);
+    let twice = run("start x=3600 y=400; t=0.5 dodge; t=0.7 dodge", 1.0);
     assert_eq!(twice.count("flipped"), 1);
 }
 
+/// A crab put at `at` in the world with its baked cells (the sediment pockets
+/// are open water only there), left alone for `seconds`.
+fn left_in_the_cells(at: Vec2, seconds: f64) -> Sim {
+    let mut sim = Sim::with_one_crab(at);
+    sim.enable_underwater_cells();
+    idle(&mut sim, ticks(seconds) as u32);
+    sim
+}
+
 #[test]
-fn the_pit_hides_an_alcove_with_an_egg_and_a_clue() {
-    // Sinking past the alcove's mouth, push right at the right moment: in.
-    let into = |push: f64| run(&format!("start x=4020 y=-4700; t={push} walk=right"), 4.0);
-    let inside = into(1.4);
-    assert_eq!(inside.crab().pos.y, -5200.0, "on the alcove's floor");
-    assert_eq!(inside.count("ate"), 1, "the fourth egg");
-    assert_eq!(inside.count("found a clue"), 1);
-    assert_eq!(inside.sim.crabs()[0].clues_found, [true]);
-    // Too early lands on its roof; too late sinks on past.
-    assert_eq!(into(1.1).crab().pos.y, -5040.0);
-    assert!(into(1.8).crab().pos.y < -5300.0);
-    // And out again: walk out of the mouth and sink to the pit's floor.
+fn the_bone_hall_holds_the_fourth_egg_and_the_clue() {
+    // The filled pit's alcove is gone: its egg, its clue and its tooth lie in
+    // the bone hall under the basin floor now. A crab among them eats the
+    // egg, finds the clue and picks up the tooth.
     let level = crabsim::Level::test_level();
-    let out = run("start x=4200 y=-5200; t=0 walk=left; t=1.2 walk=stop", 20.0);
-    assert_eq!(out.crab().pos.y, level.pit().2);
+    let egg = level.eggs[3];
+    let eats = left_in_the_cells(egg - Vec2::new(0.0, 20.0), 2.0);
+    assert!(eats.crabs()[0].eaten[3], "the fourth egg");
+    let (clue, tooth) = (level.clues[0], level.teeth[0]);
+    let finds = left_in_the_cells(clue - Vec2::new(0.0, 10.0), 2.0);
+    assert_eq!(finds.crabs()[0].clues_found, [true], "the clue");
+    let takes = left_in_the_cells(tooth - Vec2::new(0.0, 10.0), 2.0);
+    assert_eq!(
+        takes.crab(PlayerId(0)).unwrap().mover.carrying,
+        Some(crabsim::Carry::Tooth)
+    );
 }
 
-/// Sinking past the alcove's mouth (clear of its roof), some moment to push
-/// right gets the crab in (the egg and the clue), and it can walk out and
-/// sink on to the pit's floor.
-fn the_alcove_can_be_swum_into_and_out_of() {
-    let inside = (0..40)
-        .map(|k| {
-            let push = 0.6 + f64::from(k) * 0.05;
-            run(&format!("start x=4000 y=-4700; t={push} walk=right"), 5.0)
-        })
-        .find(|r| r.crab().pos.y == -5200.0)
-        .expect("some push gets in");
-    assert_eq!(inside.count("ate"), 1, "the fourth egg");
-    assert_eq!(inside.count("found a clue"), 1);
-    let level = crabsim::Level::test_level();
-    let out = run("start x=4200 y=-5200; t=0 walk=left; t=1.2 walk=stop", 20.0);
-    assert_eq!(out.crab().pos.y, level.pit().2);
-}
-
-/// From the alcove's roof, run at the pit's wall and swim up it as hard as
-/// possible with `strokes` strokes, with scissor claws or not. Where does the crab
-/// end up (it keeps pushing right: into the tunnel, if it got in)?
-fn try_the_passage(strokes: u32, scissors: bool, jump: f64) -> (f32, Run) {
-    let mut script = format!("start x=4180 y=-5040; t=0 walk=right; t={jump} jump");
-    for k in 0..strokes {
-        script += &format!("; t={} jump", jump + 0.45 + 0.31 * f64::from(k));
-    }
-    let r = run_crab(
+/// The hub's net (the scissor-claw gate on the basin floor, cuttable from
+/// either side): walk at it from `from_x` going `way`, with scissor claws
+/// or not. Where does the crab end up?
+fn try_the_net(from_x: f32, way: &str, scissors: bool) -> Run {
+    run_crab(
         Tuning::base(),
-        &script,
+        &format!("start x={from_x} y=-700; t=0 walk={way}"),
         4.0,
         |_| false,
-        |m| {
-            m.upgrades = strokes;
-            m.stamina = strokes as f32;
-            m.scissor_claw = scissors;
-        },
-    );
-    (r.crab().pos.x, r)
+        |m| m.scissor_claw = scissors,
+    )
 }
 
 #[test]
-fn the_passage_needs_four_strokes_and_scissor_claws() {
-    let take_offs: Vec<f64> = (0..30).map(|k| 0.1 + f64::from(k) * 0.02).collect();
-    let tunnel = 4330.0; // past the net, in the tunnel
-    // With scissor claws and four strokes, take-offs cut the net and get in.
-    let four: Vec<(f32, Run)> = take_offs
-        .iter()
-        .map(|&j| try_the_passage(4, true, j))
-        .collect();
-    let made_it = four.iter().filter(|(x, _)| *x > tunnel).count();
-    println!("four strokes and scissor claws get into the tunnel in {made_it} of 30 take-offs");
-    assert!(made_it > 0);
-    assert!(four.iter().any(|(_, r)| r.count("cut a net") == 1));
-    // Three strokes never reach it, scissor claws or not.
-    assert!(
-        take_offs
-            .iter()
-            .all(|&j| try_the_passage(3, true, j).0 <= tunnel)
-    );
-    // Without scissor claws the net stops a crab with four strokes: tangled.
-    let no_scissors: Vec<(f32, Run)> = take_offs
-        .iter()
-        .map(|&j| try_the_passage(4, false, j))
-        .collect();
-    assert!(no_scissors.iter().all(|(x, _)| *x <= tunnel));
-    assert!(no_scissors.iter().any(|(_, r)| r.count("tangled") > 0));
+fn the_passage_needs_scissor_claws() {
+    // The pit is filled and its ledge's net passage with it; the net at
+    // x 4,354 on the basin floor is the gate now, walked at from either side.
+    let net = crabsim::Level::test_level().nets[0].rect;
+    for (from_x, way, past) in [
+        (net.min.x - 200.0, "right", (net.max.x + 20.0, f32::MAX)),
+        (net.max.x + 200.0, "left", (f32::MIN, net.min.x - 20.0)),
+    ] {
+        let cut = try_the_net(from_x, way, true);
+        assert_eq!(cut.count("cut a net"), 1, "from {from_x}");
+        assert!(
+            (past.0..=past.1).contains(&cut.crab().pos.x),
+            "through the cut net: {}",
+            cut.crab().pos
+        );
+        // Without scissor claws the net stops the crab: tangled.
+        let stopped = try_the_net(from_x, way, false);
+        assert!(stopped.count("tangled") > 0, "from {from_x}");
+        assert!(
+            !(past.0..=past.1).contains(&stopped.crab().pos.x),
+            "stopped by the net: {}",
+            stopped.crab().pos
+        );
+    }
 }
 
 #[test]
-fn the_tooth_makes_scissor_claws_and_the_shaft_leads_to_the_far_basin() {
-    // In the alcove, the tooth goes on the crab's back.
-    let found = run("start x=4200 y=-5200; t=0 walk=right", 1.0);
-    assert_eq!(found.crab().carrying, Some(crabsim::Carry::Tooth));
+fn the_tooth_makes_scissor_claws() {
+    // In the bone hall, the tooth goes on the crab's back.
+    let tooth_at = crabsim::Level::test_level().teeth[0];
+    let found = left_in_the_cells(tooth_at - Vec2::new(0.0, 10.0), 1.0);
+    assert_eq!(
+        found.crab(PlayerId(0)).unwrap().mover.carrying,
+        Some(crabsim::Carry::Tooth)
+    );
     // At home it's put away by the workbench, and made into scissor claws
     // (fitted to the crusher) from the crafting menu.
     let tooth = |m: &mut crabsim::Mover| m.carrying = Some(crabsim::Carry::Tooth);
@@ -1141,18 +1089,6 @@ fn the_tooth_makes_scissor_claws_and_the_shaft_leads_to_the_far_basin() {
     home.sim.tick();
     let crab = home.sim.crab(PlayerId(0)).unwrap();
     assert!(crab.events.fitted_scissors && crab.mover.scissor_claw);
-    // Beyond the net: grip the shaft's coral, climb, and come out on the
-    // far basin's floor.
-    let up = run(
-        "start x=4420 y=-4380; t=0 jump; t=0.2 release; t=0.3 jump walk=right",
-        30.0,
-    );
-    assert_eq!(up.crab().pos.y, -700.0);
-    assert!(
-        up.crab().pos.x > 4490.0,
-        "out on the far basin: {}",
-        up.crab().pos
-    );
 }
 
 /// On the long, flat basin floor past the pit (right end), facing right.
@@ -2286,15 +2222,10 @@ fn badly_hurt_it_flees_into_its_burrow_and_comes_back_later() {
 
 #[test]
 fn the_levels_mantis_waits_on_the_plateau_and_sees_a_crab_coming_up() {
+    // (The level's own mantis now sits buried at the mantis mouth on the
+    // basin floor; this is the plateau's burrow, still a fine place for one.)
     let mantis = |sim: &mut Sim| {
-        let at = sim
-            .level
-            .foes
-            .iter()
-            .find(|f| f.0 == Kind::Mantis)
-            .unwrap()
-            .1;
-        sim.spawn_enemy(Kind::Mantis, at);
+        sim.spawn_enemy(Kind::Mantis, Vec2::new(1120.0, 110.0));
     };
     let mut sim = sim_a(SPAWN);
     mantis(&mut sim);
@@ -2393,7 +2324,10 @@ fn the_route_gets_harder_with_room_to_breathe() {
         ],
         "the opening route still builds from shrimp to the octopus before the eastern expedition"
     );
-    let xs: Vec<f32> = level.foes.iter().take(7).map(|f| f.1.x).collect();
+    // (The mantis moved to the mantis mouth, so the list is no longer in
+    // order of x: the spacing is between neighbours along the route.)
+    let mut xs: Vec<f32> = level.foes.iter().take(7).map(|f| f.1.x).collect();
+    xs.sort_by(f32::total_cmp);
     assert!(
         xs.windows(2).all(|w| w[1] - w[0] >= 240.0),
         "breathing room: {xs:?}"
@@ -2440,12 +2374,11 @@ fn the_biggest_crab_still_gets_through_the_whole_route() {
     jump_and_paddle_cross_the_trench();
     the_way_out_needs_all_three_strokes();
     the_basin_has_a_way_back_up();
-    the_pit_is_deep_and_the_climb_gets_you_out();
     climbing_goes_up_and_down_and_steps_off_sideways();
     the_crab_clings_on_the_side_it_came_from_and_climbs_round_obstacles();
     the_crab_backs_into_its_home_shell_rests_there_and_walks_out();
-    a_culture_from_the_pit_bottom_goes_home_into_the_lantern();
-    the_alcove_can_be_swum_into_and_out_of();
-    the_passage_needs_four_strokes_and_scissor_claws();
-    the_tooth_makes_scissor_claws_and_the_shaft_leads_to_the_far_basin();
+    a_culture_from_the_basin_floor_goes_home_into_the_lantern();
+    the_bone_hall_holds_the_fourth_egg_and_the_clue();
+    the_passage_needs_scissor_claws();
+    the_tooth_makes_scissor_claws();
 }

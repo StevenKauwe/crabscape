@@ -9,9 +9,9 @@ fn toggle(s: &mut Sim) {
     assert!(s.shell_action(P, ShellAction::ToggleLantern));
 }
 fn mantis(dim: bool, x: f32) -> Sim {
-    let mut s = Sim::with_one_crab(Vec2::new(x, -3000.0));
+    let mut s = Sim::with_one_crab(Vec2::new(x, -5000.0));
     s.enable_underwater_cells();
-    s.spawn_enemy(Kind::Mantis, Vec2::new(16900.0, -3000.0));
+    s.spawn_enemy(Kind::Mantis, Vec2::new(16900.0, -5000.0));
     if dim {
         toggle(&mut s);
     }
@@ -76,9 +76,9 @@ fn shading_does_not_change_scent_vibration_or_sunlit_visibility() {
             } else {
                 13070.0
             };
-            let mut s = Sim::with_one_crab(Vec2::new(x, -3250.0));
+            let mut s = Sim::with_one_crab(Vec2::new(x, -5250.0));
             s.enable_underwater_cells();
-            s.spawn_enemy(kind, Vec2::new(13200.0, -3250.0));
+            s.spawn_enemy(kind, Vec2::new(13200.0, -5250.0));
             if dim {
                 toggle(&mut s);
             }
@@ -117,7 +117,7 @@ fn shading_does_not_change_scent_vibration_or_sunlit_visibility() {
 }
 #[test]
 fn dimming_preserves_upgrade_capacity_known_places_and_loaded_terrain() {
-    let mut s = Sim::with_one_crab(Vec2::new(12800.0, -3250.0));
+    let mut s = Sim::with_one_crab(Vec2::new(12800.0, -5250.0));
     s.enable_underwater_cells();
     s.crab_mut(P).unwrap().mover.lantern = 3;
     for _ in 0..24 {
@@ -173,7 +173,7 @@ fn local_setting_persists_defaults_to_full_and_never_toggles_a_remote_crab() {
 #[test]
 fn toggles_during_a_cellular_lower_route_replay_exactly() {
     for size in [0, 100] {
-        let mut s = Sim::with_one_crab(Vec2::new(12750.0, -3240.0));
+        let mut s = Sim::with_one_crab(Vec2::new(12750.0, -5240.0));
         s.enable_underwater_cells();
         // Start above the settled sediment surface on main.
         // Match replay startup: enable cells before restoring grown progress.
@@ -222,8 +222,8 @@ fn bright_lantern_is_noticed_from_further_in_the_dark() {
 #[test]
 fn wounded_crab_is_smelled_from_further() {
     for (legs, unhit, expected) in [(0, 2400, false), (1, 2400, true), (0, 2398, true)] {
-        let mut s = Sim::with_one_crab(Vec2::new(12860.0, -3250.0));
-        s.spawn_enemy(Kind::Moray, Vec2::new(13200.0, -3250.0));
+        let mut s = Sim::with_one_crab(Vec2::new(12860.0, -5250.0));
+        s.spawn_enemy(Kind::Moray, Vec2::new(13200.0, -5250.0));
         s.enemies_mut()[0].scent = 119;
         let c = s.crab_mut(P).unwrap();
         c.fighter.legs_lost = legs;
@@ -245,13 +245,13 @@ fn dim_lantern_shrinks_sight() {
 
 #[test]
 fn watcher_is_the_same_in_two_sims() {
-    let mut a = Sim::with_one_crab(Vec2::new(16640.0, -3000.0));
-    let mut b = Sim::with_one_crab(Vec2::new(16640.0, -3000.0));
+    let mut a = Sim::with_one_crab(Vec2::new(16640.0, -5000.0));
+    let mut b = Sim::with_one_crab(Vec2::new(16640.0, -5000.0));
     let mut appearances = 0;
     let mut last = None;
     for n in 0..45000 {
         for s in [&mut a, &mut b] {
-            s.crab_mut(P).unwrap().mover.pos = Vec2::new(16640.0, -3000.0);
+            s.crab_mut(P).unwrap().mover.pos = Vec2::new(16640.0, -5000.0);
             s.crab_mut(P).unwrap().mover.vel = Vec2::ZERO;
             s.tick();
         }
@@ -274,9 +274,9 @@ fn watcher_is_the_same_in_two_sims() {
 
 #[test]
 fn the_watcher_never_attacks_or_blocks() {
-    let mut s = Sim::with_one_crab(Vec2::new(16640.0, -3000.0));
+    let mut s = Sim::with_one_crab(Vec2::new(16640.0, -5000.0));
     for _ in 0..5000 {
-        s.crab_mut(P).unwrap().mover.pos = Vec2::new(16640.0, -3000.0);
+        s.crab_mut(P).unwrap().mover.pos = Vec2::new(16640.0, -5000.0);
         s.crab_mut(P).unwrap().mover.vel = Vec2::ZERO;
         s.tick();
         assert!(s.enemies().is_empty());
