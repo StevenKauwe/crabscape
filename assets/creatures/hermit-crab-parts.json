@@ -1,0 +1,346 @@
+{
+ "comment": "Written by crabrig export (cargo run -p crabrig --profile art -- export) from art/creatures/hermit-crab/hermit-crab-parts.svg. Coordinates are SVG units (y down) unless marked px. rect = [x, y, w, h] in atlas px; bbox = the same area in SVG units; z = drawing order (bigger is in front).",
+ "atlas": "hermit-crab-atlas.png",
+ "atlas_size": [
+  1024,
+  128
+ ],
+ "px_per_unit": 0.6,
+ "ground": [
+  176.65,
+  264.9
+ ],
+ "anchors": {},
+ "parts": [
+  {
+   "name": "leg-a",
+   "parent": "body",
+   "pivot": [
+    213.0,
+    249.7
+   ],
+   "bbox": [
+    205.2,
+    238.3,
+    49.8,
+    31.4
+   ],
+   "rect": [
+    363,
+    3,
+    30,
+    19
+   ],
+   "z": 0,
+   "members": [
+    "leg-a"
+   ]
+  },
+  {
+   "name": "leg-b",
+   "parent": "body",
+   "pivot": [
+    203.0,
+    249.7
+   ],
+   "bbox": [
+    192.7,
+    238.3,
+    42.1,
+    32.6
+   ],
+   "rect": [
+    334,
+    3,
+    26,
+    20
+   ],
+   "z": 1,
+   "members": [
+    "leg-b"
+   ]
+  },
+  {
+   "name": "body",
+   "parent": "shell",
+   "pivot": [
+    205.0,
+    231.7
+   ],
+   "bbox": [
+    187.6,
+    188.3,
+    84.1,
+    74.8
+   ],
+   "rect": [
+    84,
+    3,
+    51,
+    45
+   ],
+   "z": 2,
+   "members": [
+    "body"
+   ]
+  },
+  {
+   "name": "head",
+   "parent": "body",
+   "pivot": [
+    241.0,
+    215.7
+   ],
+   "bbox": [
+    231.0,
+    169.7,
+    46.4,
+    66.6
+   ],
+   "rect": [
+    200,
+    3,
+    28,
+    40
+   ],
+   "z": 3,
+   "members": [
+    "head",
+    "head-eyestalk-a",
+    "head-eyestalk-b"
+   ]
+  },
+  {
+   "name": "eye-a",
+   "parent": "head",
+   "pivot": [
+    255.0,
+    175.7
+   ],
+   "bbox": [
+    243.1,
+    160.6,
+    24.3,
+    23.9
+   ],
+   "rect": [
+    475,
+    3,
+    15,
+    15
+   ],
+   "z": 6,
+   "members": [
+    "eye-a"
+   ]
+  },
+  {
+   "name": "eye-b",
+   "parent": "head",
+   "pivot": [
+    271.0,
+    179.7
+   ],
+   "bbox": [
+    260.2,
+    164.4,
+    23.2,
+    24.7
+   ],
+   "rect": [
+    458,
+    3,
+    14,
+    15
+   ],
+   "z": 7,
+   "members": [
+    "eye-b"
+   ]
+  },
+  {
+   "name": "claw-small",
+   "parent": "body",
+   "pivot": [
+    249.0,
+    239.7
+   ],
+   "bbox": [
+    240.2,
+    228.0,
+    43.3,
+    25.7
+   ],
+   "rect": [
+    396,
+    3,
+    26,
+    16
+   ],
+   "z": 8,
+   "members": [
+    "claw-small"
+   ]
+  },
+  {
+   "name": "shell",
+   "parent": null,
+   "pivot": [
+    193.0,
+    255.7
+   ],
+   "bbox": [
+    103.0,
+    146.6,
+    129.3,
+    119.8
+   ],
+   "rect": [
+    3,
+    3,
+    78,
+    72
+   ],
+   "z": 9,
+   "members": [
+    "shell",
+    "shell-whorl-0",
+    "shell-whorl-1",
+    "shell-whorl-2",
+    "shell-lip"
+   ]
+  },
+  {
+   "name": "anemone-0",
+   "parent": "shell",
+   "pivot": [
+    145.0,
+    163.7
+   ],
+   "bbox": [
+    113.9,
+    103.1,
+    46.6,
+    70.7
+   ],
+   "rect": [
+    138,
+    3,
+    28,
+    43
+   ],
+   "z": 14,
+   "members": [
+    "anemone-0",
+    "anemone-0-tent-0",
+    "anemone-0-tent-1",
+    "anemone-0-tent-2",
+    "anemone-0-tent-3"
+   ]
+  },
+  {
+   "name": "anemone-1",
+   "parent": "shell",
+   "pivot": [
+    181.0,
+    153.7
+   ],
+   "bbox": [
+    162.9,
+    94.0,
+    46.6,
+    70.1
+   ],
+   "rect": [
+    169,
+    3,
+    28,
+    43
+   ],
+   "z": 19,
+   "members": [
+    "anemone-1",
+    "anemone-1-tent-0",
+    "anemone-1-tent-1",
+    "anemone-1-tent-2",
+    "anemone-1-tent-3"
+   ]
+  },
+  {
+   "name": "anemone-2",
+   "parent": "shell",
+   "pivot": [
+    117.0,
+    203.7
+   ],
+   "bbox": [
+    54.0,
+    191.3,
+    72.8,
+    50.8
+   ],
+   "rect": [
+    231,
+    3,
+    44,
+    31
+   ],
+   "z": 24,
+   "members": [
+    "anemone-2",
+    "anemone-2-tent-0",
+    "anemone-2-tent-1",
+    "anemone-2-tent-2",
+    "anemone-2-tent-3"
+   ]
+  },
+  {
+   "name": "claw-big",
+   "parent": "shell",
+   "pivot": [
+    213.0,
+    231.7
+   ],
+   "bbox": [
+    201.0,
+    205.4,
+    87.1,
+    45.4
+   ],
+   "rect": [
+    278,
+    3,
+    53,
+    28
+   ],
+   "z": 29,
+   "members": [
+    "claw-big"
+   ]
+  },
+  {
+   "name": "claw-big-finger",
+   "parent": "claw-big",
+   "pivot": [
+    257.0,
+    237.7
+   ],
+   "bbox": [
+    250.7,
+    228.8,
+    48.6,
+    25.2
+   ],
+   "rect": [
+    425,
+    3,
+    30,
+    16
+   ],
+   "z": 30,
+   "members": [
+    "claw-big-finger"
+   ]
+  }
+ ]
+}

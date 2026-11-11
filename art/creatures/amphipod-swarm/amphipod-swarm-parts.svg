@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="320" viewBox="0 0 520 320">
+<defs>
+<linearGradient id="gp-cloud_0" gradientUnits="userSpaceOnUse" x1="229.4" y1="57.6" x2="290.6" y2="302.4"><stop offset="0" stop-color="#CFE3E6"/><stop offset=".48" stop-color="#A9C6CC"/><stop offset="1" stop-color="#7C9AA3"/></linearGradient>
+<linearGradient id="gp-body_1" gradientUnits="userSpaceOnUse" x1="257.9" y1="170.5" x2="262.2" y2="187.5"><stop offset="0" stop-color="#F6D2B6"/><stop offset=".48" stop-color="#E3A47E"/><stop offset="1" stop-color="#9A5F44"/></linearGradient>
+</defs>
+<!-- Amphipod swarm: one amphipod, instanced by the game, and a faint cloud. -->
+<text x="20" y="40" font-family="Nimbus Sans, sans-serif" font-size="22" font-weight="normal" fill="#2A140F" text-anchor="start" >Amphipod swarm · rig parts</text>
+<g id="cloud" data-parent="root" data-pivot="260.0,180.0">
+<g>
+<path id="p-cloud_0" d="M460.4 180L454.7 197.7L439.9 214.4L415.9 228.9L384.1 240.8L346.5 250.7L304.5 258.4L260 262L215.3 260L173.1 252.8L135.3 242.4L103.8 229.5L80.3 214.1L66.5 197L61.8 180L65.3 162.4L78.8 144.1L102.7 128.2L134.9 116.3L173.2 107.9L215.5 102.3L260 100.6L304.4 103.4L346.4 109.8L384.4 118.4L416.8 129.2L441.6 143.6L456.4 161.4Z" fill="url(#gp-cloud_0)" fill-opacity="0.16"/>
+</g>
+</g>
+<g id="body" data-parent="root" data-pivot="260.0,180.0">
+<g>
+<path id="p-body_1" d="M248.3 180.9L248.6 179.7L249.2 178.1L249.9 176.5L250.9 174.9L252.5 173.7L254.6 173L256.8 172.7L259 172.8L261.1 173.1L263.2 173.6L265.2 174.3L266.9 175.3L268.3 176.4L269.8 177.4L271.1 178.2L272.1 178.9L272.6 180L272.1 181.2L271.2 181.9L270 182.2L268.8 181.9L267.2 181.2L265.6 180.3L264 179.7L262.5 179.4L260.8 179.5L259.3 180.2L258.1 181.1L257 182.3L255.8 183.7L254.4 184.8L253 185.2L251.5 184.7L250 183.7L248.7 182.3Z" fill="url(#gp-body_1)"/>
+<path d="M248.3 180.9L248.6 179.7L249.2 178.1L249.9 176.5L250.9 174.9L252.5 173.7L254.6 173L256.8 172.7L259 172.8L261.1 173.1L263.2 173.6L265.2 174.3L266.9 175.3L268.3 176.4L269.8 177.4L271.1 178.2L272.1 178.9L272.6 180L272.1 181.2L271.2 181.9L270 182.2L268.8 181.9L267.2 181.2L265.6 180.3L264 179.7L262.5 179.4L260.8 179.5L259.3 180.2L258.1 181.1L257 182.3L255.8 183.7L254.4 184.8L253 185.2L251.5 184.7L250 183.7L248.7 182.3Z" fill="none" stroke="#2A140F" stroke-width="1.3" stroke-linejoin="round"/>
+<path d="M272.1 181.2L271.2 181.9L270 182.2L268.8 181.9L267.2 181.2L265.6 180.3L264 179.7L262.5 179.4L260.8 179.5L259.3 180.2L258.1 181.1L257 182.3L255.8 183.7L254.4 184.8L253 185.2L251.5 184.7L250 183.7" fill="none" stroke="#2A140F" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="legs" data-parent="body" data-pivot="260.0,182.0">
+<g>
+<path d="M254 183L253.8 183.7L253.4 184.7L253.1 185.9L252.9 186.7L253 187L253.5 186.4L254.4 185.2L255.4 183.7L256.3 182.5L257 182L257.4 182.5L257.5 183.8L257.6 185.3L257.7 186.5L258 187L258.5 186.4L259.1 185.1L259.8 183.6L260.4 182.2L261 181.6L261.5 182L261.9 183.1L262.2 184.4L262.6 185.6L263 186L263.4 185.5L263.9 184.4L264.3 183.1L264.7 181.8L265 181" fill="none" stroke="#F6D2B6" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="pivots" style="display:none">
+<circle cx="260.0" cy="180.0" r="3" fill="#00A0FF"><title>cloud</title></circle>
+<circle cx="260.0" cy="180.0" r="3" fill="#00A0FF"><title>body</title></circle>
+<circle cx="260.0" cy="182.0" r="3" fill="#00A0FF"><title>legs</title></circle>
+</g>
+</svg>

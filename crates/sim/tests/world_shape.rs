@@ -203,12 +203,7 @@ fn no_hunter_roams_inside_a_tunnel() {
             // Conservative envelope of chase centres plus body and lunge.
             // Include every floor height in a walker's leash, even across
             // cliffs it cannot step over, so slopes cannot hide an intrusion.
-            let swimming = matches!(
-                kind,
-                crabsim::enemy::Kind::Moray
-                    | crabsim::enemy::Kind::Triggerfish
-                    | crabsim::enemy::Kind::AlarmJelly
-            );
+            let swimming = kind.swims();
             let leash = crabsim::enemy::Enemy::new(0, kind, home, &tuning).home_leash(&tuning);
             let chase = leash + k.approach_speed * k.tell_ticks as f32 * route::DT as f32;
             let (bottom, top) = if swimming {

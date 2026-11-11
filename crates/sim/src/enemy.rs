@@ -43,10 +43,30 @@ pub enum Kind {
     Triggerfish,
     /// Midwater environmental hazard: contact sting and a blue burglar alarm.
     AlarmJelly,
+    /// The loggerhead sea turtle: a big, armoured, slow swimmer.
+    LoggerheadTurtle,
+    /// The Humboldt squid: a fast, red, schooling midwater hunter.
+    HumboldtSquid,
+    /// The viperfish: a deep midwater ambusher with a lure.
+    Viperfish,
+    /// The goliath grouper: a huge reef ambusher that swallows whole.
+    GoliathGrouper,
+    /// The American lobster: a clawed walker of cold rock.
+    Lobster,
+    /// The hermit crab: a small crab in a borrowed shell.
+    HermitCrab,
+    /// The bobbit worm: an ambusher buried in the sand.
+    BobbitWorm,
+    /// The giant isopod: a slow deep scavenger.
+    GiantIsopod,
+    /// The hagfish: a knot of slime-making scavengers.
+    Hagfish,
+    /// A swarm of amphipods: a cloud of tiny scavengers.
+    AmphipodSwarm,
 }
 
 /// Every kind, for parsing and lists.
-pub const KINDS: [Kind; 8] = [
+pub const KINDS: [Kind; 18] = [
     Kind::Fixture,
     Kind::Mantis,
     Kind::Snapper,
@@ -55,6 +75,16 @@ pub const KINDS: [Kind; 8] = [
     Kind::Monkey,
     Kind::Triggerfish,
     Kind::AlarmJelly,
+    Kind::LoggerheadTurtle,
+    Kind::HumboldtSquid,
+    Kind::Viperfish,
+    Kind::GoliathGrouper,
+    Kind::Lobster,
+    Kind::HermitCrab,
+    Kind::BobbitWorm,
+    Kind::GiantIsopod,
+    Kind::Hagfish,
+    Kind::AmphipodSwarm,
 ];
 
 impl Kind {
@@ -68,6 +98,7 @@ impl Kind {
             Kind::Monkey => crate::codes::monkey_tuning(),
             Kind::Triggerfish => crate::tuning::triggerfish_tuning(),
             Kind::AlarmJelly => crate::tuning::alarm_jelly_tuning(),
+            k => crate::creatures::tuning(k).expect("every new kind has a creature module"),
         }
     }
 
@@ -81,11 +112,34 @@ impl Kind {
             Kind::Monkey => "monkey",
             Kind::Triggerfish => "triggerfish",
             Kind::AlarmJelly => "alarm-jelly",
+            Kind::LoggerheadTurtle => "loggerhead-turtle",
+            Kind::HumboldtSquid => "humboldt-squid",
+            Kind::Viperfish => "viperfish",
+            Kind::GoliathGrouper => "goliath-grouper",
+            Kind::Lobster => "american-lobster",
+            Kind::HermitCrab => "hermit-crab",
+            Kind::BobbitWorm => "bobbit-worm",
+            Kind::GiantIsopod => "giant-isopod",
+            Kind::Hagfish => "hagfish",
+            Kind::AmphipodSwarm => "amphipod-swarm",
         }
     }
 
     pub fn parse(name: &str) -> Option<Self> {
         KINDS.into_iter().find(|k| k.name() == name)
+    }
+
+    /// Swims through open water (no walking on the floor, so no tunnel test
+    /// for a hunter's route).
+    pub fn swims(self) -> bool {
+        matches!(self, Kind::Moray | Kind::Triggerfish | Kind::AlarmJelly)
+            || crate::creatures::midwater(self)
+    }
+
+    /// Keeps the depth it was authored at when spawned (the rest settle on
+    /// the live bed).
+    pub fn keeps_depth(self) -> bool {
+        self == Kind::AlarmJelly || crate::creatures::midwater(self)
     }
 }
 
@@ -225,6 +279,9 @@ pub struct Enemy {
     /// runs out (0 for every other kind: they stay).
     #[serde(default)]
     pub stay: u32,
+    /// A bestiary creature's own state (`crate::creatures`).
+    #[serde(default)]
+    pub creature: crate::creatures::Extra,
 }
 
 impl Enemy {
@@ -311,6 +368,7 @@ impl Enemy {
             } else {
                 0
             },
+            creature: crate::creatures::extra(kind),
         }
     }
 
@@ -366,6 +424,9 @@ impl Enemy {
     /// The finer part of its state, for dumps and the drawing: the tell's
     /// last stretch is "cocked" (the hold-still beat before the blow).
     pub fn phase(&self, t: &Tuning) -> &'static str {
+        if let Some(p) = crate::creatures::phase(self, t) {
+            return p;
+        }
         if self.kind == Kind::Snapper
             && self.state == State::Recover
             && self.state_len == crate::tuning::SNAPPER_REST_TICKS
@@ -847,6 +908,9 @@ fn step_inner(
             deaths: e.deaths,
             ..Enemy::new(e.id, e.kind, home, t)
         };
+    }
+    if let Some(b) = crate::creatures::step(e, crabs, t, level, rng, animals, bounded_region) {
+        return b;
     }
     if e.kind == Kind::AlarmJelly {
         return crate::alarm_jelly::step(e, crabs, t, level, bounded_region);
@@ -1520,6 +1584,9 @@ pub fn grabs(k: &EnemyTuning, outcome: Outcome) -> Option<GrabTuning> {
 /// that runs it, the outcome may come from the crab's own device
 /// ([`crate::net::Msg::Blow`]). True when this blow is over.
 pub fn feels(e: &mut Enemy, crab: PlayerId, outcome: Outcome, t: &Tuning) -> bool {
+    if let Some(done) = crate::creatures::feels(e, crab, outcome, t) {
+        return done;
+    }
     if e.kind == Kind::AlarmJelly {
         return crate::alarm_jelly::feels(e, crab, outcome);
     }

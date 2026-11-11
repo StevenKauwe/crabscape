@@ -457,6 +457,16 @@ fn ghost_colour(kind: Kind) -> Color {
         Kind::Monkey => Color::srgb(0.50, 0.40, 0.30),
         Kind::AlarmJelly => Color::srgb(0.55, 0.12, 0.22),
         Kind::Triggerfish => Color::srgb(0.55, 0.66, 0.40),
+        Kind::LoggerheadTurtle => Color::srgb(0.55, 0.45, 0.28),
+        Kind::HumboldtSquid => Color::srgb(0.70, 0.25, 0.25),
+        Kind::Viperfish => Color::srgb(0.30, 0.50, 0.62),
+        Kind::GoliathGrouper => Color::srgb(0.58, 0.52, 0.36),
+        Kind::Lobster => Color::srgb(0.50, 0.32, 0.22),
+        Kind::HermitCrab => Color::srgb(0.78, 0.55, 0.35),
+        Kind::BobbitWorm => Color::srgb(0.62, 0.38, 0.58),
+        Kind::GiantIsopod => Color::srgb(0.72, 0.70, 0.62),
+        Kind::Hagfish => Color::srgb(0.66, 0.58, 0.60),
+        Kind::AmphipodSwarm => Color::srgb(0.80, 0.62, 0.52),
     }
 }
 

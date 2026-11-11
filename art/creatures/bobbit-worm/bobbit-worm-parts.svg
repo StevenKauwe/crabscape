@@ -1,0 +1,224 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="378" height="250" viewBox="0 0 378 250">
+<defs>
+<linearGradient id="gp-seg-d_0" gradientUnits="userSpaceOnUse" x1="80.9" y1="139.8" x2="91.1" y2="180.2"><stop offset="0" stop-color="#8FD3C6"/><stop offset=".48" stop-color="#4F8DA8"/><stop offset="1" stop-color="#2D3F73"/></linearGradient>
+<linearGradient id="gp-seg-d-sheen_1" gradientUnits="userSpaceOnUse" x1="82.2" y1="146.2" x2="85.8" y2="160.6"><stop offset="0" stop-color="#E8F6EE"/><stop offset=".48" stop-color="#E8F6EE"/><stop offset="1" stop-color="#E8F6EE"/></linearGradient>
+<linearGradient id="gp-seg-c_2" gradientUnits="userSpaceOnUse" x1="124.9" y1="139.8" x2="135.1" y2="180.2"><stop offset="0" stop-color="#E4A98B"/><stop offset=".48" stop-color="#B0647A"/><stop offset="1" stop-color="#5E2F55"/></linearGradient>
+<linearGradient id="gp-seg-c-sheen_3" gradientUnits="userSpaceOnUse" x1="126.2" y1="146.2" x2="129.8" y2="160.6"><stop offset="0" stop-color="#E8F6EE"/><stop offset=".48" stop-color="#E8F6EE"/><stop offset="1" stop-color="#E8F6EE"/></linearGradient>
+<linearGradient id="gp-seg-b_4" gradientUnits="userSpaceOnUse" x1="168.9" y1="139.8" x2="179.1" y2="180.2"><stop offset="0" stop-color="#8FD3C6"/><stop offset=".48" stop-color="#4F8DA8"/><stop offset="1" stop-color="#2D3F73"/></linearGradient>
+<linearGradient id="gp-seg-b-sheen_5" gradientUnits="userSpaceOnUse" x1="170.2" y1="146.2" x2="173.8" y2="160.6"><stop offset="0" stop-color="#E8F6EE"/><stop offset=".48" stop-color="#E8F6EE"/><stop offset="1" stop-color="#E8F6EE"/></linearGradient>
+<linearGradient id="gp-seg-a_6" gradientUnits="userSpaceOnUse" x1="212.9" y1="139.8" x2="223.1" y2="180.2"><stop offset="0" stop-color="#E4A98B"/><stop offset=".48" stop-color="#B0647A"/><stop offset="1" stop-color="#5E2F55"/></linearGradient>
+<linearGradient id="gp-seg-a-sheen_7" gradientUnits="userSpaceOnUse" x1="214.2" y1="146.2" x2="217.8" y2="160.6"><stop offset="0" stop-color="#E8F6EE"/><stop offset=".48" stop-color="#E8F6EE"/><stop offset="1" stop-color="#E8F6EE"/></linearGradient>
+<linearGradient id="gp-head_8" gradientUnits="userSpaceOnUse" x1="254.4" y1="141.2" x2="263.6" y2="178"><stop offset="0" stop-color="#EBB89A"/><stop offset=".48" stop-color="#C0788A"/><stop offset="1" stop-color="#6A3560"/></linearGradient>
+<linearGradient id="gp-head-eye-0_9" gradientUnits="userSpaceOnUse" x1="255.3" y1="150.1" x2="256.7" y2="155.9"><stop offset="0" stop-color="#4A3550"/><stop offset=".48" stop-color="#22172A"/><stop offset="1" stop-color="#120A16"/></linearGradient>
+<linearGradient id="gp-head-eye-1_10" gradientUnits="userSpaceOnUse" x1="263.3" y1="150.1" x2="264.7" y2="155.9"><stop offset="0" stop-color="#4A3550"/><stop offset=".48" stop-color="#22172A"/><stop offset="1" stop-color="#120A16"/></linearGradient>
+<linearGradient id="gp-jaw-bottom_11" gradientUnits="userSpaceOnUse" x1="282.3" y1="159.5" x2="285.7" y2="173.1"><stop offset="0" stop-color="#7A3B2E"/><stop offset=".48" stop-color="#4A2018"/><stop offset="1" stop-color="#25100C"/></linearGradient>
+<linearGradient id="gp-jaw-top_12" gradientUnits="userSpaceOnUse" x1="282.3" y1="146.9" x2="285.7" y2="160.5"><stop offset="0" stop-color="#7A3B2E"/><stop offset=".48" stop-color="#4A2018"/><stop offset="1" stop-color="#25100C"/></linearGradient>
+<linearGradient id="gp-mound_13" gradientUnits="userSpaceOnUse" x1="252.7" y1="160.5" x2="263.4" y2="203.3"><stop offset="0" stop-color="#E2D2A4"/><stop offset=".48" stop-color="#C4AE7C"/><stop offset="1" stop-color="#8E7B55"/></linearGradient>
+</defs>
+<!-- Bobbit worm: Rust-authored cut-out kit. Four segments, a head with two jaws, five antennae, a sand mound. -->
+<text x="20" y="40" font-family="Nimbus Sans, sans-serif" font-size="22" font-weight="normal" fill="#2A140F" text-anchor="start" >Bobbit worm · rig parts</text>
+<g id="seg-d" data-parent="root" data-pivot="86.0,160.0">
+<g>
+<path id="p-seg-d_0" d="M112.1 160L110.7 163.1L108.9 166L106.3 169.2L102.4 172.1L97.4 174L91.8 174.9L86 175.1L80.2 174.5L74.9 173L70 171.2L65.7 169.3L62 167L59.9 163.6L59.9 160L61.3 156.9L63.1 154L65.7 150.8L69.6 147.9L74.6 146L80.2 145.1L86 144.9L91.8 145.5L97.1 147L102 148.8L106.3 150.7L110 153L112.1 156.4Z" fill="url(#gp-seg-d_0)"/>
+<path d="M112.1 160L110.7 163.1L108.9 166L106.3 169.2L102.4 172.1L97.4 174L91.8 174.9L86 175.1L80.2 174.5L74.9 173L70 171.2L65.7 169.3L62 167L59.9 163.6L59.9 160L61.3 156.9L63.1 154L65.7 150.8L69.6 147.9L74.6 146L80.2 145.1L86 144.9L91.8 145.5L97.1 147L102 148.8L106.3 150.7L110 153L112.1 156.4Z" fill="none" stroke="#2A140F" stroke-width="1.9" stroke-linejoin="round"/>
+<path d="M112.1 160L110.7 163.1L108.9 166L106.3 169.2L102.4 172.1L97.4 174L91.8 174.9L86 175.1L80.2 174.5L74.9 173L70 171.2L65.7 169.3L62 167" fill="none" stroke="#2A140F" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="seg-d-sheen" data-parent="seg-d">
+<g>
+<path id="p-seg-d-sheen_1" d="M101.1 153.4L99.2 155.4L94.2 155.5L87.7 157L80.3 157.5L73.7 155.8L69.1 154.7L67 153.4L69 151.7L73.7 150.9L80.3 150.1L87.7 149.4L94.4 150.5L98.7 152.4Z" fill="url(#gp-seg-d-sheen_1)" fill-opacity="0.7"/>
+</g>
+</g>
+<g id="seg-d-band-0" data-parent="seg-d">
+<g>
+<path d="M74 147.4L75.2 172.6" fill="none" stroke="#2D3F73" stroke-width="2.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="seg-d-band-1" data-parent="seg-d">
+<g>
+<path d="M96 147.4L97.2 172.6" fill="none" stroke="#2D3F73" stroke-width="2.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="seg-c" data-parent="root" data-pivot="130.0,160.0">
+<g>
+<path id="p-seg-c_2" d="M156.5 160L155.6 163.4L153.6 166.6L150.4 169.4L146.1 171.5L141.1 172.9L135.7 173.9L130 174.6L124.2 175L118.5 174.3L113.5 172.5L109.5 169.6L106.8 166.3L105.2 163.1L104.5 160L104.9 156.8L106.7 153.6L109.7 150.7L113.7 148L118.6 145.9L124.1 144.6L130 144.6L135.7 145.7L141.1 147.3L145.9 149L150.2 150.9L153.6 153.3L155.9 156.5Z" fill="url(#gp-seg-c_2)"/>
+<path d="M156.5 160L155.6 163.4L153.6 166.6L150.4 169.4L146.1 171.5L141.1 172.9L135.7 173.9L130 174.6L124.2 175L118.5 174.3L113.5 172.5L109.5 169.6L106.8 166.3L105.2 163.1L104.5 160L104.9 156.8L106.7 153.6L109.7 150.7L113.7 148L118.6 145.9L124.1 144.6L130 144.6L135.7 145.7L141.1 147.3L145.9 149L150.2 150.9L153.6 153.3L155.9 156.5Z" fill="none" stroke="#2A140F" stroke-width="1.9" stroke-linejoin="round"/>
+<path d="M155.6 163.4L153.6 166.6L150.4 169.4L146.1 171.5L141.1 172.9L135.7 173.9L130 174.6L124.2 175L118.5 174.3L113.5 172.5L109.5 169.6" fill="none" stroke="#2A140F" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="seg-c-sheen" data-parent="seg-c">
+<g>
+<path id="p-seg-c-sheen_3" d="M144.2 153.4L142.9 154.8L138.4 156.5L131.7 157.2L124.3 156.2L117.6 156.6L112.9 155.3L111.8 153.4L113.1 152L117.6 150.3L124.3 149.6L131.7 150.6L138.4 150.2L143.1 151.5Z" fill="url(#gp-seg-c-sheen_3)" fill-opacity="0.7"/>
+</g>
+</g>
+<g id="seg-c-band-0" data-parent="seg-c">
+<g>
+<path d="M118 147.4L119.2 172.6" fill="none" stroke="#7A3A66" stroke-width="2.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="seg-c-band-1" data-parent="seg-c">
+<g>
+<path d="M140 147.4L141.2 172.6" fill="none" stroke="#7A3A66" stroke-width="2.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="seg-b" data-parent="root" data-pivot="174.0,160.0">
+<g>
+<path id="p-seg-b_4" d="M200.4 160L200.2 163.7L197.6 166.7L194.1 169L190 171.4L185.2 173.1L179.7 174.3L174 175.4L168.1 175.5L162.7 173.7L158 171.3L153.9 169L150.9 166.2L149 163.2L147.6 160L147.8 156.3L150.4 153.3L153.9 151L158 148.6L162.8 146.9L168.3 145.7L174 144.6L179.9 144.5L185.3 146.3L190 148.7L194.1 151L197.1 153.8L199 156.8Z" fill="url(#gp-seg-b_4)"/>
+<path d="M200.4 160L200.2 163.7L197.6 166.7L194.1 169L190 171.4L185.2 173.1L179.7 174.3L174 175.4L168.1 175.5L162.7 173.7L158 171.3L153.9 169L150.9 166.2L149 163.2L147.6 160L147.8 156.3L150.4 153.3L153.9 151L158 148.6L162.8 146.9L168.3 145.7L174 144.6L179.9 144.5L185.3 146.3L190 148.7L194.1 151L197.1 153.8L199 156.8Z" fill="none" stroke="#2A140F" stroke-width="1.9" stroke-linejoin="round"/>
+<path d="M200.2 163.7L197.6 166.7L194.1 169L190 171.4L185.2 173.1L179.7 174.3L174 175.4L168.1 175.5L162.7 173.7L158 171.3L153.9 169L150.9 166.2" fill="none" stroke="#2A140F" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="seg-b-sheen" data-parent="seg-b">
+<g>
+<path id="p-seg-b-sheen_5" d="M189.2 153.4L186.9 154.8L182.3 156L175.7 156.4L168.3 156.4L161.6 156.6L156.8 155.4L155.1 153.4L156.9 151.6L161.7 151.1L168.3 150.5L175.7 149.9L182.4 150.6L187.2 151.3Z" fill="url(#gp-seg-b-sheen_5)" fill-opacity="0.7"/>
+</g>
+</g>
+<g id="seg-b-band-0" data-parent="seg-b">
+<g>
+<path d="M162 147.4L163.2 172.6" fill="none" stroke="#2D3F73" stroke-width="2.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="seg-b-band-1" data-parent="seg-b">
+<g>
+<path d="M184 147.4L185.2 172.6" fill="none" stroke="#2D3F73" stroke-width="2.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="seg-a" data-parent="root" data-pivot="218.0,160.0">
+<g>
+<path id="p-seg-a_6" d="M243.8 160L243.1 163.2L241.1 166.3L237.9 168.7L234 171.3L229.4 173.9L223.9 175.2L218 175.4L212.1 175.2L206.6 173.9L202 171.4L198.1 168.8L194.9 166.3L193 163.2L192.3 160L192.3 156.5L193.9 152.9L197.4 150.3L201.7 148.2L206.7 146.4L212.3 145.8L218 145.9L223.7 145.8L229.3 146.4L234.2 148.2L238.6 150.3L242.1 152.9L243.8 156.5Z" fill="url(#gp-seg-a_6)"/>
+<path d="M243.8 160L243.1 163.2L241.1 166.3L237.9 168.7L234 171.3L229.4 173.9L223.9 175.2L218 175.4L212.1 175.2L206.6 173.9L202 171.4L198.1 168.8L194.9 166.3L193 163.2L192.3 160L192.3 156.5L193.9 152.9L197.4 150.3L201.7 148.2L206.7 146.4L212.3 145.8L218 145.9L223.7 145.8L229.3 146.4L234.2 148.2L238.6 150.3L242.1 152.9L243.8 156.5Z" fill="none" stroke="#2A140F" stroke-width="1.9" stroke-linejoin="round"/>
+<path d="M243.1 163.2L241.1 166.3L237.9 168.7L234 171.3L229.4 173.9L223.9 175.2L218 175.4L212.1 175.2L206.6 173.9L202 171.4L198.1 168.8L194.9 166.3" fill="none" stroke="#2A140F" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="seg-a-sheen" data-parent="seg-a">
+<g>
+<path id="p-seg-a-sheen_7" d="M233.2 153.4L231 154.9L226.3 155.6L219.7 157.4L212.3 157L205.7 155.9L201.1 154.7L198.8 153.4L201 151.9L205.7 151.2L212.3 149.4L219.7 149.8L226.3 150.9L230.9 152.1Z" fill="url(#gp-seg-a-sheen_7)" fill-opacity="0.7"/>
+</g>
+</g>
+<g id="seg-a-band-0" data-parent="seg-a">
+<g>
+<path d="M206 147.4L207.2 172.6" fill="none" stroke="#7A3A66" stroke-width="2.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="seg-a-band-1" data-parent="seg-a">
+<g>
+<path d="M228 147.4L229.2 172.6" fill="none" stroke="#7A3A66" stroke-width="2.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="head" data-parent="root" data-pivot="258.0,160.0">
+<g>
+<path id="p-head_8" d="M240.2 160L240.7 156.9L242.1 153.7L244 150.9L246.2 148.4L249.8 146.4L254.6 145.2L259.6 144.8L264 144.8L267.9 145.7L271.5 147.7L274.2 150.5L276.1 152.9L277.5 154.7L278.1 156.5L278 158.3L277.5 160L277.3 161.7L277.4 163.4L277 165.1L275.7 166.7L273.5 168.6L270.9 170.9L267.8 173.2L264.1 174.5L259.6 174.7L254.6 174.5L249.7 174L245.7 172.6L243.1 169.9L241.7 166.6L240.7 163.2Z" fill="url(#gp-head_8)"/>
+<path d="M240.2 160L240.7 156.9L242.1 153.7L244 150.9L246.2 148.4L249.8 146.4L254.6 145.2L259.6 144.8L264 144.8L267.9 145.7L271.5 147.7L274.2 150.5L276.1 152.9L277.5 154.7L278.1 156.5L278 158.3L277.5 160L277.3 161.7L277.4 163.4L277 165.1L275.7 166.7L273.5 168.6L270.9 170.9L267.8 173.2L264.1 174.5L259.6 174.7L254.6 174.5L249.7 174L245.7 172.6L243.1 169.9L241.7 166.6L240.7 163.2Z" fill="none" stroke="#2A140F" stroke-width="1.9" stroke-linejoin="round"/>
+<path d="M277 165.1L275.7 166.7L273.5 168.6L270.9 170.9L267.8 173.2L264.1 174.5L259.6 174.7L254.6 174.5L249.7 174L245.7 172.6" fill="none" stroke="#2A140F" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="head-eye-0" data-parent="head">
+<g>
+<path id="p-head-eye-0_9" d="M258.4 153L258.5 154.8L256.7 155.2L255.3 155.3L253.7 154.7L253.6 153L253.5 151.2L255.3 150.8L256.7 150.7L258.3 151.3Z" fill="url(#gp-head-eye-0_9)"/>
+<path d="M258.4 153L258.5 154.8L256.7 155.2L255.3 155.3L253.7 154.7L253.6 153L253.5 151.2L255.3 150.8L256.7 150.7L258.3 151.3Z" fill="none" stroke="#2A140F" stroke-width="1.9" stroke-linejoin="round"/>
+<path d="M258.5 154.8L256.7 155.2L255.3 155.3L253.7 154.7" fill="none" stroke="#2A140F" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="head-eye-1" data-parent="head">
+<g>
+<path id="p-head-eye-1_10" d="M266.7 153L266.1 154.5L264.8 155.4L263.1 155.6L262.2 154.3L261 153L262 151.6L263.3 150.8L264.9 150.1L265.8 151.7Z" fill="url(#gp-head-eye-1_10)"/>
+<path d="M266.7 153L266.1 154.5L264.8 155.4L263.1 155.6L262.2 154.3L261 153L262 151.6L263.3 150.8L264.9 150.1L265.8 151.7Z" fill="none" stroke="#2A140F" stroke-width="1.9" stroke-linejoin="round"/>
+<path d="M266.1 154.5L264.8 155.4L263.1 155.6L262.2 154.3" fill="none" stroke="#2A140F" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="head-palp" data-parent="head">
+<g>
+<path d="M268 170L269.2 170.4L270.8 170.9L272.7 171.5L274.5 171.9L276 172L277.1 171.7L278.1 171L278.9 170.2L279.5 169.5L280 169" fill="none" stroke="#7A3A66" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="jaw-bottom" data-parent="head" data-pivot="272.0,165.0">
+<g>
+<path id="p-jaw-bottom_11" d="M269.8 165L272 164.5L275.9 163.6L280 162.4L284.1 162.3L288.4 162.7L292.1 163.8L294.6 166.4L296.9 168.7L298.1 170.1L296.1 170.2L292.5 169.3L289 168.4L286 167.8L283 168.2L280 168.8L275.9 167.9L271.7 166.6Z" fill="url(#gp-jaw-bottom_11)"/>
+<path d="M269.8 165L272 164.5L275.9 163.6L280 162.4L284.1 162.3L288.4 162.7L292.1 163.8L294.6 166.4L296.9 168.7L298.1 170.1L296.1 170.2L292.5 169.3L289 168.4L286 167.8L283 168.2L280 168.8L275.9 167.9L271.7 166.6Z" fill="none" stroke="#2A140F" stroke-width="1.9" stroke-linejoin="round"/>
+<path d="M298.1 170.1L296.1 170.2L292.5 169.3L289 168.4L286 167.8L283 168.2L280 168.8L275.9 167.9L271.7 166.6" fill="none" stroke="#2A140F" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="jaw-bottom-tooth-0" data-parent="jaw-bottom">
+<g>
+<path d="M280 168.4L281.6 171.8" fill="none" stroke="#4A2018" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="jaw-bottom-tooth-1" data-parent="jaw-bottom">
+<g>
+<path d="M286 168.4L287.6 171.8" fill="none" stroke="#4A2018" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="jaw-bottom-tooth-2" data-parent="jaw-bottom">
+<g>
+<path d="M292 168.4L293.6 171.8" fill="none" stroke="#4A2018" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="jaw-top" data-parent="head" data-pivot="272.0,155.0">
+<g>
+<path id="p-jaw-top_12" d="M269.7 155L271.7 156.3L275.7 157.1L280 157.2L284 156.7L288.3 156.8L292.2 156.6L295.3 154.4L297.2 151.5L297.7 150.2L296.2 150.4L292.6 151.3L289 151.6L286.1 151L283.1 151.1L280.1 152L276.1 152.8L271.8 153.6Z" fill="url(#gp-jaw-top_12)"/>
+<path d="M269.7 155L271.7 156.3L275.7 157.1L280 157.2L284 156.7L288.3 156.8L292.2 156.6L295.3 154.4L297.2 151.5L297.7 150.2L296.2 150.4L292.6 151.3L289 151.6L286.1 151L283.1 151.1L280.1 152L276.1 152.8L271.8 153.6Z" fill="none" stroke="#2A140F" stroke-width="1.9" stroke-linejoin="round"/>
+<path d="M271.7 156.3L275.7 157.1L280 157.2L284 156.7L288.3 156.8L292.2 156.6L295.3 154.4L297.2 151.5" fill="none" stroke="#2A140F" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="jaw-top-tooth-0" data-parent="jaw-top">
+<g>
+<path d="M280 151.6L281.6 148.2" fill="none" stroke="#4A2018" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="jaw-top-tooth-1" data-parent="jaw-top">
+<g>
+<path d="M286 151.6L287.6 148.2" fill="none" stroke="#4A2018" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="jaw-top-tooth-2" data-parent="jaw-top">
+<g>
+<path d="M292 151.6L293.6 148.2" fill="none" stroke="#4A2018" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="ant-0" data-parent="root" data-pivot="248.0,149.0">
+<g>
+<path d="M248 149L247.4 147.2L246.5 144.7L245.4 141.8L244.3 138.8L243.3 136L242.3 133.2L241.2 130.2L240.2 127.3L239.3 124.8L238.6 123" fill="none" stroke="#7A3A66" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="ant-1" data-parent="root" data-pivot="253.0,147.0">
+<g>
+<path d="M253 147L252.6 144.7L252 141.4L251.3 137.6L250.6 133.7L249.9 130L249.3 126.3L248.6 122.4L247.9 118.6L247.3 115.3L246.9 113" fill="none" stroke="#7A3A66" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="ant-2" data-parent="root" data-pivot="258.0,146.0">
+<g>
+<path d="M258 146L258 142.9L258 138.5L258 133.3L258 128L258 123L258 118L258 112.7L258 107.5L258 103.1L258 100" fill="none" stroke="#7A3A66" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="ant-3" data-parent="root" data-pivot="263.0,147.0">
+<g>
+<path d="M263 147L263.4 144.7L264 141.4L264.7 137.6L265.4 133.7L266.1 130L266.7 126.3L267.4 122.4L268.1 118.6L268.7 115.3L269.1 113" fill="none" stroke="#7A3A66" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="ant-4" data-parent="root" data-pivot="268.0,149.0">
+<g>
+<path d="M268 149L268.6 147.2L269.5 144.7L270.6 141.8L271.7 138.8L272.7 136L273.7 133.2L274.8 130.2L275.8 127.3L276.7 124.8L277.4 123" fill="none" stroke="#7A3A66" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="mound" data-parent="root" data-pivot="258.0,188.0">
+<g>
+<path id="p-mound_13" d="M198.6 189L202.4 187.2L208.5 185.4L215.3 183.3L221.6 180.7L227.8 179.5L234.2 178.8L240.2 177L246.1 175.6L252.1 175.2L258 173.8L264.1 173L270.1 174.3L276 176.3L282 178.2L287.7 181.1L293.7 183.2L300.6 183.6L307.7 184.6L313.8 186.4L318.4 187.3L318 190L198 188.6Z" fill="url(#gp-mound_13)"/>
+<path d="M198.6 189L202.4 187.2L208.5 185.4L215.3 183.3L221.6 180.7L227.8 179.5L234.2 178.8L240.2 177L246.1 175.6L252.1 175.2L258 173.8L264.1 173L270.1 174.3L276 176.3L282 178.2L287.7 181.1L293.7 183.2L300.6 183.6L307.7 184.6L313.8 186.4L318.4 187.3L318 190L198 188.6Z" fill="none" stroke="#2A140F" stroke-width="1.9" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="pivots" style="display:none">
+<circle cx="86.0" cy="160.0" r="3" fill="#00A0FF"><title>seg-d</title></circle>
+<circle cx="130.0" cy="160.0" r="3" fill="#00A0FF"><title>seg-c</title></circle>
+<circle cx="174.0" cy="160.0" r="3" fill="#00A0FF"><title>seg-b</title></circle>
+<circle cx="218.0" cy="160.0" r="3" fill="#00A0FF"><title>seg-a</title></circle>
+<circle cx="258.0" cy="160.0" r="3" fill="#00A0FF"><title>head</title></circle>
+<circle cx="272.0" cy="165.0" r="3" fill="#00A0FF"><title>jaw-bottom</title></circle>
+<circle cx="272.0" cy="155.0" r="3" fill="#00A0FF"><title>jaw-top</title></circle>
+<circle cx="248.0" cy="149.0" r="3" fill="#00A0FF"><title>ant-0</title></circle>
+<circle cx="253.0" cy="147.0" r="3" fill="#00A0FF"><title>ant-1</title></circle>
+<circle cx="258.0" cy="146.0" r="3" fill="#00A0FF"><title>ant-2</title></circle>
+<circle cx="263.0" cy="147.0" r="3" fill="#00A0FF"><title>ant-3</title></circle>
+<circle cx="268.0" cy="149.0" r="3" fill="#00A0FF"><title>ant-4</title></circle>
+<circle cx="258.0" cy="188.0" r="3" fill="#00A0FF"><title>mound</title></circle>
+</g>
+</svg>

@@ -1576,7 +1576,7 @@ impl Sim {
             .unwrap_or(floor);
         // Midwater hazards retain their authored depth; benthic occupants
         // still settle on the live bed.
-        let at = if kind == Kind::AlarmJelly {
+        let at = if kind.keeps_depth() {
             pos
         } else {
             Vec2::new(pos.x, surface)
