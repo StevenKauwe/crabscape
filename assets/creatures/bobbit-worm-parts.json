@@ -1,0 +1,88 @@
+{
+ "comment": "Written by crabrig export (cargo run -p crabrig --profile art -- export) from art/creatures/bobbit-worm/bobbit-worm-parts.svg. Coordinates are SVG units (y down) unless marked px. rect = [x, y, w, h] in atlas px; bbox = the same area in SVG units; z = drawing order (bigger is in front).",
+ "atlas": "bobbit-worm-atlas.png",
+ "atlas_size": [
+  1024,
+  64
+ ],
+ "px_per_unit": 0.6,
+ "ground": [
+  105.15,
+  161.4
+ ],
+ "anchors": {},
+ "parts": [
+  {
+   "name": "body",
+   "parent": null,
+   "pivot": [
+    100.0,
+    132.2
+   ],
+   "bbox": [
+    54.5,
+    93.2,
+    85.1,
+    74.2
+   ],
+   "rect": [
+    3,
+    3,
+    52,
+    45
+   ],
+   "z": 0,
+   "members": [
+    "body"
+   ]
+  },
+  {
+   "name": "head",
+   "parent": "body",
+   "pivot": [
+    118.0,
+    132.2
+   ],
+   "bbox": [
+    104.5,
+    111.7,
+    51.3,
+    40.7
+   ],
+   "rect": [
+    58,
+    3,
+    31,
+    25
+   ],
+   "z": 1,
+   "members": [
+    "head"
+   ]
+  },
+  {
+   "name": "eye",
+   "parent": "head",
+   "pivot": [
+    137.0,
+    129.2
+   ],
+   "bbox": [
+    127.8,
+    120.6,
+    18.1,
+    17.3
+   ],
+   "rect": [
+    92,
+    3,
+    11,
+    11
+   ],
+   "z": 2,
+   "members": [
+    "eye"
+   ]
+  }
+ ]
+}

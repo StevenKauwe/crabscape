@@ -1,0 +1,88 @@
+{
+ "comment": "Written by crabrig export (cargo run -p crabrig --profile art -- export) from art/creatures/goliath-grouper/goliath-grouper-parts.svg. Coordinates are SVG units (y down) unless marked px. rect = [x, y, w, h] in atlas px; bbox = the same area in SVG units; z = drawing order (bigger is in front).",
+ "atlas": "goliath-grouper-atlas.png",
+ "atlas_size": [
+  1024,
+  1024
+ ],
+ "px_per_unit": 0.6,
+ "ground": [
+  1415.3,
+  968.7
+ ],
+ "anchors": {},
+ "parts": [
+  {
+   "name": "body",
+   "parent": null,
+   "pivot": [
+    1310.0,
+    550.8
+   ],
+   "bbox": [
+    55.2,
+    92.3,
+    2401.4,
+    882.4
+   ],
+   "rect": [
+    3,
+    6,
+    1441,
+    530
+   ],
+   "z": 0,
+   "members": [
+    "body"
+   ]
+  },
+  {
+   "name": "head",
+   "parent": "body",
+   "pivot": [
+    2098.0,
+    550.8
+   ],
+   "bbox": [
+    1925.6,
+    249.3,
+    849.8,
+    602.1
+   ],
+   "rect": [
+    3,
+    539,
+    510,
+    362
+   ],
+   "z": 1,
+   "members": [
+    "head"
+   ]
+  },
+  {
+   "name": "eye",
+   "parent": "head",
+   "pivot": [
+    2497.0,
+    487.8
+   ],
+   "bbox": [
+    2431.3,
+    423.8,
+    130.7,
+    128.5
+   ],
+   "rect": [
+    516,
+    539,
+    79,
+    78
+   ],
+   "z": 2,
+   "members": [
+    "eye"
+   ]
+  }
+ ]
+}

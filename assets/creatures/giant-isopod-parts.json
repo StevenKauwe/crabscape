@@ -1,0 +1,88 @@
+{
+ "comment": "Written by crabrig export (cargo run -p crabrig --profile art -- export) from art/creatures/giant-isopod/giant-isopod-parts.svg. Coordinates are SVG units (y down) unless marked px. rect = [x, y, w, h] in atlas px; bbox = the same area in SVG units; z = drawing order (bigger is in front).",
+ "atlas": "giant-isopod-atlas.png",
+ "atlas_size": [
+  1024,
+  128
+ ],
+ "px_per_unit": 0.6,
+ "ground": [
+  262.95,
+  202.4
+ ],
+ "anchors": {},
+ "parts": [
+  {
+   "name": "body",
+   "parent": null,
+   "pivot": [
+    250.0,
+    153.7
+   ],
+   "bbox": [
+    55.2,
+    92.3,
+    383.6,
+    116.1
+   ],
+   "rect": [
+    3,
+    3,
+    231,
+    70
+   ],
+   "z": 0,
+   "members": [
+    "body"
+   ]
+  },
+  {
+   "name": "head",
+   "parent": "body",
+   "pivot": [
+    385.0,
+    153.7
+   ],
+   "bbox": [
+    359.9,
+    111.8,
+    110.8,
+    83.2
+   ],
+   "rect": [
+    237,
+    3,
+    67,
+    50
+   ],
+   "z": 1,
+   "members": [
+    "head"
+   ]
+  },
+  {
+   "name": "eye",
+   "parent": "head",
+   "pivot": [
+    432.5,
+    146.2
+   ],
+   "bbox": [
+    419.1,
+    133.5,
+    26.5,
+    25.5
+   ],
+   "rect": [
+    307,
+    3,
+    16,
+    16
+   ],
+   "z": 2,
+   "members": [
+    "eye"
+   ]
+  }
+ ]
+}

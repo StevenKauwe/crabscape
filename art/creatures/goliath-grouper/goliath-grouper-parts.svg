@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2830" height="1031" viewBox="0 0 2830 1031">
+<defs>
+<linearGradient id="gp-body_0" gradientUnits="userSpaceOnUse" x1="1081.7" y1="-155.4" x2="1427.1" y2="1226.3"><stop offset="0" stop-color="#A99A6B"/><stop offset=".48" stop-color="#7A6E48"/><stop offset="1" stop-color="#3F3823"/></linearGradient>
+<linearGradient id="gp-head_1" gradientUnits="userSpaceOnUse" x1="2256.1" y1="175.3" x2="2443.9" y2="926.4"><stop offset="0" stop-color="#bfb390"/><stop offset=".48" stop-color="#A99A6B"/><stop offset="1" stop-color="#7A6E48"/></linearGradient>
+<linearGradient id="gp-eye_2" gradientUnits="userSpaceOnUse" x1="2479.7" y1="418.7" x2="2514.3" y2="557"><stop offset="0" stop-color="#4A3550"/><stop offset=".48" stop-color="#22172A"/><stop offset="1" stop-color="#120A16"/></linearGradient>
+</defs>
+<!-- Goliath grouper: placeholder rig (bestiary scaffold). -->
+<text x="20" y="40" font-family="Nimbus Sans, sans-serif" font-size="22" font-weight="normal" fill="#2A140F" text-anchor="start" >Goliath grouper · rig parts</text>
+<g id="body" data-parent="root" data-pivot="1310.0,550.8">
+<g>
+<path id="p-body_0" d="M61.2 593L127.1 478.7L271.9 342.1L467.1 214.6L684.6 129.1L944.7 98.3L1252.9 103.8L1558.2 132.5L1810 172.7L1998.5 226.4L2149.3 297.9L2265.4 380.1L2349.7 467.1L2413.7 570.3L2450.6 689.8L2436.8 803L2350.2 887.2L2156.4 935.6L1876.9 960L1574 967.9L1310 968.7L1096.3 965.5L901.1 953.4L722.8 928.4L559.6 888.2L390.9 832.6L223.9 763.7L100.1 683Z" fill="url(#gp-body_0)"/>
+<path d="M61.2 593L127.1 478.7L271.9 342.1L467.1 214.6L684.6 129.1L944.7 98.3L1252.9 103.8L1558.2 132.5L1810 172.7L1998.5 226.4L2149.3 297.9L2265.4 380.1L2349.7 467.1L2413.7 570.3L2450.6 689.8L2436.8 803L2350.2 887.2L2156.4 935.6L1876.9 960L1574 967.9L1310 968.7L1096.3 965.5L901.1 953.4L722.8 928.4L559.6 888.2L390.9 832.6L223.9 763.7L100.1 683Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M2436.8 803L2350.2 887.2L2156.4 935.6L1876.9 960L1574 967.9L1310 968.7L1096.3 965.5L901.1 953.4L722.8 928.4L559.6 888.2L390.9 832.6L223.9 763.7L100.1 683" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="head" data-parent="body" data-pivot="2098.0,550.8">
+<g>
+<path id="p-head_1" d="M2769.4 550.8L2748.1 641.1L2688.3 722.1L2596.8 788.5L2479.8 830.5L2350 845.4L2219.7 832.7L2102.6 789.8L2009.8 724.1L1950 641.9L1931.6 550.8L1952.1 460.7L2010.8 378.7L2103.8 314.4L2220.2 271L2350 255.3L2480 270.3L2597.7 311.3L2690.6 377.2L2748.7 460.3Z" fill="url(#gp-head_1)"/>
+<path d="M2769.4 550.8L2748.1 641.1L2688.3 722.1L2596.8 788.5L2479.8 830.5L2350 845.4L2219.7 832.7L2102.6 789.8L2009.8 724.1L1950 641.9L1931.6 550.8L1952.1 460.7L2010.8 378.7L2103.8 314.4L2220.2 271L2350 255.3L2480 270.3L2597.7 311.3L2690.6 377.2L2748.7 460.3Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M2748.1 641.1L2688.3 722.1L2596.8 788.5L2479.8 830.5L2350 845.4L2219.7 832.7L2102.6 789.8L2009.8 724.1" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="eye" data-parent="head" data-pivot="2497.0,487.8">
+<g>
+<path id="p-eye_2" d="M2556 487.8L2547.9 517.2L2525.7 537.6L2497 546.3L2467.4 539.2L2445.4 517.6L2437.3 487.8L2446.8 458.9L2467.9 437.5L2497 429.8L2526.6 436.5L2549 457.8Z" fill="url(#gp-eye_2)"/>
+<path d="M2556 487.8L2547.9 517.2L2525.7 537.6L2497 546.3L2467.4 539.2L2445.4 517.6L2437.3 487.8L2446.8 458.9L2467.9 437.5L2497 429.8L2526.6 436.5L2549 457.8Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M2547.9 517.2L2525.7 537.6L2497 546.3L2467.4 539.2" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="pivots" style="display:none">
+<circle cx="1310.0" cy="550.8" r="3" fill="#00A0FF"><title>body</title></circle>
+<circle cx="2098.0" cy="550.8" r="3" fill="#00A0FF"><title>head</title></circle>
+<circle cx="2497.0" cy="487.8" r="3" fill="#00A0FF"><title>eye</title></circle>
+</g>
+</svg>

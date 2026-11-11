@@ -298,6 +298,16 @@ impl CreatureArt {
         }
     }
 
+    /// The same at a given `scale`, for a creature with no oil-painted atlas: the ink picture serves both styles.
+    pub fn load_ink_only(json: &str, atlas: &str, scale: f32, assets: &AssetServer) -> Self {
+        let ink = assets.load(atlas.to_string());
+        Self {
+            file: serde_json::from_str(json).expect("a creature parts file is valid"),
+            images: [ink.clone(), ink],
+            scale,
+        }
+    }
+
     /// A point in the art file (y down) in the puppet's space (world units, y up, its feet at the origin).
     fn to_puppet(&self, p: [f32; 2]) -> Vec2 {
         Vec2::new(p[0] - self.file.ground[0], self.file.ground[1] - p[1]) * self.scale

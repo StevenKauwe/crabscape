@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="492" viewBox="0 0 1320 492">
+<defs>
+<linearGradient id="gp-body_0" gradientUnits="userSpaceOnUse" x1="532" y1="-18" x2="674" y2="549.8"><stop offset="0" stop-color="#C79A5E"/><stop offset=".48" stop-color="#8F6A3A"/><stop offset="1" stop-color="#4A3319"/></linearGradient>
+<linearGradient id="gp-head_1" gradientUnits="userSpaceOnUse" x1="1064.2" y1="128.7" x2="1135.8" y2="414.8"><stop offset="0" stop-color="#d5b386"/><stop offset=".48" stop-color="#C79A5E"/><stop offset="1" stop-color="#8F6A3A"/></linearGradient>
+<linearGradient id="gp-eye_2" gradientUnits="userSpaceOnUse" x1="1149.4" y1="221.4" x2="1162.6" y2="274.1"><stop offset="0" stop-color="#4A3550"/><stop offset=".48" stop-color="#22172A"/><stop offset="1" stop-color="#120A16"/></linearGradient>
+</defs>
+<!-- Loggerhead turtle: placeholder rig (bestiary scaffold). -->
+<text x="20" y="40" font-family="Nimbus Sans, sans-serif" font-size="22" font-weight="normal" fill="#2A140F" text-anchor="start" >Loggerhead turtle · rig parts</text>
+<g id="body" data-parent="root" data-pivot="620.0,271.8">
+<g>
+<path id="p-body_0" d="M61.2 287.9L90.8 245.3L155.4 193.1L242.3 143.5L339.6 110L456 98.3L593.5 100.9L730.2 112.2L844 127.6L931.2 148.6L1002.7 176.5L1058.7 207.8L1099.7 240L1130.5 278.7L1147.9 324.5L1140.7 368.2L1100.2 400.1L1010.4 418.5L881 427.4L741.1 429.7L620 429.6L523.3 429.1L435.9 425.7L356.4 416.8L283.7 401.1L208.1 379.4L133.4 353L78 322.1Z" fill="url(#gp-body_0)"/>
+<path d="M61.2 287.9L90.8 245.3L155.4 193.1L242.3 143.5L339.6 110L456 98.3L593.5 100.9L730.2 112.2L844 127.6L931.2 148.6L1002.7 176.5L1058.7 207.8L1099.7 240L1130.5 278.7L1147.9 324.5L1140.7 368.2L1100.2 400.1L1010.4 418.5L881 427.4L741.1 429.7L620 429.6L523.3 429.1L435.9 425.7L356.4 416.8L283.7 401.1L208.1 379.4L133.4 353L78 322.1Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M1140.7 368.2L1100.2 400.1L1010.4 418.5L881 427.4L741.1 429.7L620 429.6L523.3 429.1L435.9 425.7L356.4 416.8L283.7 401.1L208.1 379.4L133.4 353L78 322.1" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="head" data-parent="body" data-pivot="1004.0,271.8">
+<g>
+<path id="p-head_1" d="M1259.4 271.8L1250.8 305.7L1227.9 336L1193.9 362.1L1149.4 378.3L1100 384.3L1050 380.6L1005.4 363.4L970.2 338L947.3 306.6L941.6 271.8L949.4 237.9L971.2 206.6L1006.6 182.5L1050.5 165L1100 158.2L1149.6 164.3L1194.9 179.5L1230.3 205.1L1251.4 237.5Z" fill="url(#gp-head_1)"/>
+<path d="M1259.4 271.8L1250.8 305.7L1227.9 336L1193.9 362.1L1149.4 378.3L1100 384.3L1050 380.6L1005.4 363.4L970.2 338L947.3 306.6L941.6 271.8L949.4 237.9L971.2 206.6L1006.6 182.5L1050.5 165L1100 158.2L1149.6 164.3L1194.9 179.5L1230.3 205.1L1251.4 237.5Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M1250.8 305.7L1227.9 336L1193.9 362.1L1149.4 378.3L1100 384.3L1050 380.6L1005.4 363.4L970.2 338" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="eye" data-parent="head" data-pivot="1156.0,247.8">
+<g>
+<path id="p-eye_2" d="M1178.5 247.8L1175.4 258.9L1166.8 266.4L1156 269.9L1144.7 267.4L1136.2 259.2L1133 247.8L1137.1 236.8L1145 228.7L1156 225.8L1167.3 228.1L1176 236.2Z" fill="url(#gp-eye_2)"/>
+<path d="M1178.5 247.8L1175.4 258.9L1166.8 266.4L1156 269.9L1144.7 267.4L1136.2 259.2L1133 247.8L1137.1 236.8L1145 228.7L1156 225.8L1167.3 228.1L1176 236.2Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M1175.4 258.9L1166.8 266.4L1156 269.9L1144.7 267.4" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="pivots" style="display:none">
+<circle cx="620.0" cy="271.8" r="3" fill="#00A0FF"><title>body</title></circle>
+<circle cx="1004.0" cy="271.8" r="3" fill="#00A0FF"><title>head</title></circle>
+<circle cx="1156.0" cy="247.8" r="3" fill="#00A0FF"><title>eye</title></circle>
+</g>
+</svg>

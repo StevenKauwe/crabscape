@@ -44,10 +44,12 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
     let creature = option(&mut args, "--creature");
     if let Some(c) = &creature
         && !CREATURES.contains(&c.as_str())
+        && !crabrig::bestiary::NAMES.contains(&c.as_str())
     {
         return Err(format!(
-            "no creature {c} (there are: {})",
-            CREATURES.join(", ")
+            "no creature {c} (there are: {}, {})",
+            CREATURES.join(", "),
+            crabrig::bestiary::NAMES.join(", ")
         ));
     }
     let (name, default_svg, default_out) = match &creature {
@@ -66,6 +68,7 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         "parts" => {
             let out = args.first().cloned().unwrap_or(default_svg);
             let svg = match creature.as_deref() {
+                Some(c) if let Some(svg) = crabrig::bestiary::parts_svg(c) => svg,
                 Some("alarm-jelly") => crabrig::alarm_jelly::parts_svg(),
                 Some("queen-triggerfish") => crabrig::triggerfish::parts_svg(),
                 Some("mantis-shrimp") => crabrig::mantis::parts_svg(),

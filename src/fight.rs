@@ -262,6 +262,17 @@ fn hint(kind: Kind) -> Option<&'static str> {
             "GUARD the trailing tentacle. Strike or bump the bell to flash blue.\nA nearby idle hunter investigates the light; slip past below.",
         ),
         Kind::Fixture => None,
+        // The bestiary's lanes write each hint; until then they run the plain tell and strike.
+        Kind::LoggerheadTurtle
+        | Kind::HumboldtSquid
+        | Kind::Viperfish
+        | Kind::GoliathGrouper
+        | Kind::Lobster
+        | Kind::HermitCrab
+        | Kind::BobbitWorm
+        | Kind::GiantIsopod
+        | Kind::Hagfish
+        | Kind::AmphipodSwarm => None,
     }
 }
 

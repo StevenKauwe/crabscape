@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="210" height="223" viewBox="0 0 210 223">
+<defs>
+<linearGradient id="gp-body_0" gradientUnits="userSpaceOnUse" x1="86.9" y1="93.3" x2="105.8" y2="168.9"><stop offset="0" stop-color="#B573A8"/><stop offset=".48" stop-color="#7F4478"/><stop offset="1" stop-color="#3D1F3B"/></linearGradient>
+<linearGradient id="gp-head_1" gradientUnits="userSpaceOnUse" x1="125.5" y1="114.3" x2="134.5" y2="150.1"><stop offset="0" stop-color="#c896be"/><stop offset=".48" stop-color="#B573A8"/><stop offset="1" stop-color="#7F4478"/></linearGradient>
+<linearGradient id="gp-eye_2" gradientUnits="userSpaceOnUse" x1="136.2" y1="125.9" x2="137.8" y2="132.5"><stop offset="0" stop-color="#4A3550"/><stop offset=".48" stop-color="#22172A"/><stop offset="1" stop-color="#120A16"/></linearGradient>
+</defs>
+<!-- Bobbit worm: placeholder rig (bestiary scaffold). -->
+<text x="20" y="40" font-family="Nimbus Sans, sans-serif" font-size="22" font-weight="normal" fill="#2A140F" text-anchor="start" >Bobbit worm · rig parts</text>
+<g id="body" data-parent="root" data-pivot="100.0,132.2">
+<g>
+<path id="p-body_0" d="M60.5 135.2L63 127.3L67.4 117.6L72.9 108.1L79.6 101.5L88.3 99.2L98.4 100L108.2 102.2L116 105.2L121.1 109.2L124.5 114.5L127.2 120.2L129.8 126.2L132.3 133.5L133.6 142.1L132.9 150.3L130.1 156.3L124.5 159.8L116.5 161.3L107.7 161.4L100 161.2L93.4 161.4L87 161.3L81 159.8L75.7 156.7L70.4 152.5L65.2 147.5L61.3 141.6Z" fill="url(#gp-body_0)"/>
+<path d="M60.5 135.2L63 127.3L67.4 117.6L72.9 108.1L79.6 101.5L88.3 99.2L98.4 100L108.2 102.2L116 105.2L121.1 109.2L124.5 114.5L127.2 120.2L129.8 126.2L132.3 133.5L133.6 142.1L132.9 150.3L130.1 156.3L124.5 159.8L116.5 161.3L107.7 161.4L100 161.2L93.4 161.4L87 161.3L81 159.8L75.7 156.7L70.4 152.5L65.2 147.5L61.3 141.6Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M132.9 150.3L130.1 156.3L124.5 159.8L116.5 161.3L107.7 161.4L100 161.2L93.4 161.4L87 161.3L81 159.8L75.7 156.7L70.4 152.5L65.2 147.5" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="head" data-parent="body" data-pivot="118.0,132.2">
+<g>
+<path id="p-head_1" d="M149.8 132.2L148.5 136.3L145.7 139.9L141.7 143.5L136.2 145.5L130 146.4L123.6 146.3L118.1 143.9L113.7 140.6L110.8 136.6L110.5 132.2L111.5 128.1L114 124.2L118.5 121.3L123.8 118.8L130 117.7L136.3 118.6L142 120.3L146.5 123.7L148.8 128Z" fill="url(#gp-head_1)"/>
+<path d="M149.8 132.2L148.5 136.3L145.7 139.9L141.7 143.5L136.2 145.5L130 146.4L123.6 146.3L118.1 143.9L113.7 140.6L110.8 136.6L110.5 132.2L111.5 128.1L114 124.2L118.5 121.3L123.8 118.8L130 117.7L136.3 118.6L142 120.3L146.5 123.7L148.8 128Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M148.5 136.3L145.7 139.9L141.7 143.5L136.2 145.5L130 146.4L123.6 146.3L118.1 143.9L113.7 140.6" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="eye" data-parent="head" data-pivot="137.0,129.2">
+<g>
+<path id="p-eye_2" d="M139.9 129.2L139.4 130.6L138.1 131.2L137 131.9L135.5 131.8L134.3 130.7L133.8 129.2L134.9 128L135.7 127L137 126.7L138.5 126.6L139.8 127.6Z" fill="url(#gp-eye_2)"/>
+<path d="M139.9 129.2L139.4 130.6L138.1 131.2L137 131.9L135.5 131.8L134.3 130.7L133.8 129.2L134.9 128L135.7 127L137 126.7L138.5 126.6L139.8 127.6Z" fill="none" stroke="#2A140F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M139.9 129.2L139.4 130.6L138.1 131.2L137 131.9L135.5 131.8" fill="none" stroke="#2A140F" stroke-width="4.9" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="pivots" style="display:none">
+<circle cx="100.0" cy="132.2" r="3" fill="#00A0FF"><title>body</title></circle>
+<circle cx="118.0" cy="132.2" r="3" fill="#00A0FF"><title>head</title></circle>
+<circle cx="137.0" cy="129.2" r="3" fill="#00A0FF"><title>eye</title></circle>
+</g>
+</svg>

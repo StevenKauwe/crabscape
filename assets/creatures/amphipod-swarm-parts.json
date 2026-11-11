@@ -1,0 +1,88 @@
+{
+ "comment": "Written by crabrig export (cargo run -p crabrig --profile art -- export) from art/creatures/amphipod-swarm/amphipod-swarm-parts.svg. Coordinates are SVG units (y down) unless marked px. rect = [x, y, w, h] in atlas px; bbox = the same area in SVG units; z = drawing order (bigger is in front).",
+ "atlas": "amphipod-swarm-atlas.png",
+ "atlas_size": [
+  1024,
+  128
+ ],
+ "px_per_unit": 0.6,
+ "ground": [
+  280.4,
+  264.0
+ ],
+ "anchors": {},
+ "parts": [
+  {
+   "name": "body",
+   "parent": null,
+   "pivot": [
+    260.0,
+    185.9
+   ],
+   "bbox": [
+    55.2,
+    92.3,
+    387.7,
+    177.7
+   ],
+   "rect": [
+    3,
+    3,
+    233,
+    107
+   ],
+   "z": 0,
+   "members": [
+    "body"
+   ]
+  },
+  {
+   "name": "head",
+   "parent": "body",
+   "pivot": [
+    372.0,
+    185.9
+   ],
+   "bbox": [
+    335.2,
+    122.7,
+    170.4,
+    125.6
+   ],
+   "rect": [
+    239,
+    3,
+    103,
+    76
+   ],
+   "z": 1,
+   "members": [
+    "head"
+   ]
+  },
+  {
+   "name": "eye",
+   "parent": "head",
+   "pivot": [
+    448.0,
+    173.9
+   ],
+   "bbox": [
+    430.4,
+    157.0,
+    34.9,
+    33.9
+   ],
+   "rect": [
+    345,
+    3,
+    21,
+    21
+   ],
+   "z": 2,
+   "members": [
+    "eye"
+   ]
+  }
+ ]
+}
