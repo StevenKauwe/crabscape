@@ -184,7 +184,7 @@ fn bare_rock_is_gripped_only_with_glass_grips() {
     // held now intentionally catches the next coral while steering left (the
     // climb from the raised floor takes 8.2 s; 8.25 s clears the wall for
     // both the usual and the biggest crab).
-    let glass = run_with(still_water(), &format!("{up}; t=8.25 release"), 30.0, GLASS);
+    let glass = run_with(still_water(), &format!("{up}; t=6.4 release"), 30.0, GLASS);
     assert_eq!(glass.count("gripped"), 1);
     assert!(
         glass.stood_on(SHELF.0, SHELF.1, SHELF.2),
