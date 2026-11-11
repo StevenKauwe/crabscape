@@ -13,7 +13,6 @@ mod common;
 
 use bevy_math::Vec2;
 use common::route::*;
-use crabsim::Controls;
 
 const KITS: &[Kit] = &[
     Kit::eggs(0),
