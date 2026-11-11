@@ -18,6 +18,7 @@ use web_sys::{
 };
 
 mod cleanup_storage;
+mod page_connection;
 mod spatial_storage;
 
 const STORE: &str = "world";
@@ -69,6 +70,7 @@ struct Autosave {
 /// Called exactly once after startup validation. A failed read remains
 /// fail-closed until the user explicitly resets and reloads.
 pub fn configure_autosave(error: Option<&str>) {
+    page_connection::clear();
     AUTOSAVE.with(|slot| {
         let mut state = slot.borrow_mut();
         state.epoch = STARTUP_EPOCH.with(|epoch| epoch.take());
@@ -825,6 +827,7 @@ pub fn clear_and_reload() {
     if RESETTING.with(|resetting| resetting.replace(true)) {
         return;
     }
+    page_connection::clear();
     AUTOSAVE.with(|slot| {
         let mut state = slot.borrow_mut();
         state.generation = state.generation.wrapping_add(1);
