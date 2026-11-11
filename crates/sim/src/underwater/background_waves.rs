@@ -84,7 +84,7 @@ mod tests {
     fn sediment_and_wakes_stay_close_to_the_previous_background_equations() {
         let mut level = crate::Level::test_level();
         level.max_x += 4.0;
-        for (gx, gy) in [(100, 60), (1200, -180), (3250, -850)] {
+        for (gx, gy) in [(100, 60), (1200, -180), (3250, -1350)] {
             let mut fast = World::from_level(&level);
             fast.fit_region(
                 &level,

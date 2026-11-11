@@ -589,7 +589,7 @@ mod tests {
     fn settled_material_still_responds_to_later_forces_and_gravity() {
         let level = crate::Level::test_level();
         let mut world = World::from_level_settled(&level);
-        world.follow_player(&level, 10000.0, -1800.0);
+        world.follow_player(&level, 10000.0, -3800.0);
         let (x, y) = (0..world.height as i32 - 8)
             .rev()
             .find_map(|y| {
