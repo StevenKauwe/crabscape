@@ -72,7 +72,7 @@ pub(super) const CATHEDRAL_PRIZE: Vec2 = Vec2::new(16100.0, -5750.0);
 pub(super) const SEEP_GARDEN_PRIZE: Vec2 = Vec2::new(19160.0, -10470.0);
 pub(super) const WARM_SEAM_PRIZE: Vec2 = Vec2::new(20420.0, -11410.0);
 /// The home burrow's first-dig clam and the two in its gallery floor.
-pub(super) const FIRST_DIG_CLAM: Vec2 = Vec2::new(200.0, -45.0);
+pub(super) const FIRST_DIG_CLAM: Vec2 = Vec2::new(172.0, -45.0);
 pub(super) const GALLERY_CLAMS: [Vec2; 2] = [Vec2::new(330.0, -528.0), Vec2::new(440.0, -528.0)];
 /// The crust between the crust vault and the warm seam (needs a full charge).
 pub(super) const WARM_SEAM_CRUST: Rect = Rect::new(20480.0, -10800.0, 20600.0, -10760.0);
@@ -113,20 +113,20 @@ fn build_specs() -> Vec<Frame> {
         name: "home burrow",
         rect: r,
         kind: Some(Tunnel),
-        gaps: vec![top(r, 200.0, 100.0, true), top(r, 560.0, 100.0, true)],
+        gaps: vec![top(r, 172.0, 96.0, true), top(r, 560.0, 100.0, true)],
         doors: vec![
-            Rect::new(150.0, -24.0, 250.0, -4.0),
+            Rect::new(124.0, -24.0, 220.0, -4.0),
             Rect::new(510.0, -24.0, 610.0, -4.0),
         ],
         shafts: vec![
             // Each rests on the clay inside the frame (nothing hangs over
             // open water: unsupported sediment falls), and the crab digs
             // sideways through a clay wall into the gallery between them.
-            Rect::new(150.0, -440.0, 250.0, 0.0),
+            Rect::new(124.0, -440.0, 220.0, 0.0),
             Rect::new(510.0, -440.0, 610.0, 0.0),
         ],
         // The gallery hangs from the frame's own bedrock roof.
-        voids: vec![Rect::new(270.0, -532.0, 490.0, -460.0)],
+        voids: vec![Rect::new(240.0, -532.0, 490.0, -460.0)],
         chamber: None,
     });
 

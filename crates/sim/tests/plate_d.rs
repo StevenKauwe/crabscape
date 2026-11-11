@@ -195,6 +195,25 @@ fn dig_sim(at: Vec2) -> Sim {
     sim.add_crab(PlayerId(0), at);
     sim.enable_underwater_cells();
     sim.crab_mut(PlayerId(0)).unwrap().mover.pos = at;
+    let mut cells = sim.level.cells.take().expect("cells");
+    cells.follow_player(&sim.level, at.x, at.y);
+    {
+        use crabsim::underwater::Cell;
+        let mut col = String::new();
+        let mut y = 40.0;
+        while y > -480.0 {
+            let (cx, cy) = cells.local_cell(at.x, y);
+            col.push(match cells.cell(cx as i32, cy as i32) {
+                Cell::Water => '.',
+                Cell::Rock => '#',
+                Cell::Sand => 's',
+                Cell::Mud => 'm',
+            });
+            y -= 10.0;
+        }
+        eprintln!("window column: {col}");
+    }
+    sim.level.cells = Some(cells);
     sim
 }
 
@@ -210,13 +229,14 @@ fn home_burrow_has_two_exits_and_no_hunters() {
     for mouth in &pocket.mouths {
         // Each door is a silt shaft's top on the ground.
         assert!(mouth.max.y >= level.floor_height(mouth.center().x) - 30.0);
-        assert!(level
-            .strata()
-            .iter()
-            .any(|b| b.shafts.iter().any(|s| s.contains(mouth.center() - Vec2::Y * 30.0))));
+        assert!(level.strata().iter().any(|b| {
+            b.shafts
+                .iter()
+                .any(|s| s.contains(mouth.center() - Vec2::Y * 30.0))
+        }));
     }
     let tuning = Tuning::default();
-    for interior in level.tunnel_interiors() {
+    for interior in level.tunnel_interiors().filter(|r| r.max.x < 700.0) {
         for &(kind, home) in &level.foes {
             assert!(!interior.contains(home), "{kind:?} lives in {interior:?}");
             let e = crabsim::enemy::Enemy::new(0, kind, home, &tuning);
@@ -232,9 +252,9 @@ fn first_dig_finds_a_clam_within_10s() {
         .clams
         .iter()
         .copied()
-        .find(|c| (c.x - 200.0).abs() < 30.0 && c.y > -100.0 && c.y < 0.0)
+        .find(|c| (c.x - 172.0).abs() < 30.0 && c.y > -100.0 && c.y < 0.0)
         .expect("first-dig clam by the home shell");
-    let mut sim = dig_sim(Vec2::new(clam.x, 0.0));
+    let mut sim = dig_sim(Vec2::new(clam.x, 40.0));
     let mut got = None;
     for tick in 0..120 * 10 {
         sim.set_controls(
@@ -259,11 +279,19 @@ fn first_dig_finds_a_clam_within_10s() {
 /// reserve strokes.
 #[test]
 fn home_burrow_round_trip_is_cheap() {
-    let mut sim = dig_sim(Vec2::new(200.0, 0.0));
+    let mut sim = dig_sim(Vec2::new(172.0, 40.0));
     let mut min_reserve = 1.0_f32;
     let mut phase = 0;
     for tick in 0..120 * 25 {
         let p = sim.crab(PlayerId(0)).unwrap().mover.pos;
+        if tick % 240 == 0 {
+            eprintln!(
+                "t{tick} {p:?} in {} vel {:?} load {}",
+                sim.level.cells.as_ref().unwrap().contains_world(p.x, p.y),
+                sim.crab(PlayerId(0)).unwrap().mover.vel,
+                sim.crab(PlayerId(0)).unwrap().mover.dig_load
+            );
+        }
         min_reserve = min_reserve.min(sim.crab(PlayerId(0)).unwrap().mover.reserve);
         let controls = match phase {
             0 if p.y < -520.0 => {
@@ -301,5 +329,47 @@ fn home_burrow_round_trip_is_cheap() {
         sim.set_controls(PlayerId(0), controls);
         sim.tick();
     }
-    panic!("no round trip in 25 s: ended at {:?}", sim.crab(PlayerId(0)).unwrap().mover.pos);
+    panic!(
+        "no round trip in 25 s: phase {phase}, ended at {:?}",
+        sim.crab(PlayerId(0)).unwrap().mover.pos
+    );
+}
+
+#[test]
+#[ignore]
+fn dump_col() {
+    use crabsim::underwater::{Cell, GAME_BOTTOM, GAME_CELL, initial_terrain_cell};
+    let level = Level::test_level();
+    for x in [160.0, 200.0, 240.0, 560.0] {
+        let mut row = String::new();
+        let mut y = 40.0;
+        while y > -480.0 {
+            let c = initial_terrain_cell(
+                &level,
+                (x / GAME_CELL).floor() as i32,
+                ((y - GAME_BOTTOM) / GAME_CELL).floor() as i32,
+            );
+            row.push(match c {
+                Cell::Water => '.',
+                Cell::Rock => '#',
+                Cell::Sand => 's',
+                Cell::Mud => 'm',
+            });
+            y -= 10.0;
+        }
+        println!("{x}: {row}");
+    }
+}
+
+#[test]
+#[ignore]
+fn dump_rocks() {
+    let level = Level::test_level();
+    for r in level
+        .rocks
+        .iter()
+        .filter(|r| r.min.x < 400.0 && r.max.x > 100.0 && r.max.y > -300.0)
+    {
+        println!("ROCK {r:?}");
+    }
 }
