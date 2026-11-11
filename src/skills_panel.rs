@@ -761,7 +761,9 @@ mod tests {
         );
         // Every unlock in the tables shows up in some skill's guide.
         let total: usize = Skill::ALL.iter().map(|s| guide_rows(*s).len()).sum();
-        let tables = crabsim::economy::NODES.len() + crabsim::economy::ECON_RECIPES.len();
+        let tables = crabsim::economy::NODES.len()
+            + crabsim::economy::ECON_RECIPES.len()
+            + crabsim::economy::PIECES.len();
         assert!(total <= tables && total > 0);
     }
 

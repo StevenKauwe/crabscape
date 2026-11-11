@@ -22,6 +22,32 @@ pub enum CellSessionAction {
     Salvage(crate::salvage::SalvageAction),
     Canyon(crate::canyon_drift::CanyonAction),
     Royal(crate::royal::Action),
+    /// Pin a row of the economy recipe list (its index) as the goal, or
+    /// unpin (`None`).
+    Pin(Option<u16>),
+    /// Build a home piece (its index in `PIECES`).
+    Piece(u8),
+}
+
+impl CellSessionAction {
+    /// Pins and home pieces, the same in a live session, a region and a
+    /// replay.
+    pub(crate) fn apply_home_wants(&self, sim: &mut Sim, id: PlayerId) {
+        match self {
+            CellSessionAction::Pin(Some(i)) => {
+                if let Some(r) = crate::economy::ECON_RECIPES.get(usize::from(*i)) {
+                    sim.pin_want(id, r.word);
+                }
+            }
+            CellSessionAction::Pin(None) => sim.unpin(id),
+            CellSessionAction::Piece(i) => {
+                if let Some(def) = crate::economy::PIECES.get(usize::from(*i)) {
+                    let _ = sim.build_piece(id, def.piece);
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -72,6 +98,9 @@ impl CellSessionTick {
                 }
                 CellSessionAction::Royal(action) => {
                     sim.royal_action(*id, *action);
+                }
+                CellSessionAction::Pin(_) | CellSessionAction::Piece(_) => {
+                    action.apply_home_wants(sim, *id)
                 }
             }
         }
@@ -615,5 +644,28 @@ mod tests {
             CellSessionRecording::new(&vec![0; MAX_CELL_SESSION_TEXT], PlayerId(0), PlayerId(91))
                 .is_err()
         );
+    }
+}
+
+#[cfg(test)]
+mod home_wants_tests {
+    use super::*;
+
+    #[test]
+    fn pins_and_pieces_are_session_actions() {
+        let mut sim = Sim::with_one_crab(bevy_math::Vec2::new(95.0, 0.0));
+        let id = PlayerId(0);
+        let i = crate::economy::ECON_RECIPES
+            .iter()
+            .position(|r| r.word == "kelp-cord")
+            .expect("kelp cord is a recipe");
+        CellSessionAction::Pin(Some(i as u16)).apply_home_wants(&mut sim, id);
+        assert!(sim.pinned_status(id).is_some());
+        CellSessionAction::Pin(None).apply_home_wants(&mut sim, id);
+        assert!(sim.pinned_status(id).is_none());
+        // A piece that cannot be built yet changes nothing; a bad index too.
+        CellSessionAction::Piece(0).apply_home_wants(&mut sim, id);
+        CellSessionAction::Piece(250).apply_home_wants(&mut sim, id);
+        assert!(sim.home_pieces().is_empty());
     }
 }

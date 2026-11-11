@@ -15,7 +15,7 @@
 //!   it, on every crab that wears them.
 
 use bevy::prelude::*;
-use crabsim::economy::{Gear, Slot, unlocks};
+use crabsim::economy::{Gear, Slot};
 use crabsim::{Sim, Skill};
 
 use crate::effects::SoftTextures;
@@ -60,10 +60,11 @@ struct Pulse {
     crab: Entity,
 }
 
-/// The lines of a level-up notice: "Prying level 15!", then what it opens.
-pub fn level_up_lines(skill: Skill, level: u32) -> Vec<String> {
+/// The lines of a level-up notice: "Prying level 15!", then what it opens
+/// and the tasks it makes one thing away ("New task: make ...").
+pub fn level_up_lines(sim: &Sim, id: PlayerId, skill: Skill, level: u32) -> Vec<String> {
     let mut lines = vec![format!("{} level {level}!", skill.name())];
-    lines.extend(unlocks(skill, level));
+    lines.extend(sim.level_up_tasks(id, skill, level));
     lines
 }
 
@@ -71,9 +72,10 @@ pub fn level_up_lines(skill: Skill, level: u32) -> Vec<String> {
 fn level_up(
     mut commands: Commands,
     soft: Res<SoftTextures>,
-    crab: Query<(Entity, &FrameEvents, &Transform), With<LocalPlayer>>,
+    sim: Res<Sim>,
+    crab: Query<(Entity, &FrameEvents, &Transform, &PlayerId), With<LocalPlayer>>,
 ) {
-    let Ok((entity, events, at)) = crab.single() else {
+    let Ok((entity, events, at, id)) = crab.single() else {
         return;
     };
     let ev = events.0;
@@ -84,7 +86,7 @@ fn level_up(
     if ev.levelled == Some(up.skill) {
         return;
     }
-    let lines = level_up_lines(up.skill, up.level);
+    let lines = level_up_lines(&sim, *id, up.skill, up.level);
     let count = lines.len();
     let z = (at.translation.z + 11.0).max(21.0);
     for (i, line) in lines.into_iter().enumerate() {
@@ -331,10 +333,15 @@ mod tests {
 
     #[test]
     fn a_level_up_says_the_skill_the_level_and_what_it_opens() {
-        let lines = level_up_lines(Skill::Prying, 15);
+        let sim = Sim::with_one_crab(Vec2::new(95.0, 0.0));
+        let id = PlayerId(0);
+        let lines = level_up_lines(&sim, id, Skill::Prying, 15);
         assert_eq!(lines[0], "Prying level 15!");
         assert!(lines.len() > 1, "clams open at Prying 15: {lines:?}");
-        assert_eq!(level_up_lines(Skill::Prying, 2), ["Prying level 2!"]);
+        assert_eq!(
+            level_up_lines(&sim, id, Skill::Prying, 2),
+            ["Prying level 2!"]
+        );
     }
 
     #[test]

@@ -969,6 +969,24 @@ impl Sim {
         }
     }
 
+    /// A crab pinned (or let go of) a goal at `tick`: a running recording
+    /// notes it.
+    pub(crate) fn note_pin(&mut self, tick: u64, pin: Option<&'static crate::economy::EconRecipe>) {
+        if let Some(rec) = &mut self.recorder {
+            rec.note_pin(tick, pin);
+        }
+    }
+
+    /// The co-op connection, if any.
+    pub(crate) fn net_ref(&self) -> Option<&Net> {
+        self.net.as_ref()
+    }
+
+    /// The co-op connection, if any, to send or ask on.
+    pub(crate) fn net_mut(&mut self) -> Option<&mut Net> {
+        self.net.as_mut()
+    }
+
     /// A crab went straight home at `tick` (the Home button): a running
     /// recording notes it.
     pub(crate) fn note_home(&mut self, tick: u64) {
@@ -1265,10 +1283,12 @@ impl Sim {
                 midden_taken,
                 bodies_eaten,
                 nodes,
+                home_pieces,
             } => {
                 if host {
                     return;
                 }
+                self.shared.home_pieces = home_pieces.into_iter().collect();
                 for (n, (charges, regrow)) in self.shared.nodes.iter_mut().zip(nodes) {
                     n.charges = charges.min(n.kind.def().charges);
                     n.regrow = regrow;
@@ -1357,6 +1377,8 @@ impl Sim {
                 };
                 if let (Some(id), Thing::Node(i)) = (ours, thing) {
                     self.finish_node(id, i, false);
+                } else if let (Some(id), Thing::Piece(p)) = (ours, thing) {
+                    self.finish_piece(id, p);
                 } else if let Some(id) = ours
                     && let Some(c) = self.crabs.iter_mut().find(|c| c.id == id && !c.remote)
                 {
@@ -1412,6 +1434,7 @@ impl Sim {
             midden_taken: s.midden_taken.clone(),
             bodies_eaten: s.bodies_eaten.clone(),
             nodes: s.nodes.iter().map(|n| (n.charges, n.regrow)).collect(),
+            home_pieces: s.home_pieces.iter().copied().collect(),
         }
     }
 
@@ -2663,6 +2686,10 @@ impl Sim {
             // larder. How far the home has grown changes how it rests there.
             let build = &self.tuning.build;
             let stage = build.stage(crab.home_grit);
+            let hearth = self
+                .shared
+                .home_pieces
+                .contains(&crate::economy::Piece::NoduleHearth);
             let m = &mut crab.mover;
             let place = self.level.place_at(m.pos);
             if m.tucked_in()
@@ -2691,6 +2718,8 @@ impl Sim {
                 } else {
                     self.tuning.home_heal_after_ticks
                 };
+                // The nodule hearth's warm stones: it mends sooner still.
+                let mend_after = if hearth { mend_after / 2 } else { mend_after };
                 rest(m, v, &self.tuning, mend_after, &mut crab.events);
                 // Stage 2: a shelf of grit inside, a bigger larder.
                 let larder = larder_holds(stage, &self.tuning);
@@ -3038,6 +3067,7 @@ impl Sim {
                 && e.state_tick >= crate::codes::MONKEY_LINGER)
         });
         self.gather_step();
+        self.pin_step();
         // Each crab's memory: what it sees now is seen.
         if self
             .tick

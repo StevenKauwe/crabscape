@@ -106,6 +106,12 @@ pub struct Progress {
     pub salvage_identity: u64,
     /// Prepared portions and the home auto-eat preference.
     pub prepared_food: crate::prepared_food::PreparedFood,
+    /// The pieces built into the home of the world this crab saves (its own
+    /// world: solo, or the host's own; a guest visiting saves its own aside,
+    /// like the clam beds). Pieces are shared world state, so they ride with
+    /// the world's part of the save, next to `clams`.
+    #[serde(default)]
+    pub home_pieces: Vec<crate::economy::Piece>,
 }
 
 impl Progress {
@@ -205,6 +211,7 @@ impl Sim {
             drift_receipts: crab.drift_receipts.clone(),
             salvage_identity: crab.salvage_identity,
             prepared_food: m.prepared_food.clone(),
+            home_pieces: shared.home_pieces.iter().copied().collect(),
         })
     }
 
@@ -250,6 +257,7 @@ impl Sim {
             return;
         }
         let s = &mut self.shared;
+        s.home_pieces.extend(p.home_pieces.iter().copied());
         if p.clams.len() <= s.clams.len() {
             keep_start(&mut s.clams, &p.clams);
         }
