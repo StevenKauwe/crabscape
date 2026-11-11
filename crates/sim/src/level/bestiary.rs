@@ -5,6 +5,11 @@ use crate::level::Level;
 
 pub(super) fn place(level: &mut Level) {
     // Landmarks read `foes`, so compute every spot before pushing any.
-    let spots = crate::creatures::spots(level);
+    let mut spots = crate::creatures::spots(level);
+    spots.extend(
+        crate::sixgill::spots(level)
+            .into_iter()
+            .map(|at| (crate::enemy::Kind::Sixgill, at)),
+    );
     level.foes.extend(spots);
 }
