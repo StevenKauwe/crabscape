@@ -141,7 +141,19 @@ pub(super) fn step(
         follower_boundaries(r, sim, leader)?;
         if let Some(frame) = r.frames.pop_front() {
             let k = r.kernel.as_mut().ok_or("Missing follower kernel")?;
-            k.tick_view(sim, &frame).map_err(fault)?;
+            k.tick_view(sim, &frame).map_err(|error| {
+                frame_fault_context(
+                    sim,
+                    &frame,
+                    error,
+                    &format!(
+                        "role=follower region={:?} epoch={:?} bounds={:?} leader={leader:?}",
+                        k.id,
+                        k.epoch,
+                        bounds(sim)
+                    ),
+                )
+            })?;
 
             r.journal
                 .as_mut()
@@ -171,6 +183,7 @@ pub(super) fn step(
         r.partial.len(),
         r.backup.is_some(),
         sim.tick_count().saturating_sub(r.applied) >= MAX_AHEAD,
+        m.region_requested,
     ) {
         DelegatedStep::Wait => return Ok(()),
         DelegatedStep::FinishStop => {
@@ -218,7 +231,17 @@ pub(super) fn step(
         actions: m.actions.drain(..).collect(),
     };
     let k = r.kernel.as_mut().expect("kernel");
-    k.tick_view(sim, &frame).map_err(fault)?;
+    k.tick_view(sim, &frame).map_err(|error| {
+        frame_fault_context(
+            sim,
+            &frame,
+            error,
+            &format!(
+                "role=delegated region={:?} epoch={:?} bounds={:?} requested={} stopping={} applied={} partial={}",
+                k.id, k.epoch, bounds(sim), m.region_requested, m.stopping, r.applied, r.partial.len()
+            ),
+        )
+    })?;
     m.executed_ticks += 1;
     for c in m.drive.values_mut() {
         *c = c.held_only();
@@ -258,6 +281,10 @@ pub(super) fn step(
                 needs_region,
             },
         )?;
+        // At this complete batch boundary, hold until the owner stops and
+        // regrants the region. Extra in-flight Drive messages must not carry
+        // the authority past the lease while that request is in transit.
+        m.region_requested |= needs_region;
     }
     Ok(())
 }
