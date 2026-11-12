@@ -72,6 +72,14 @@ pub const MARKERS: &[Marker] = &[
         at: [1500.0, -1650.0],
         kind: MarkerKind::Entrance,
     },
+    // The slope mouth (`slope_caves`): the neck down to region 6, in the leash
+    // gap between the moray (to x 10,280) and the slope's mantis (from x
+    // 10,530); the rest point lies on the floor beside it.
+    Marker {
+        name: "slope mouth",
+        at: [10450.0, f32::INFINITY],
+        kind: MarkerKind::Entrance,
+    },
     // The octopus lair's door at the Drop's foot. (The far rim's octopus keeps
     // its own derived door; this is the lair's second octopus.)
     Marker {
