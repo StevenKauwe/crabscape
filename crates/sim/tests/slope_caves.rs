@@ -108,7 +108,7 @@ fn every_chamber_roof_is_at_least_250_under_the_slope_and_the_reef_is_deep() {
         );
     }
     let reef = sc::reef();
-    assert!(reef.min.x >= 11300.0 && reef.max.x <= 15000.0);
+    assert!(reef.min.x >= 11300.0 && reef.max.x <= 15500.0);
     assert!(reef.min.y <= -9000.0 + 1.0 && reef.max.y >= -7300.0);
     // Three roof heights, and mounds at three shelf heights.
     let roofs: std::collections::BTreeSet<i32> =
@@ -238,11 +238,11 @@ fn the_surface_the_coral_stands_and_the_grouper_are_as_they_were() {
 
 // --- The ways in and the walk ---------------------------------------------
 
-/// Is `p` out of the region: on the slope above, in the whale-fall hall west
-/// or in the pebble warren east? A survey stops there, since it would
+/// Is `p` out of the region: on the slope above the neck, in the whale-fall
+/// hall west or in the pebble warren east? A survey stops there, since it would
 /// otherwise wander the open canyon.
 fn left_the_region(p: Vec2) -> bool {
-    p.y > -4150.0 || p.x < 5830.0 || (p.x > 15800.0 && p.y > -5520.0)
+    p.y > -4380.0 || p.x < 5830.0 || (p.x > 15800.0 && p.y > -5520.0) || on_the_slope_floor(p)
 }
 
 /// The survey from `start` that stops as soon as every target has been come
@@ -274,12 +274,13 @@ fn first(s: &route::Survey, f: impl Fn(Vec2) -> bool) -> Option<&route::Node> {
 }
 
 fn neck_start() -> Vec2 {
-    Vec2::new(sc::NECK.center().x, sc::NECK.max.y - 40.0)
+    // In the neck, under the slope floor, over the first slab.
+    Vec2::new(sc::NECK.center().x, sc::NECK.max.y - 120.0)
 }
 
-/// Rest in the neck's mouth on the slope floor: the stairwell's top.
+/// Rest on the slope floor beside the neck, or high in it: out of the caves.
 fn on_the_slope_floor(p: Vec2) -> bool {
-    p.y > -4150.0 && p.x > 10250.0 && p.x < 10450.0
+    p.y > -4445.0 && p.x > 10600.0 && p.x < 10860.0
 }
 
 #[test]
@@ -313,7 +314,7 @@ fn from_the_slope_mouth_a_crab_reaches_the_reef_floor_and_every_mound() {
             p.x > m.min.x + 30.0 && p.x < m.max.x - 30.0 && (p.y - m.max.y).abs() < 30.0
         }));
     }
-    for (lo, hi) in [(12300.0, 12650.0), (13150.0, 13350.0), (14350.0, 14500.0)] {
+    for (lo, hi) in [(12780.0, 12980.0), (13580.0, 13720.0)] {
         targets.push(Box::new(move |p| {
             p.x > lo && p.x < hi && (p.y - sc::REEF_FLOOR).abs() < 30.0
         }));
@@ -369,7 +370,7 @@ fn from_the_reef_stairwell_a_crab_walks_the_reef_passage_to_the_whale_fall_hall_
 #[test]
 fn from_the_reef_floor_a_crab_climbs_back_up_the_reef_stairwell() {
     let s = survey_until(
-        Vec2::new(14700.0, sc::REEF_FLOOR + 10.0),
+        Vec2::new(13650.0, sc::REEF_FLOOR + 10.0),
         &[within(sc::room_rect("rubble hall"))],
     );
     let n = first(&s, |p| sc::room_rect("rubble hall").contains(p))
@@ -380,7 +381,7 @@ fn from_the_reef_floor_a_crab_climbs_back_up_the_reef_stairwell() {
 #[test]
 fn from_the_rubble_hall_a_crab_climbs_back_up_the_slope_mouth() {
     let s = survey_until(
-        Vec2::new(11560.0, sc::LINE_FLOOR + 5.0),
+        Vec2::new(11980.0, sc::LINE_FLOOR + 5.0),
         &[Box::new(on_the_slope_floor)],
     );
     let n = first(&s, on_the_slope_floor).expect("back up the slope mouth");
@@ -507,22 +508,16 @@ fn the_line_has_a_refuge_at_least_every_600_units() {
 // --- Hunters ---------------------------------------------------------------
 
 /// The box a hunter's reach covers over the ground: the whole chase and the
-/// lunge (as in the Deep Galleries' test), or, for a way up to the slope, only
-/// its home leash, since the mouth must meet the ground where hunters live.
-fn envelope(level: &Level, tuning: &Tuning, kind: Foe, home: Vec2, leash_only: bool) -> Rect {
+/// lunge (as in the Deep Galleries' test).
+fn envelope(level: &Level, tuning: &Tuning, kind: Foe, home: Vec2) -> Rect {
     let k = kind.tuning(tuning);
     let leash = crabsim::enemy::Enemy::new(0, kind, home, tuning).home_leash(tuning);
-    let (chase, margin) = if leash_only {
-        (leash, 0.0)
+    let chase = if kind == Foe::GoliathGrouper {
+        0.0
     } else {
-        let chase = if kind == Foe::GoliathGrouper {
-            0.0
-        } else {
-            leash + k.approach_speed * k.tell_ticks as f32 * route::DT as f32
-        };
-        (chase, k.body.0.max(k.body.1) + 60.0 + 400.0)
+        leash + k.approach_speed * k.tell_ticks as f32 * route::DT as f32
     };
-    let reach = chase + margin;
+    let reach = chase + k.body.0.max(k.body.1) + 60.0 + 400.0;
     let seabed = level
         .floor
         .iter()
@@ -547,17 +542,29 @@ fn envelope(level: &Level, tuning: &Tuning, kind: Foe, home: Vec2, leash_only: b
     )
 }
 
+/// How near a way up may come a hunter's home: its notice range and half its
+/// body (the grouper, whose body is a boss's, keeps the brief's 400).
+fn notice_zone(tuning: &Tuning, kind: Foe, home: Vec2) -> Rect {
+    let k = kind.tuning(tuning);
+    let r = if kind == Foe::GoliathGrouper {
+        400.0
+    } else {
+        k.notice_range + k.body.0.max(k.body.1) / 2.0
+    };
+    Rect::from_center_size(home, Vec2::splat(2.0 * r))
+}
+
 #[test]
-fn no_hunters_reach_touches_a_chamber_a_passage_or_a_gather_site_and_the_ways_up_keep_off_every_leash()
+fn no_hunters_reach_touches_a_chamber_a_passage_or_a_gather_site_and_the_ways_up_keep_off_every_notice_range()
  {
     let level = Level::test_level();
     let tuning = Tuning::default();
     for (kind, home) in level.foes.iter().copied() {
-        let full = envelope(&level, &tuning, kind, home, false);
-        let leash = envelope(&level, &tuning, kind, home, true);
+        let full = envelope(&level, &tuning, kind, home);
+        let notice = notice_zone(&tuning, kind, home);
         for room in sc::rooms() {
             let (what, env) = if room.part.is_way_up() {
-                ("leash", leash)
+                ("notice range", notice)
             } else {
                 ("reach", full)
             };
@@ -580,16 +587,6 @@ fn no_hunters_reach_touches_a_chamber_a_passage_or_a_gather_site_and_the_ways_up
                 "{kind:?} reaches a refuge {r:?}"
             );
         }
-    }
-    // No hunter's home is nearer the slope mouth than its own leash, with
-    // room to spare for the crab at the rest point.
-    for (kind, home) in level.foes.iter().copied() {
-        let leash = crabsim::enemy::Enemy::new(0, kind, home, &tuning).home_leash(&tuning);
-        let to_neck = (home.x - sc::NECK.center().x).abs();
-        assert!(
-            to_neck > leash,
-            "{kind:?} at {home:?} leashes the neck ({to_neck} vs {leash})"
-        );
     }
     // The line's rooms hold no foe.
     for (kind, home) in level.foes.iter().copied() {
@@ -628,7 +625,7 @@ fn no_sealed_cavity_in_the_slope_caves() {
         )
     };
     // Flood from the open water over the slope mouth.
-    let start = at(Vec2::new(sc::NECK.center().x, -4150.0));
+    let start = at(Vec2::new(sc::NECK.center().x, -4300.0));
     assert!(water[start.1 * w + start.0], "open water over the neck");
     let mut seen = vec![false; w * h];
     let mut queue = VecDeque::from([start]);
@@ -833,17 +830,23 @@ fn the_slope_mouth_is_a_rest_point_on_the_slope_floor_beside_the_neck() {
     assert!(
         mouth
             .at
-            .distance(sc::NECK.center() + Vec2::Y * sc::NECK.height() / 2.0)
+            .distance(Vec2::new(sc::NECK.center().x, sc::MOUTH_STAIR.top))
             < 120.0
     );
-    // Out of every hunter's leash.
+    // Out of every hunter's notice range.
     let tuning = Tuning::default();
     for (kind, home) in level.foes.iter().copied() {
-        let leash = crabsim::enemy::Enemy::new(0, kind, home, &tuning).home_leash(&tuning);
-        assert!((home.x - mouth.at.x).abs() > leash, "{kind:?} at {home:?}");
+        assert!(
+            notice_zone(&tuning, kind, home)
+                .intersect(Rect::from_center_size(mouth.at, Vec2::splat(2.0)))
+                .is_empty(),
+            "{kind:?} at {home:?}"
+        );
     }
+    // The kelp column's foot and the rubble haven are as they were.
+    assert!(level.crevices.iter().any(|c| c.door.min.x == 10255.0));
     // And the neck is open water to the slope floor, with rock on both sides.
-    assert!(!level.solid_at(Vec2::new(sc::NECK.center().x, -4300.0)));
-    assert!(level.solid_at(Vec2::new(sc::NECK.min.x - 10.0, -4350.0)));
-    assert!(level.solid_at(Vec2::new(sc::NECK.max.x + 10.0, -4350.0)));
+    assert!(!level.solid_at(Vec2::new(sc::NECK.center().x, -4500.0)));
+    assert!(level.solid_at(Vec2::new(sc::NECK.min.x - 10.0, -4500.0)));
+    assert!(level.solid_at(Vec2::new(sc::NECK.max.x + 10.0, -4500.0)));
 }

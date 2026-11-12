@@ -5,7 +5,7 @@
 //!
 //! ```text
 //!   slope  ~~~~\_______                                   /~~~~~  (unchanged)
-//!                  [neck] slope mouth (x 10,290..10,410)    [pebble warren]
+//!                  [neck] slope mouth (x 10,660..10,780)    [pebble warren]
 //!                    |  slope mouth shaft: 4 slabs, a stalk through each   |
 //!   y -6,700 [midden cave]-[gravel]-+-[rubble]-[rubble hall]-[cobble]-[cobble cave]-[pillar]-
 //!            x 8,700            foot |            |  reef shaft: a lid + 2 slabs, stalks
@@ -21,9 +21,10 @@
 //! never reach them: the deepest hunting box over the slope ends at y -6,060)
 //! joined by 160-tall passages. A refuge stands at most 600 units apart along
 //! it. They are shown to sit at least 250 under the slope above.
-//! **The slope mouth** is a 120-wide neck in the slope floor at x 10,290 to
-//! 10,410, between the moray's leash (it ends at x 10,280) and the mantis's
-//! (it starts at x 10,530), over a stairwell like the Drop's. **The warren
+//! **The slope mouth** is a 120-wide neck in the slope floor at x 10,660 to
+//! 10,780, east of the kelp column's foot and the rubble haven (x 10,200 to
+//! 10,430, which stay as they were) and 570 units from the slope's mantis, over
+//! a stairwell like the Drop's. **The warren
 //! shaft** is the line's other mouth: it rises through the pebble warren's
 //! floor, with two niches to rest in. **The sunken reef** is one cavern of
 //! three bays with a rubble mound at each of three shelf heights, reached by a
@@ -49,8 +50,8 @@ const EDGE: f32 = 20.0;
 const SLAB_THICK: f32 = 40.0;
 /// How far a slab stops short of a shaft wall: its gap, the door width.
 const GAP: f32 = 120.0;
-/// The distance between one standing place and the next on a stairwell.
-pub const STEP: f32 = 500.0;
+/// The most one standing place may be above the next on a stairwell.
+pub const MAX_STEP: f32 = 500.0;
 /// The cavern chain's floor.
 pub const LINE_FLOOR: f32 = -6700.0;
 /// The reef's floor, under its mounds.
@@ -71,6 +72,9 @@ pub struct Stair {
     pub shaft: Rect,
     /// Where a crab stands at the top (level 0).
     pub top: f32,
+    /// The distance between one standing place and the next (at most
+    /// [`MAX_STEP`]).
+    pub step: f32,
     /// How many slabs stand in the shaft (the floor under them is the next
     /// level).
     pub slabs: i32,
@@ -84,7 +88,7 @@ pub struct Stair {
 impl Stair {
     /// The top of level `k` (0 is the top, `slabs + 1` the shaft's floor).
     pub const fn level_of(&self, k: i32) -> f32 {
-        self.top - STEP * k as f32
+        self.top - self.step * k as f32
     }
 
     /// The shaft's floor.
@@ -142,24 +146,30 @@ impl Stair {
     }
 }
 
-/// The slope mouth's neck: a 120-wide hole through the slope floor.
-pub const NECK: Rect = Rect::new(10290.0, -4420.0, 10410.0, -4200.0);
-/// The slope mouth's stairwell: from the slope floor (y -4,200) down five
-/// levels to the line's floor.
+/// The slope mouth's neck: a 120-wide hole through the slope floor, on the
+/// slope east of the kelp column's foot (floor y -4,362 at its west edge, -4,437
+/// at its east). Its walls end flush with the floor on each side.
+pub const NECK: Rect = Rect::new(10660.0, -4620.0, 10780.0, -4360.0);
+/// Where the neck's west and east walls end (the slope floor beside them).
+const NECK_WALLS: (f32, f32) = (-4350.0, -4437.5);
+/// The slope mouth's stairwell: from the slope floor (y -4,400 at the neck's
+/// middle) down five levels of 460 to the line's floor.
 pub const MOUTH_STAIR: Stair = Stair {
     name: "slope stair",
-    shaft: Rect::new(10130.0, LINE_FLOOR, 10530.0, -4420.0),
-    top: -4200.0,
+    shaft: Rect::new(10520.0, LINE_FLOOR, 10920.0, -4620.0),
+    top: -4400.0,
+    step: 460.0,
     slabs: 4,
     lid: false,
-    top_stalk: Some(10350.0),
+    top_stalk: Some(10720.0),
 };
 /// The reef stairwell: from the rubble hall's floor down three levels to the
 /// reef door. Its lid is a bridge, so the line crosses it dry-shod.
 pub const REEF_STAIR: Stair = Stair {
     name: "reef stair",
-    shaft: Rect::new(10900.0, -8200.0, 11300.0, LINE_FLOOR),
+    shaft: Rect::new(11300.0, -8200.0, 11700.0, LINE_FLOOR),
     top: LINE_FLOOR,
+    step: 500.0,
     slabs: 2,
     lid: true,
     top_stalk: None,
@@ -196,9 +206,9 @@ pub enum Part {
 
 impl Part {
     /// Is this a way up to the slope? A mouth, a shaft or a niche reaches up
-    /// to ground where hunters walk, so only a hunter's home leash is kept off
-    /// it (below the leash's floor), where the rest keep the whole of a
-    /// hunter's reach off.
+    /// to ground where hunters live, so only each hunter's notice range (and
+    /// body) is kept off it, where the rest keep the whole of a hunter's
+    /// reach (its chase, lunge and a margin) off.
     pub fn is_way_up(self) -> bool {
         matches!(self, Part::Mouth | Part::Shaft | Part::Niche)
     }
@@ -222,19 +232,19 @@ pub fn rooms() -> &'static [Room] {
         let r = Rect::new;
         let f = LINE_FLOOR;
         vec![
-            room("midden cave", r(8700.0, f, 9660.0, f + 300.0), Cave),
-            room("gravel passage", r(9660.0, f, 10130.0, f + 160.0), Passage),
+            room("midden cave", r(8700.0, f, 9900.0, f + 300.0), Cave),
+            room("gravel passage", r(9900.0, f, 10520.0, f + 160.0), Passage),
             room("slope mouth shaft", MOUTH_STAIR.shaft, Shaft),
             room("slope mouth", NECK, Mouth),
-            room("rubble passage", r(10530.0, f, 10700.0, f + 160.0), Passage),
-            room("rubble hall", r(10700.0, f, 11800.0, f + 340.0), Cave),
+            room("rubble passage", r(10920.0, f, 11100.0, f + 160.0), Passage),
+            room("rubble hall", r(11100.0, f, 12200.0, f + 340.0), Cave),
             room("reef shaft", REEF_STAIR.shaft, Shaft),
-            room("cobble passage", r(11800.0, f, 12200.0, f + 160.0), Passage),
-            room("cobble cave", r(12200.0, f, 13300.0, f + 320.0), Cave),
-            room("pillar passage", r(13300.0, f, 13700.0, f + 160.0), Passage),
-            room("pillar cave", r(13700.0, f, 14700.0, f + 360.0), Cave),
-            room("east passage", r(14700.0, f, 15300.0, f + 160.0), Passage),
-            room("east cave", r(15300.0, f, 15700.0, f + 300.0), Cave),
+            room("cobble passage", r(12200.0, f, 12600.0, f + 160.0), Passage),
+            room("cobble cave", r(12600.0, f, 13600.0, f + 320.0), Cave),
+            room("pillar passage", r(13600.0, f, 14000.0, f + 160.0), Passage),
+            room("pillar cave", r(14000.0, f, 14900.0, f + 360.0), Cave),
+            room("east passage", r(14900.0, f, 15200.0, f + 160.0), Passage),
+            room("east cave", r(15200.0, f, 15700.0, f + 300.0), Cave),
             room("warren passage", r(15700.0, f, 15880.0, f + 160.0), Passage),
             room(
                 "warren shaft",
@@ -251,20 +261,20 @@ pub fn rooms() -> &'static [Room] {
                 r(15720.0, NICHES[1], 15880.0, NICHES[1] + 160.0),
                 Niche,
             ),
-            room("reef door", r(11300.0, -8200.0, 11420.0, -8040.0), Door),
+            room("reef door", r(11700.0, -8200.0, 11820.0, -8040.0), Door),
             room(
                 "reef west bay",
-                r(11420.0, REEF_FLOOR, 12500.0, -7700.0),
+                r(11820.0, REEF_FLOOR, 12800.0, -7700.0),
                 Reef,
             ),
             room(
                 "reef great hall",
-                r(12500.0, REEF_FLOOR, 13800.0, -7200.0),
+                r(12800.0, REEF_FLOOR, 14000.0, -7200.0),
                 Reef,
             ),
             room(
                 "reef east bay",
-                r(13800.0, REEF_FLOOR, 15000.0, -7500.0),
+                r(14000.0, REEF_FLOOR, 15200.0, -7500.0),
                 Reef,
             ),
             room(
@@ -299,46 +309,44 @@ pub fn reef() -> Rect {
 /// heights (y -8,200, -8,600 and -8,850). Each is `(rect, name of the bay)`.
 pub const MOUNDS: [Rect; 6] = [
     // The west terrace, flush with the reef door's floor.
-    Rect::new(11420.0, REEF_FLOOR, 11900.0, -8200.0),
-    Rect::new(11900.0, REEF_FLOOR, 12300.0, -8600.0),
-    Rect::new(12650.0, REEF_FLOOR, 13150.0, -8850.0),
-    Rect::new(13350.0, REEF_FLOOR, 13950.0, -8600.0),
-    Rect::new(13950.0, REEF_FLOOR, 14350.0, -8200.0),
-    Rect::new(14500.0, REEF_FLOOR, 14900.0, -8850.0),
+    Rect::new(11820.0, REEF_FLOOR, 12300.0, -8200.0),
+    Rect::new(12300.0, REEF_FLOOR, 12700.0, -8600.0),
+    Rect::new(13050.0, REEF_FLOOR, 13550.0, -8850.0),
+    Rect::new(13750.0, REEF_FLOOR, 14350.0, -8600.0),
+    Rect::new(14350.0, REEF_FLOOR, 14750.0, -8200.0),
+    Rect::new(14850.0, REEF_FLOOR, 15150.0, -8850.0),
 ];
 
 /// The coral stalks between the mounds, on the lower side of each step:
 /// `(x, bottom, top of the shelf it climbs to)`.
 const REEF_CORAL: [(f32, f32, f32); 6] = [
-    (12340.0, REEF_FLOOR, -8600.0),
-    (11940.0, -8600.0, -8200.0),
-    (12610.0, REEF_FLOOR, -8850.0),
-    (13310.0, REEF_FLOOR, -8600.0),
-    (13990.0, -8600.0, -8200.0),
-    (14460.0, REEF_FLOOR, -8850.0),
+    (12740.0, REEF_FLOOR, -8600.0),
+    (12340.0, -8600.0, -8200.0),
+    (13010.0, REEF_FLOOR, -8850.0),
+    (13710.0, REEF_FLOOR, -8600.0),
+    (14310.0, -8600.0, -8200.0),
+    (14810.0, REEF_FLOOR, -8850.0),
 ];
 
 /// Small rubble on the chambers' floors: `(x0, x1, height)`. Each is a step a
 /// crab walks over.
 const RUBBLE: [(f32, f32, f32); 8] = [
-    (9060.0, 9150.0, 40.0),
-    (9420.0, 9520.0, 60.0),
-    (11610.0, 11700.0, 40.0),
-    (12420.0, 12500.0, 40.0),
-    (12980.0, 13080.0, 60.0),
-    (13980.0, 14060.0, 40.0),
-    (14440.0, 14540.0, 60.0),
-    (15330.0, 15400.0, 40.0),
+    (9060.0, 9150.0, 60.0),
+    (9420.0, 9520.0, 40.0),
+    (12060.0, 12140.0, 40.0),
+    (12880.0, 12960.0, 40.0),
+    (13300.0, 13400.0, 60.0),
+    (14240.0, 14320.0, 40.0),
+    (14720.0, 14800.0, 60.0),
+    (15300.0, 15370.0, 40.0),
 ];
 
 /// Where a refuge stands (x of its west end) along the line: one niche in the
 /// floor, 120 wide.
-pub const REFUGES: [f32; 14] = [
-    8740.0, 9200.0, 9700.0, 10180.0, 10640.0, 11320.0, 11760.0, 12260.0, 12760.0, 13240.0, 13760.0,
-    14260.0, 14620.0, 15160.0,
+pub const REFUGES: [f32; 16] = [
+    8740.0, 9200.0, 9680.0, 10160.0, 10640.0, 11120.0, 11740.0, 12200.0, 12680.0, 13160.0, 13640.0,
+    14120.0, 14600.0, 15040.0, 15480.0, 15720.0,
 ];
-/// The last two refuges stand in the east cave and the warren passage.
-const EXTRA_REFUGES: [f32; 2] = [15560.0, 15740.0];
 /// Refuges along the reef passage, which is a long walk home.
 const PASSAGE_REFUGES: [f32; 4] = [6400.0, 7400.0, 8400.0, 9400.0];
 
@@ -346,7 +354,6 @@ const PASSAGE_REFUGES: [f32; 4] = [6400.0, 7400.0, 8400.0, 9400.0];
 pub fn line_refuges() -> Vec<Rect> {
     REFUGES
         .iter()
-        .chain(&EXTRA_REFUGES)
         .map(|&x| Rect::new(x, LINE_FLOOR, x + 120.0, LINE_FLOOR + 60.0))
         .collect()
 }
@@ -366,16 +373,14 @@ pub fn lining() -> &'static [Rect] {
                 Rect::new(a.max.x, a.min.y, a.max.x + EDGE, a.max.y + EDGE),
             ];
             if r.part == Part::Mouth {
-                // Open at the top: its walls stop where the water begins.
-                let top = if r.name == "warren shaft" {
-                    // The pebble warren's own floor is the wall's end.
-                    WARREN_FLOOR
-                } else {
-                    a.max.y
+                // Open at the top: its walls stop where the ground does, each
+                // flush with the floor beside it.
+                let (west, east) = match r.name {
+                    "warren shaft" => (WARREN_FLOOR, WARREN_FLOOR),
+                    _ => NECK_WALLS,
                 };
-                for b in &mut bands {
-                    b.max.y = top;
-                }
+                bands[0].max.y = west;
+                bands[1].max.y = east;
             } else {
                 bands.push(Rect::new(a.min.x, a.max.y, a.max.x, a.max.y + EDGE));
             }
@@ -499,25 +504,25 @@ pub const NODE_SITES: [(&str, &str, Vec2); 7] = [
     (
         "rubble hall",
         "GritHeap",
-        Vec2::new(11560.0, LINE_FLOOR + 6.0),
+        Vec2::new(11980.0, LINE_FLOOR + 6.0),
     ),
     (
         "cobble cave",
         "GritHeap",
-        Vec2::new(12600.0, LINE_FLOOR + 6.0),
+        Vec2::new(13000.0, LINE_FLOOR + 6.0),
     ),
     (
         "pillar cave",
         "GritHeap",
-        Vec2::new(14160.0, LINE_FLOOR + 6.0),
+        Vec2::new(14420.0, LINE_FLOOR + 6.0),
     ),
-    ("reef west bay", "BambooCoral", Vec2::new(12100.0, -8594.0)),
+    ("reef west bay", "BambooCoral", Vec2::new(12500.0, -8594.0)),
     (
         "reef great hall",
         "BambooCoral",
-        Vec2::new(13650.0, -8594.0),
+        Vec2::new(13850.0, -8594.0),
     ),
-    ("reef east bay", "BambooCoral", Vec2::new(14150.0, -8194.0)),
+    ("reef east bay", "BambooCoral", Vec2::new(14550.0, -8194.0)),
 ];
 
 /// The places of the slope caves, for `Level::landmarks`.
