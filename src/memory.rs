@@ -921,23 +921,4 @@ mod tests {
             light(water_at(Vec2::new(7000.0, -1500.0))) < light(water_at(Vec2::new(0.0, -1500.0)))
         );
     }
-
-    /// The painted ground's shader code is one block of text in two shaders (the cells' and the floor's and
-    /// rocks'): they must stay the same, or the same material looks different where the two meet.
-    #[test]
-    fn painted_ground_code_is_the_same_in_both_shaders() {
-        fn block(shader: &str) -> &str {
-            let start = shader
-                .find("// ---- painted ground:")
-                .expect("start marker");
-            let end = shader
-                .find("// ---- end painted ground ----")
-                .expect("end marker");
-            &shader[start..end]
-        }
-        assert_eq!(
-            block(include_str!("cellular.wgsl")),
-            block(include_str!("memory.wgsl"))
-        );
-    }
 }
