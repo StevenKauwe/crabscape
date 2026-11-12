@@ -19,6 +19,7 @@ use crabsim::Sim;
 use crabsim::level::{Climb, Growth, WATER_SURFACE_Y};
 
 use crate::memory::{MemoryMaterial, MemoryTexture};
+use crate::painted_world::{PaintedWorld, RidgeMaterial, RidgeUniform};
 
 /// How far down the sea floor is drawn below its surface.
 const FLOOR_DEPTH: f32 = 10000.0;
@@ -73,16 +74,20 @@ struct FlowKelpPiece {
     leaf_angle: Option<f32>,
 }
 
-/// The far-away rock spires behind the level. They move slower than the
-/// camera, which makes them look distant ("parallax").
+/// A far ridge of painted rock spires behind the level: one repeating strip that follows the camera part of the
+/// way, which makes it look distant ("parallax"; `view.rs` moves it, with the maths in `view::layer_root`).
 #[derive(Component)]
 pub struct Parallax {
-    /// 0 = stuck to the world, 1 = stuck to the camera.
+    /// 0 = stuck to the world, 1 = stuck to the camera. Far layers have the bigger factor.
     pub factor: f32,
-    /// Its spires' material and colour: zoomed out they sink into the water
-    /// (far scenery the crab only half remembers; `view.rs`).
-    pub material: Handle<ColorMaterial>,
-    pub colour: Color,
+    /// World units after which the painted strip repeats (the layer is moved by whole periods to stay in view).
+    pub period: f32,
+    /// Where the strip's bottom edge sits below the (smoothed) floor it stands on.
+    pub base: f32,
+    /// How far this layer has sunk into the water at all times (its own colour, painted lit and unlit): zoomed
+    /// out it sinks further (`view.rs`).
+    pub recede: f32,
+    pub material: Handle<RidgeMaterial>,
 }
 
 /// The ocean is a world-space backdrop: each depth keeps its own colour
@@ -106,7 +111,10 @@ pub struct LevelPlugin;
 impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "depth_water.wgsl");
-        app.add_plugins(Material2dPlugin::<DepthWaterMaterial>::default());
+        app.add_plugins((
+            Material2dPlugin::<DepthWaterMaterial>::default(),
+            crate::painted_world::PaintedWorldPlugin,
+        ));
         app.add_systems(
             Startup,
             draw_level.after(crate::memory::setup_memory_texture),
@@ -126,12 +134,12 @@ impl Plugin for LevelPlugin {
 
 // The deep-sea palette: near-black teal, with the sand and rock only a
 // little lighter. The lantern's glow is what makes things readable.
-const SAND: Color = Color::srgb(0.085, 0.13, 0.13);
-const SAND_TOP: Color = Color::srgb(0.16, 0.20, 0.18);
 pub const ROCK: Color = Color::srgb(0.06, 0.10, 0.11);
-const ROCK_TOP: Color = Color::srgb(0.13, 0.18, 0.18);
-const SPIRE_NEAR: Color = Color::srgb(0.035, 0.075, 0.085);
-const SPIRE_FAR: Color = Color::srgb(0.03, 0.06, 0.07);
+// The floor and the rocks are painted (`painted_world.rs`): their material's own tile, picked by the colour's
+// alpha (a tile layer's number plus one, in tenths; an alpha of 1 is a plain colour). The colour's red, green and
+// blue are unused there, so every painted shape of one material shares one material.
+const SAND_PAINTED: Color = Color::srgba(0.0, 0.0, 0.0, 0.1);
+const ROCK_PAINTED: Color = Color::srgba(0.0, 0.0, 0.0, 0.6);
 // Kelp and coral: a little lighter than the rock, so the lantern finds
 // them. Kelp olive-brown with paler floats; the deep coral pale as bone,
 // with orange polyps, so the two never look like one plant.
@@ -157,6 +165,8 @@ fn draw_level(
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut remembered: ResMut<Assets<MemoryMaterial>>,
     mut water_materials: ResMut<Assets<DepthWaterMaterial>>,
+    mut ridge_materials: ResMut<Assets<RidgeMaterial>>,
+    painted: Res<PaintedWorld>,
 ) {
     let level = &sim.level;
     let mut palette = Palette::default();
@@ -202,24 +212,12 @@ fn draw_level(
             depth: FLOOR_DEPTH,
         },
         Mesh2d(floor),
-        MeshMaterial2d(paint(SAND)),
+        MeshMaterial2d(paint(SAND_PAINTED)),
         Transform::from_xyz(0.0, 0.0, 0.0),
     ));
-    let lip = meshes.add(floor_mesh(&level.floor, 0.0, 5.0, bounds));
-    commands.spawn((
-        LevelShape,
-        FloorBand {
-            top_offset: 0.0,
-            depth: 5.0,
-        },
-        Mesh2d(lip),
-        MeshMaterial2d(paint(SAND_TOP)),
-        Transform::from_xyz(0.0, 0.0, 0.1),
-    ));
 
-    // Rocks: a dark box with a lighter top edge.
-    let rock = paint(ROCK);
-    let rock_top = paint(ROCK_TOP);
+    // Rocks: painted rock, with an ink edge and a lit top from the shader.
+    let rock = paint(ROCK_PAINTED);
     for r in &level.rocks {
         let size = r.size();
         let centre = r.center();
@@ -244,19 +242,13 @@ fn draw_level(
             MeshMaterial2d(rock.clone()),
             Transform::from_xyz(centre.x, centre.y, 1.0),
         ));
-        commands.spawn((
-            LevelShape,
-            Mesh2d(meshes.add(rock_mesh(Vec2::new(size.x * 0.72, 5.0)))),
-            MeshMaterial2d(rock_top.clone()),
-            Transform::from_xyz(centre.x, r.max.y - 2.5, 1.1),
-        ));
     }
 
     // The walls at both ends.
     for x in [level.min_x - 200.0, level.max_x + 200.0] {
         commands.spawn((
             LevelShape,
-            Mesh2d(meshes.add(Rectangle::new(400.0, 24000.0))),
+            Mesh2d(meshes.add(wall_mesh(Vec2::new(400.0, 24000.0)))),
             MeshMaterial2d(rock.clone()),
             Transform::from_xyz(x, 0.0, 1.0),
         ));
@@ -298,62 +290,110 @@ fn draw_level(
         }
     }
 
-    // Background spires, two layers. Triangles of different sizes.
-    let spire = meshes.add(spire_mesh());
-    for (layer, colour, factor, z) in [(0, SPIRE_FAR, 0.7, -20.0), (1, SPIRE_NEAR, 0.45, -10.0)] {
-        let material = materials.add(colour);
-        let parent = commands
-            .spawn((
-                Parallax {
-                    factor,
-                    material: material.clone(),
-                    colour,
-                },
-                Transform::from_xyz(0.0, 0.0, z),
-                Visibility::default(),
-            ))
-            .id();
-        for i in 0..14 {
-            // A cheap, repeatable "random" spread: no random-number crate needed.
-            let k = (i * 7 + layer * 3) % 11;
-            let x = -400.0 + i as f32 * 260.0 + k as f32 * 23.0;
-            let w = 140.0 + k as f32 * 22.0;
-            let h = 420.0 + k as f32 * 70.0 - layer as f32 * 120.0;
-            commands.spawn((
-                ChildOf(parent),
-                Mesh2d(spire.clone()),
-                MeshMaterial2d(material.clone()),
-                Transform::from_xyz(x, -250.0, 0.0).with_scale(Vec3::new(w, h, 1.0)),
-            ));
-        }
+    // The far ridges, two layers of painted rock spires (`painted_world.rs`): a strip each, which `view.rs` keeps
+    // in view whatever the zoom, the position or the depth.
+    for (layer, ridge) in RIDGES.iter().enumerate() {
+        let material = ridge_materials.add(RidgeMaterial {
+            paint: RidgeUniform {
+                water: Vec4::ZERO,
+                settings: Vec4::new(layer as f32, 1.0, ridge.recede, 0.0),
+            },
+            ridges: painted.ridges.clone(),
+        });
+        commands.spawn((
+            Parallax {
+                factor: ridge.factor,
+                period: RIDGE_PERIOD,
+                base: ridge.base,
+                recede: ridge.recede,
+                material: material.clone(),
+            },
+            Mesh2d(meshes.add(ridge_mesh(ridge.height))),
+            MeshMaterial2d(material),
+            Transform::from_xyz(0.0, 0.0, ridge.z),
+        ));
     }
 }
 
-/// Irregular distant rock, drawn as one silhouette rather than a triangle.
-fn spire_mesh() -> Mesh {
-    let points: [[f32; 3]; 8] = [
-        [-0.5, 0.0, 0.0],
-        [0.5, 0.0, 0.0],
-        [0.4, 0.30, 0.0],
-        [0.3, 0.42, 0.0],
-        [0.25, 0.65, 0.0],
-        [0.08, 1.0, 0.0],
-        [-0.05, 0.66, 0.0],
-        [-0.30, 0.34, 0.0],
-    ];
-    let mut indices = Vec::new();
-    for i in 1..points.len() - 1 {
-        indices.extend([0, i as u32, i as u32 + 1]);
-    }
+/// World units across which one repeat of a painted ridge strip stretches.
+pub const RIDGE_PERIOD: f32 = 1600.0;
+/// How far either side of its middle a ridge strip reaches: more than the widest view (the furthest zoom out on
+/// the widest window) plus a period (`view::layer_root` never leaves the strip's middle by more than half one).
+const RIDGE_HALF_LENGTH: f32 = 17000.0;
+
+/// A ridge layer: far layers hold more of the camera (a bigger factor), sink further into the water, and sit
+/// further back.
+struct RidgeLayer {
+    factor: f32,
+    z: f32,
+    /// The painted spires' height in world units (the picture's height).
+    height: f32,
+    /// Where the strip's bottom (the foot, faded away) sits relative to the floor it stands on.
+    base: f32,
+    recede: f32,
+}
+const RIDGES: [RidgeLayer; 2] = [
+    RidgeLayer {
+        factor: 0.7,
+        z: -20.0,
+        height: 700.0,
+        base: -230.0,
+        recede: 0.78,
+    },
+    RidgeLayer {
+        factor: 0.45,
+        z: -10.0,
+        height: 560.0,
+        base: -180.0,
+        recede: 0.58,
+    },
+];
+
+/// One long quad: the painted ridge from its top (`height` above local y = 0) down to y = 0, where the paint has
+/// faded away by its own alpha (its foot). The strip's u runs along its length in repeats, v from its top down.
+fn ridge_mesh(height: f32) -> Mesh {
+    let (l, r, top, bottom) = (-RIDGE_HALF_LENGTH, RIDGE_HALF_LENGTH, height, 0.0);
+    let uv = |x: f32, y: f32| [x / RIDGE_PERIOD, (height - y) / height];
     Mesh::new(
         PrimitiveTopology::TriangleList,
         RenderAssetUsages::RENDER_WORLD,
     )
-    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, points.to_vec())
-    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 0.0, 1.0]; points.len()])
-    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0, 0.0]; points.len()])
-    .with_inserted_indices(Indices::U32(indices))
+    .with_inserted_attribute(
+        Mesh::ATTRIBUTE_POSITION,
+        vec![
+            [l, top, 0.0],
+            [r, top, 0.0],
+            [r, bottom, 0.0],
+            [l, bottom, 0.0],
+        ],
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 0.0, 1.0]; 4])
+    .with_inserted_attribute(
+        Mesh::ATTRIBUTE_UV_0,
+        vec![uv(l, top), uv(r, top), uv(r, bottom), uv(l, bottom)],
+    )
+    .with_inserted_indices(Indices::U32(vec![0, 3, 2, 0, 2, 1]))
 }
+
+/// A plain rectangle that never shows an edge: its distance to a painted rim reads as far away.
+fn wall_mesh(size: Vec2) -> Mesh {
+    let (w, h) = (size.x * 0.5, size.y * 0.5);
+    Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::RENDER_WORLD,
+    )
+    .with_inserted_attribute(
+        Mesh::ATTRIBUTE_POSITION,
+        vec![[-w, h, 0.0], [w, h, 0.0], [w, -h, 0.0], [-w, -h, 0.0]],
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 0.0, 1.0]; 4])
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0, FAR_FROM_EDGE]; 4])
+    .with_inserted_indices(Indices::U32(vec![0, 3, 2, 0, 2, 1]))
+}
+
+/// A painted shape's mesh carries, in its UV's y, each vertex's distance below the shape's top edge (world
+/// units): the shaders draw the ink rim and the lit top from it. Shapes with no edge to paint say this.
+const FAR_FROM_EDGE: f32 = 1.0e4;
 
 /// A small hand-cut silhouette; collision remains the original rock box.
 pub(crate) fn rock_mesh(size: Vec2) -> Mesh {
@@ -371,6 +411,11 @@ pub(crate) fn rock_mesh(size: Vec2) -> Mesh {
         .iter()
         .map(|&(x, y)| [x * size.x, y * size.y, 0.0])
         .collect();
+    // Each vertex's distance below the top edge: nothing on the outline, all the way down at the base.
+    let uvs: Vec<[f32; 2]> = points
+        .iter()
+        .map(|&(_, y)| [0.0, if y <= -0.5 { size.y } else { 0.0 }])
+        .collect();
     let mut indices = Vec::new();
     for i in 1..points.len() - 1 {
         indices.extend([0, i as u32, i as u32 + 1]);
@@ -381,7 +426,7 @@ pub(crate) fn rock_mesh(size: Vec2) -> Mesh {
     )
     .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 0.0, 1.0]; points.len()])
-    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0, 0.0]; points.len()])
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
     .with_inserted_indices(Indices::U32(indices))
 }
 
@@ -880,6 +925,7 @@ fn floor_mesh(
     bounds: Option<(f32, f32, f32, f32)>,
 ) -> Mesh {
     let mut positions = Vec::new();
+    let mut depths = Vec::new();
     let mut indices = Vec::new();
     let first = points[0];
     let last = points[points.len() - 1];
@@ -912,6 +958,15 @@ fn floor_mesh(
             }
             let base = positions.len() as u32;
             positions.extend(poly.iter().map(|p| [p.x, p.y, 0.0]));
+            // How far each corner lies below this segment's top edge (the shader's ink rim and lit top).
+            depths.extend(poly.iter().map(|p| {
+                let along = if b.x > a.x {
+                    ((p.x - a.x) / (b.x - a.x)).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                [0.0, (a.y + (b.y - a.y) * along + top_offset - p.y).max(0.0)]
+            }));
             for i in 1..poly.len() - 1 {
                 indices.extend([base, base + i as u32, base + i as u32 + 1]);
             }
@@ -924,7 +979,7 @@ fn floor_mesh(
     )
     .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 0.0, 1.0]; count])
-    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0, 0.0]; count])
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, depths)
     .with_inserted_indices(Indices::U32(indices))
 }
 

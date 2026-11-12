@@ -82,6 +82,10 @@ pub struct CellMaterial {
     cells: Handle<Image>,
     #[uniform(6)]
     crab_bounds: Vec4,
+    /// The painted ground's material tiles (`painted_world.rs`).
+    #[texture(7, dimension = "2d_array")]
+    #[sampler(8)]
+    tiles: Handle<Image>,
 }
 impl CellMaterial {
     pub fn set_memory_grid(&mut self, grid: Vec4) {
@@ -169,6 +173,7 @@ fn setup(
         bounds: Vec4::new(left, bottom, width, height),
         cells: handle.clone(),
         crab_bounds: Vec4::from_array(cells.display_crab_bounds()),
+        tiles: memory.tiles.clone(),
     };
     commands.spawn((
         CellField,

@@ -120,6 +120,7 @@ mod nodes;
 mod notes;
 mod octopus;
 #[cfg(not(target_arch = "wasm32"))]
+mod painted_world;
 mod photo;
 mod player;
 mod plunge;
