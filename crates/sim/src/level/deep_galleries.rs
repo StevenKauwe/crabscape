@@ -297,7 +297,7 @@ pub fn lining() -> &'static [Rect] {
             } else {
                 a.min.y
             };
-            let mut bands = vec![
+            let bands = vec![
                 Rect::new(a.min.x - EDGE, low, a.min.x, a.max.y + EDGE),
                 Rect::new(a.max.x, low, a.max.x + EDGE, a.max.y + EDGE),
                 Rect::new(a.min.x, a.max.y, a.max.x, a.max.y + EDGE),
