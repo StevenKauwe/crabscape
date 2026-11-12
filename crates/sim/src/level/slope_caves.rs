@@ -150,8 +150,8 @@ impl Stair {
 /// slope east of the kelp column's foot (floor y -4,362 at its west edge, -4,437
 /// at its east). Its walls end flush with the floor on each side.
 pub const NECK: Rect = Rect::new(10660.0, -4620.0, 10780.0, -4360.0);
-/// Where the neck's west and east walls end (the slope floor beside them).
-const NECK_WALLS: (f32, f32) = (-4350.0, -4437.5);
+/// Where the neck's west and east walls end: the slope floor at each wall's lower edge (never above it, so the walking route is not stepped).
+const NECK_WALLS: (f32, f32) = (-4362.5, -4450.0);
 /// The slope mouth's stairwell: from the slope floor (y -4,400 at the neck's
 /// middle) down five levels of 460 to the line's floor.
 pub const MOUTH_STAIR: Stair = Stair {
