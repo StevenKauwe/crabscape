@@ -156,6 +156,10 @@ fn note_events(
         } else {
             notes.push((format!("{} level {level}!", skill.name()), GOLD));
         }
+        // What the level opens (the same ladder as every other skill).
+        for line in crabsim::economy::unlocks(skill, level).into_iter().take(2) {
+            notes.push((line, PALE));
+        }
     }
     if ev.moulted {
         notes.push(("Moulted: soft for a while.".into(), PALE));

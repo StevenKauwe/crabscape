@@ -531,6 +531,8 @@ impl Sim {
             }
             Output::Effect(_) => {}
             Output::Portions(_, n) => {
+                let n =
+                    crate::economy::ladder::portions(r.word, n, crab.level(r.skill, &self.tuning));
                 let m = &crab.mover;
                 if m.prepared_food.free_slots() < usize::from(n)
                     || m.prepared_food.next_batch == u64::MAX
@@ -589,11 +591,27 @@ impl Sim {
         }
         match r.makes {
             Output::Items(items) => {
-                for &(item, n) in items {
-                    crab.stash.add(item, n);
+                for (k, &(item, n)) in items.iter().enumerate() {
+                    // A personal chance that a craft comes out doubled.
+                    let pct = crate::economy::ladder::double_craft_percent(r.skill, level, item);
+                    let doubled = pct > 0
+                        && roll(
+                            u64::from(id.0) ^ 0xd0b1_ed00,
+                            crab.econ.crafts_done,
+                            (index * 4 + k) as u64,
+                        ) % 100
+                            < u64::from(pct);
+                    crab.stash.add(item, if doubled { n * 2 } else { n });
                 }
             }
-            Output::Tool(kind, tier) => crab.econ.tools[kind.index()] = Tool::new(kind, tier),
+            Output::Tool(kind, tier) => {
+                let mut tool = Tool::new(kind, tier);
+                let more = crate::economy::ladder::tool_hold_percent(level);
+                tool.uses_left = tool
+                    .uses_left
+                    .saturating_add((u32::from(tool.uses_left) * more / 100) as u16);
+                crab.econ.tools[kind.index()] = tool;
+            }
             Output::Gear(g) => match g.slot() {
                 Slot::Bag => crab.econ.gear.bag = Some(g),
                 Slot::Body => crab.econ.gear.body = Some((g, g.plating_uses())),
@@ -607,7 +625,8 @@ impl Sim {
                 }
             }
             Output::Bed(strain) => {
-                crab.econ.plant(strain, tick);
+                let quicker = crate::economy::ladder::bed_quicker_percent(level);
+                crab.econ.plant_quicker(strain, tick, quicker);
             }
             Output::Repair(rep) => {
                 if let Some(target) = crab.econ.repair_target(rep) {
@@ -644,6 +663,7 @@ impl Sim {
                         return Err(CantMakeEcon::NoRoom);
                     }
                 } else {
+                    let n = crate::economy::ladder::portions(r.word, n, level);
                     crab.mover.prepared_food.add_batch(PortionKind::of(food), n);
                     for &(item, k) in food.extra() {
                         crab.stash.add(item, k);

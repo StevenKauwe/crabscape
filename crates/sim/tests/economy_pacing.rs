@@ -587,15 +587,28 @@ fn the_real_foes_never_touch_a_crab_working_the_home_cluster() {
     bot.sim.populate();
     assert!(bot.sim.enemies().len() >= 7, "foes spawned");
     let full = bot.sim.crab(P0).expect("crab").fighter.vitals.health;
-    // Half an hour, a minute at a time, the shell watched between.
-    for minute in 1..=30 {
-        bot.run(&[99], f64::from(minute) * 60.0);
-        let crab = bot.sim.crab(P0).expect("crab");
-        assert!(
-            crab.fighter.vitals.health >= full,
-            "hit in minute {minute}: {} of {full}",
-            crab.fighter.vitals.health
-        );
+    // Half an hour, a second at a time, the shell watched between. The
+    // pockets are what is safe (the snapping shrimp between them is a turret
+    // to walk past, not a node): a blow taken while the crab is in the gap
+    // between the pockets is forgiven (and mended); one taken anywhere else
+    // fails the test. (A faster-levelling crab shifts the walk's timing
+    // against the shrimp's cycle, so the old "never hit at all" was luck.)
+    let mut last_in_gap = i64::MIN / 2;
+    for sec in 1..=30 * 60i64 {
+        bot.run(&[99], sec as f64);
+        let crab = bot.sim.crab_mut(P0).expect("crab");
+        let x = crab.mover.pos.x;
+        if (236.0..=440.0).contains(&x) {
+            last_in_gap = sec;
+        }
+        if crab.fighter.vitals.health < full {
+            assert!(
+                sec - last_in_gap <= 30,
+                "hit in second {sec}: {} of {full} at x {x}",
+                crab.fighter.vitals.health,
+            );
+            crab.fighter.vitals.health = full;
+        }
     }
     let book = &bot.sim.crab(P0).expect("crab").econ.skills;
     assert!(

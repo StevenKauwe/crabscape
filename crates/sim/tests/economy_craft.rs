@@ -68,7 +68,7 @@ fn items_and_the_xp_they_earn() {
     assert_eq!(sim.make_econ(P0, "kelp-cord"), Ok(()));
     assert_eq!(stash(&sim, Item::Kelp), 3);
     assert_eq!(stash(&sim, Item::KelpCord), 1);
-    assert_eq!(econ(&sim).skills.get(Skill::Weaving), 8);
+    assert_eq!(econ(&sim).skills.get(Skill::Weaving), 24);
     assert_eq!(econ(&sim).crafts_done, 1);
 }
 
@@ -124,8 +124,11 @@ fn stations_are_built_and_beds_in_order() {
     assert_eq!(sim.make_econ(P0, "loom"), Ok(()));
     assert!(econ(&sim).has_station(Station::Loom));
     assert_eq!(sim.make_econ(P0, "loom"), Err(CantMakeEcon::Made));
-    // Building XP: 40 * level / 5, at least 40.
-    assert_eq!(econ(&sim).skills.get(Skill::Building), xp::TABLE[12] + 96);
+    // Early stations pay a level and a fifth of Building (from level 12 to 13).
+    assert_eq!(
+        econ(&sim).skills.get(Skill::Building),
+        xp::TABLE[12] + xp::level_step(12) * 6 / 5
+    );
     // The second bed needs the first.
     set_level(&mut sim, Skill::Building, 20);
     assert_eq!(
@@ -179,7 +182,7 @@ fn shucked_mussels_make_two_portions_and_a_valve() {
             .all(|p| p.kind == PortionKind::Food(Food::ShuckedMussels))
     );
     assert_eq!(crab.stash.count(Item::Valve), 1);
-    assert_eq!(crab.econ.skills.get(Skill::Cooking), 10);
+    assert_eq!(crab.econ.skills.get(Skill::Cooking), 30);
     // Two batches fill the four slots; a third has no room.
     sim.crab_mut(P0).unwrap().stash.add(Item::Mussel, 4);
     assert_eq!(sim.make_econ(P0, "shucked-mussels"), Ok(()));
@@ -200,7 +203,7 @@ fn the_older_foods_still_use_the_larder_and_now_earn_cooking() {
     assert_eq!(sim.make_econ(P0, "shell-food"), Ok(()));
     let crab = sim.crab(P0).unwrap();
     assert_eq!((crab.larder, crab.stash.count(Item::Valve)), (0, 2));
-    assert_eq!(crab.econ.skills.get(Skill::Cooking), 12);
+    assert_eq!(crab.econ.skills.get(Skill::Cooking), 36);
     assert!(
         crab.mover
             .prepared_food
@@ -496,7 +499,7 @@ fn beds_grow_while_the_crab_is_out_and_harvest_gives_the_strain() {
     assert_eq!(sim.feed_bed(P0), Err(CantMakeEcon::NothingGrowing));
     let start = sim.tick_count();
     assert_eq!(sim.make_econ(P0, "plant-shore"), Ok(()));
-    assert_eq!(econ(&sim).skills.get(Skill::Culturing), 5, "plant XP");
+    assert_eq!(econ(&sim).skills.get(Skill::Culturing), 15, "plant XP");
     assert_eq!(stash(&sim, Item::ShoreStrain), 1);
     let bed = econ(&sim).beds[0].unwrap();
     assert_eq!(bed.strain, Item::ShoreStrain);
@@ -524,7 +527,7 @@ fn beds_grow_while_the_crab_is_out_and_harvest_gives_the_strain() {
     );
     assert_eq!(StrainDef::harvest_count(1), 3);
     assert_eq!(StrainDef::harvest_count(40), 5);
-    assert_eq!(econ(&sim).skills.get(Skill::Culturing), 25, "5 + 20");
+    assert_eq!(econ(&sim).skills.get(Skill::Culturing), 35, "15 + 20");
     assert!(econ(&sim).beds[0].is_none());
     assert_eq!(sim.harvest_bed(P0), Err(CantMakeEcon::NothingReady));
 }
@@ -678,4 +681,67 @@ fn no_soft_lock_fixed_point() {
     for st in Station::ALL {
         assert!(stations.contains(&st), "{st:?} is never built");
     }
+}
+
+// The first hours' perks (`economy/ladder.rs`) ----------------------------
+
+#[test]
+fn shucked_mussels_make_three_portions_from_cooking_4() {
+    let mut sim = at_home_with(&[(Item::Mussel, 2)]);
+    set_level(&mut sim, Skill::Cooking, 4);
+    assert_eq!(sim.make_econ(P0, "shucked-mussels"), Ok(()));
+    assert_eq!(
+        sim.crab(P0)
+            .unwrap()
+            .mover
+            .prepared_food
+            .slots
+            .iter()
+            .flatten()
+            .count(),
+        3
+    );
+}
+
+#[test]
+fn a_doubled_craft_is_a_personal_chance_by_level() {
+    // Weaving 3: one kelp cord in ten comes out doubled; at level 1, never.
+    let count = |level: u32, crafts: u32| {
+        let mut sim = at_home_with(&[(Item::Kelp, 400)]);
+        set_level(&mut sim, Skill::Weaving, level);
+        for _ in 0..crafts {
+            assert_eq!(sim.make_econ(P0, "kelp-cord"), Ok(()));
+        }
+        stash(&sim, Item::KelpCord)
+    };
+    // (Two crafts at level 1 earn too little to reach level 3.)
+    assert_eq!(count(1, 2), 2);
+    let with = count(3, 100);
+    assert!((108..=135).contains(&with), "{with} cords from 100 crafts");
+    // Deterministic: the same crab rolls the same.
+    assert_eq!(count(3, 100), with);
+}
+
+#[test]
+fn tools_made_at_shellcraft_7_hold_ten_percent_more() {
+    let mut sim = at_home_with(&[(Item::ShellBlank, 1), (Item::KelpCord, 1)]);
+    set_level(&mut sim, Skill::Shellcraft, 7);
+    assert_eq!(sim.make_econ(P0, "pry-shell"), Ok(()));
+    let tool = econ(&sim).tool(crabsim::economy::ToolKind::Pry);
+    assert_eq!(tool.uses_left, TOOL_USES[1] + TOOL_USES[1] / 10);
+}
+
+#[test]
+fn culture_beds_grow_quicker_at_culturing_6() {
+    let grow = |level: u32| {
+        let mut sim = at_home_with(&[(Item::Grit, 3), (Item::Valve, 2), (Item::ShoreStrain, 1)]);
+        set_level(&mut sim, Skill::Building, 5);
+        assert_eq!(sim.make_econ(P0, "bed-1"), Ok(()));
+        set_level(&mut sim, Skill::Culturing, level);
+        let start = sim.tick_count();
+        assert_eq!(sim.make_econ(P0, "plant-shore"), Ok(()));
+        econ(&sim).beds[0].unwrap().ready_at_tick - start
+    };
+    assert_eq!(grow(5), 120 * 120);
+    assert_eq!(grow(6), 120 * 120 * 90 / 100);
 }

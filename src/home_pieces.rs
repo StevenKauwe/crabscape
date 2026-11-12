@@ -283,6 +283,52 @@ fn outside(piece: Piece) -> (Vec<Shape>, Vec<Glow>) {
         }
         // Inside the shell, in `interior.rs`.
         Piece::NoduleHearth => {}
+        // The first hours' pieces: simple placeholders that read clearly
+        // (rows of small shapes beside the door; polish only when asked).
+        Piece::ValveStep
+        | Piece::SnailCairn
+        | Piece::GritPath
+        | Piece::GlowJar
+        | Piece::ValveChime
+        | Piece::RopeRail
+        | Piece::KelpGarden
+        | Piece::ClawRack
+        | Piece::ValveShelf
+        | Piece::SandSill
+        | Piece::EelgrassThatch
+        | Piece::BarnacleWall => {
+            let (colour, y, count): (Color, f32, usize) = match piece {
+                Piece::ValveStep => (Color::srgb(0.86, 0.82, 0.78), 6.0, 5),
+                Piece::SnailCairn => (Color::srgb(0.70, 0.62, 0.50), 12.0, 4),
+                Piece::GritPath => (Color::srgb(0.62, 0.58, 0.50), 3.0, 6),
+                Piece::GlowJar => (Color::srgb(0.55, 0.85, 0.75), 14.0, 1),
+                Piece::ValveChime => (Color::srgb(0.80, 0.76, 0.70), 90.0, 4),
+                Piece::RopeRail => (Color::srgb(0.55, 0.66, 0.38), 24.0, 5),
+                Piece::KelpGarden => (KELP, 20.0, 4),
+                Piece::ClawRack => (Color::srgb(0.88, 0.78, 0.66), 70.0, 3),
+                Piece::ValveShelf => (Color::srgb(0.84, 0.80, 0.74), 110.0, 5),
+                Piece::SandSill => (Color::srgb(0.90, 0.86, 0.74), 8.0, 4),
+                Piece::EelgrassThatch => (KELP_DARK, 118.0, 6),
+                _ => (Color::srgb(0.66, 0.64, 0.60), 60.0, 5),
+            };
+            for i in 0..count {
+                let x = 110.0 + 18.0 * i as f32;
+                shapes.push(oval(
+                    Vec2::new(x, y + (i % 2) as f32 * 6.0),
+                    Vec2::new(8.0, 5.5),
+                    colour,
+                    0.12,
+                    0.2 * (i % 3) as f32 - 0.2,
+                ));
+            }
+            if piece == Piece::GlowJar {
+                glows.push(Glow {
+                    at: Vec2::new(110.0, 16.0),
+                    size: 40.0,
+                    colour: Color::srgba(0.5, 1.0, 0.85, 0.5),
+                });
+            }
+        }
     }
     (shapes, glows)
 }

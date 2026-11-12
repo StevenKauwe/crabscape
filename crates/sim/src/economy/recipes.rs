@@ -133,6 +133,18 @@ const fn r(
     }
 }
 
+/// An early station pays one level of Building (like an early piece).
+const fn xp_station(level: u32) -> u32 {
+    crate::economy::xp::level_step(level) * 6 / 5
+}
+
+/// The first hours pay more: a tier 1 recipe's experience, scaled by
+/// [`crate::economy::ladder::RECIPE_XP_PERCENT`] (levels 1 to 15 only; the
+/// numbers of tier 2 and above are untouched).
+const fn early(xp: u32) -> u32 {
+    xp * crate::economy::ladder::RECIPE_XP_PERCENT / 100
+}
+
 use Bench::{At, VentPot, Workbench};
 use Item as I;
 use Skill::{Building, Cooking, Culturing, Shellcraft, Weaving};
@@ -209,7 +221,7 @@ pub const ECON_RECIPES: &[EconRecipe] = &[
         Workbench,
         &[(I::Kelp, 2)],
         Output::Items(&[(I::KelpCord, 1)]),
-        8,
+        early(8),
     ),
     r(
         "braided-cord",
@@ -229,7 +241,7 @@ pub const ECON_RECIPES: &[EconRecipe] = &[
         Workbench,
         &[(I::Valve, 2), (I::Grit, 1)],
         Output::Items(&[(I::ShellBlank, 1)]),
-        12,
+        early(12),
     ),
     r(
         "quill-rod",
@@ -300,7 +312,7 @@ pub const ECON_RECIPES: &[EconRecipe] = &[
         Workbench,
         &[(I::ShellBlank, 1), (I::KelpCord, 1)],
         Output::Tool(ToolKind::Pry, 1),
-        40,
+        early(40),
     ),
     r(
         "pry-quill",
@@ -350,7 +362,7 @@ pub const ECON_RECIPES: &[EconRecipe] = &[
         Workbench,
         &[(I::ShellBlank, 1), (I::KelpCord, 1)],
         Output::Tool(ToolKind::Scoop, 1),
-        40,
+        early(40),
     ),
     r(
         "scoop-quill",
@@ -400,7 +412,7 @@ pub const ECON_RECIPES: &[EconRecipe] = &[
         Workbench,
         &[(I::ShellBlank, 1), (I::KelpCord, 1)],
         Output::Tool(ToolKind::Cutter, 1),
-        40,
+        early(40),
     ),
     r(
         "cutter-quill",
@@ -451,7 +463,7 @@ pub const ECON_RECIPES: &[EconRecipe] = &[
         Workbench,
         &[(I::KelpCord, 4)],
         Output::Gear(Gear::KelpSack),
-        80,
+        early(80),
     ),
     r(
         "woven-pack",
@@ -481,7 +493,7 @@ pub const ECON_RECIPES: &[EconRecipe] = &[
         Workbench,
         &[(I::ShellBlank, 3), (I::KelpCord, 1)],
         Output::Gear(Gear::ShellPlating),
-        120,
+        early(120),
     ),
     r(
         "quill-plating",
@@ -542,7 +554,7 @@ pub const ECON_RECIPES: &[EconRecipe] = &[
         Workbench,
         &[(I::Grit, 3), (I::Valve, 2)],
         Output::Station(Station::CultureBed),
-        40,
+        xp_station(5),
     ),
     r(
         "bed-2",
@@ -582,7 +594,7 @@ pub const ECON_RECIPES: &[EconRecipe] = &[
         Workbench,
         &[(I::Quill, 4), (I::KelpCord, 4), (I::Grit, 3)],
         Output::Station(Station::Loom),
-        96,
+        xp_station(12),
     ),
     r(
         "brine-pot",
@@ -592,7 +604,7 @@ pub const ECON_RECIPES: &[EconRecipe] = &[
         Workbench,
         &[(I::Clay, 3), (I::Valve, 2)],
         Output::Station(Station::BrinePot),
-        80,
+        xp_station(10),
     ),
     r(
         "grindstone",
@@ -623,7 +635,7 @@ pub const ECON_RECIPES: &[EconRecipe] = &[
         Workbench,
         &[(I::Clam, 1)],
         Output::Portions(Food::ShellFood, 2),
-        12,
+        early(12),
     ),
     r(
         "reserve-food",
@@ -633,7 +645,7 @@ pub const ECON_RECIPES: &[EconRecipe] = &[
         Workbench,
         &[(I::Clam, 1)],
         Output::Portions(Food::ReserveFood, 2),
-        12,
+        early(12),
     ),
     r(
         "shucked-mussels",
@@ -643,7 +655,7 @@ pub const ECON_RECIPES: &[EconRecipe] = &[
         Workbench,
         &[(I::Mussel, 2)],
         Output::Portions(Food::ShuckedMussels, 2),
-        10,
+        early(10),
     ),
     r(
         "snail-wrap",
@@ -653,7 +665,7 @@ pub const ECON_RECIPES: &[EconRecipe] = &[
         Workbench,
         &[(I::Snail, 2), (I::Kelp, 1)],
         Output::Portions(Food::SnailWrap, 2),
-        16,
+        early(16),
     ),
     r(
         "worm-paste",
@@ -825,7 +837,7 @@ pub const ECON_RECIPES: &[EconRecipe] = &[
         At(Station::CultureBed),
         &[(I::ShoreStrain, 1)],
         Output::Bed(I::ShoreStrain),
-        5,
+        early(5),
     ),
     r(
         "plant-culture",
@@ -1028,7 +1040,7 @@ pub const ECON_RECIPES: &[EconRecipe] = &[
         Workbench,
         &[(I::ShrimpMeat, 2), (I::Kelp, 1)],
         Output::Portions(Food::Broth, 2),
-        24,
+        early(24),
     ),
     r(
         "amphipod-mash",
@@ -1234,5 +1246,220 @@ pub const ECON_RECIPES: &[EconRecipe] = &[
         &[(I::WhelkShell, 3), (I::Nodule, 2), (I::BlackCoral, 2)],
         Output::Effect(Effect::GrowHome(3)),
         500,
+    ),
+    // ---- The first hours (levels 2 to 15, tier 1 and half-tier inputs) ----
+    // Cooking: dishes from the shore's own food.
+    r(
+        "kelp-wrapped-mussel",
+        "Kelp-wrapped mussel",
+        Cooking,
+        2,
+        Workbench,
+        &[(I::Mussel, 1), (I::Kelp, 1)],
+        Output::Portions(Food::KelpWrappedMussel, 2),
+        early(12),
+    ),
+    r(
+        "snail-half-shell",
+        "Snail on the half shell",
+        Cooking,
+        3,
+        Workbench,
+        &[(I::Snail, 2), (I::Valve, 1)],
+        Output::Portions(Food::SnailHalfShell, 2),
+        early(14),
+    ),
+    r(
+        "shrimp-strips",
+        "Shrimp-tail strips",
+        Cooking,
+        7,
+        Workbench,
+        &[(I::ShrimpMeat, 1), (I::Kelp, 1)],
+        Output::Portions(Food::ShrimpStrips, 2),
+        early(20),
+    ),
+    r(
+        "barnacle-chowder",
+        "Barnacle chowder",
+        Cooking,
+        8,
+        Workbench,
+        &[(I::Barnacle, 2), (I::Kelp, 1)],
+        Output::Portions(Food::BarnacleChowder, 2),
+        early(24),
+    ),
+    r(
+        "brittle-star-stew",
+        "Brittle-star stew",
+        Cooking,
+        11,
+        Workbench,
+        &[(I::BrittleStar, 2), (I::Kelp, 1)],
+        Output::Portions(Food::BrittleStarStew, 2),
+        early(28),
+    ),
+    r(
+        "eelgrass-salad",
+        "Eelgrass salad",
+        Cooking,
+        13,
+        Workbench,
+        &[(I::Eelgrass, 2), (I::Snail, 1)],
+        Output::Portions(Food::EelgrassSalad, 2),
+        early(30),
+    ),
+    r(
+        "purple-film-paste",
+        "Purple-film paste",
+        Cooking,
+        15,
+        Workbench,
+        &[(I::PurpleFilm, 2), (I::ShrimpMeat, 1)],
+        Output::Portions(Food::PurpleFilmPaste, 2),
+        early(36),
+    ),
+    // Shellcraft: valves, grit and sand dollars worked into building stuff.
+    r(
+        "polished-valve",
+        "Polished valve",
+        Shellcraft,
+        2,
+        Workbench,
+        &[(I::Valve, 2), (I::Grit, 1)],
+        Output::Items(&[(I::PolishedValve, 2)]),
+        early(14),
+    ),
+    r(
+        "shell-cement",
+        "Shell cement",
+        Shellcraft,
+        4,
+        Workbench,
+        &[(I::Grit, 2), (I::Valve, 2)],
+        Output::Items(&[(I::ShellCement, 2)]),
+        early(16),
+    ),
+    r(
+        "sand-polish",
+        "Sand-dollar polish",
+        Shellcraft,
+        8,
+        Workbench,
+        &[(I::SandDollar, 2)],
+        Output::Items(&[(I::PolishedValve, 3)]),
+        early(24),
+    ),
+    r(
+        "barnacle-cement",
+        "Barnacle cement",
+        Shellcraft,
+        9,
+        Workbench,
+        &[(I::Barnacle, 2), (I::Grit, 1)],
+        Output::Items(&[(I::ShellCement, 3)]),
+        early(28),
+    ),
+    r(
+        "mend-sand-dollar",
+        "Mend plating with a sand-dollar test",
+        Shellcraft,
+        11,
+        Workbench,
+        &[(I::SandDollar, 1), (I::Grit, 1)],
+        Output::Repair(Repairs::AnyPlating),
+        early(20),
+    ),
+    // Weaving: kelp into rope and mats, eelgrass into cord.
+    r(
+        "kelp-rope",
+        "Kelp rope",
+        Weaving,
+        2,
+        Workbench,
+        &[(I::KelpCord, 3)],
+        Output::Items(&[(I::KelpRope, 1)]),
+        early(14),
+    ),
+    r(
+        "kelp-mat",
+        "Kelp mat",
+        Weaving,
+        4,
+        Workbench,
+        &[(I::Kelp, 6)],
+        Output::Items(&[(I::KelpMat, 1)]),
+        early(16),
+    ),
+    r(
+        "quick-twist",
+        "Quick twist",
+        Weaving,
+        5,
+        Workbench,
+        &[(I::Kelp, 3)],
+        Output::Items(&[(I::KelpCord, 2)]),
+        early(14),
+    ),
+    r(
+        "eelgrass-cord",
+        "Eelgrass cord",
+        Weaving,
+        9,
+        Workbench,
+        &[(I::Eelgrass, 3)],
+        Output::Items(&[(I::KelpCord, 2)]),
+        early(24),
+    ),
+    r(
+        "eelgrass-mat",
+        "Eelgrass mat",
+        Weaving,
+        12,
+        Workbench,
+        &[(I::Eelgrass, 4), (I::KelpCord, 1)],
+        Output::Items(&[(I::KelpMat, 2)]),
+        early(34),
+    ),
+    r(
+        "rope-bulk",
+        "Rope coil",
+        Weaving,
+        14,
+        Workbench,
+        &[(I::KelpCord, 5), (I::Kelp, 2)],
+        Output::Items(&[(I::KelpRope, 2)]),
+        early(40),
+    ),
+    // Culturing: broths that multiply a strain.
+    r(
+        "shore-broth",
+        "Shore-glow kelp broth",
+        Culturing,
+        2,
+        Workbench,
+        &[(I::ShoreStrain, 1), (I::Kelp, 2)],
+        Output::Items(&[(I::ShoreStrain, 2)]),
+        early(8),
+    ),
+    r(
+        "mussel-broth",
+        "Shore-glow mussel broth",
+        Culturing,
+        4,
+        Workbench,
+        &[(I::ShoreStrain, 1), (I::Mussel, 1)],
+        Output::Items(&[(I::ShoreStrain, 3)]),
+        early(12),
+    ),
+    r(
+        "purple-starter",
+        "Purple-film starter",
+        Culturing,
+        9,
+        Workbench,
+        &[(I::PurpleFilm, 1), (I::ShoreStrain, 1)],
+        Output::Items(&[(I::ShoreStrain, 4)]),
+        early(20),
     ),
 ];

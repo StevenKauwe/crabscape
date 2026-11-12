@@ -413,10 +413,20 @@ impl Bot {
     /// first (it is the weakest beatable foe near home).
     fn cross_snapper(&mut self, to_x: f32) -> bool {
         let from = self.pos().x;
-        let crossing = (from < SNAPPER_A) != (to_x < SNAPPER_A);
-        if crossing && self.snapper_up(SNAPPER_A) {
-            self.fight(SNAPPER_A);
-            return true;
+        for at in [SNAPPER_A, SNAPPER_B] {
+            let crossing = (from < at) != (to_x < at);
+            if crossing && self.snapper_up(at) {
+                // The second one is reached through the first.
+                if at > SNAPPER_A && from < SNAPPER_A && self.snapper_up(SNAPPER_A) {
+                    self.fight(SNAPPER_A);
+                } else {
+                    if at > SNAPPER_A {
+                        self.walk_to(at - 190.0, 4.0);
+                    }
+                    self.fight(at);
+                }
+                return true;
+            }
         }
         false
     }
@@ -952,11 +962,18 @@ impl Bot {
     /// Item -> the node kind that gives it (or feeds it, for a valve).
     fn source_of(item: Item) -> Option<NodeKind> {
         match item {
-            Item::Mussel | Item::Valve => Some(NodeKind::MusselClump),
-            Item::Kelp | Item::KelpCord => Some(NodeKind::KelpStand),
-            Item::Grit => Some(NodeKind::GritHeap),
+            Item::Mussel | Item::Valve | Item::PolishedValve => Some(NodeKind::MusselClump),
+            Item::Kelp | Item::KelpCord | Item::KelpRope | Item::KelpMat => {
+                Some(NodeKind::KelpStand)
+            }
+            Item::Grit | Item::ShellCement => Some(NodeKind::GritHeap),
             Item::Snail => Some(NodeKind::SnailRocks),
             Item::ShoreStrain => Some(NodeKind::ShoreGlow),
+            Item::Barnacle => Some(NodeKind::BarnacleRock),
+            Item::BrittleStar => Some(NodeKind::BrittleStarCrevice),
+            Item::SandDollar => Some(NodeKind::SandDollarBed),
+            Item::Eelgrass => Some(NodeKind::EelgrassBed),
+            Item::PurpleFilm => Some(NodeKind::PurpleFilmMat),
             _ => None,
         }
     }
@@ -996,6 +1013,11 @@ impl Bot {
             NodeKind::GritHeap,
             NodeKind::SnailRocks,
             NodeKind::ShoreGlow,
+            NodeKind::BarnacleRock,
+            NodeKind::BrittleStarCrevice,
+            NodeKind::SandDollarBed,
+            NodeKind::EelgrassBed,
+            NodeKind::PurpleFilmMat,
         ] {
             let def = kind.def();
             if focus.is_some_and(|f| f != def.skill) {
@@ -1237,7 +1259,7 @@ pub fn silent_levels() -> Vec<(Skill, u32)> {
     let mut out = Vec::new();
     for &s in &SKILLS {
         for level in 2..=15 {
-            let silent = s.economy_index().is_none() || economy::unlocks(s, level).is_empty();
+            let silent = economy::unlocks(s, level).is_empty();
             if silent {
                 out.push((s, level));
             }

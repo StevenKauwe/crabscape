@@ -112,6 +112,19 @@ items! {
     GreatMantisClub, "great-mantis-club", "great mantis club", "great mantis clubs", 3, false;
     MorayFang, "moray-fang", "moray fang", "moray fangs", 3, false;
     MantisTelson, "mantis-telson", "mantis telson", "mantis telsons", 4, false;
+    // The half-tier finds (tier 1, Gathering level 8) and what the first
+    // hours make of them (appended: item order is saved order). The
+    // organisms are real; what a crab does with them is a game reading,
+    // not verified.
+    Barnacle, "barnacle", "barnacle", "barnacles", 1, false;
+    BrittleStar, "brittle-star", "brittle star", "brittle stars", 1, false;
+    SandDollar, "sand-dollar", "sand dollar", "sand dollars", 1, false;
+    Eelgrass, "eelgrass", "eelgrass blade", "eelgrass blades", 1, false;
+    PurpleFilm, "purple-film", "purple film", "purple films", 1, false;
+    PolishedValve, "polished-valve", "polished valve", "polished valves", 0, false;
+    ShellCement, "shell-cement", "shell cement", "shell cement", 0, false;
+    KelpRope, "kelp-rope", "kelp rope", "kelp rope", 0, false;
+    KelpMat, "kelp-mat", "kelp mat", "kelp mats", 0, false;
 }
 
 /// What a beaten creature of `kind` leaves, as items: the bestiary's drops

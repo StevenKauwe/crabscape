@@ -11,8 +11,7 @@
 //! `DISTINCT_PER_5MIN`, `LONG_STRETCHES` and `PRYING_FOCUS`.
 //!
 //! `first_hours_targets` asserts the owner's targets against the cached
-//! numbers. They are NOT met yet: it is ignored until the progression work
-//! meets them. Run it with `-- --ignored` to see which fail.
+//! numbers (met since the 1-15 ladder, XP and early recipes).
 
 #[path = "common/bot.rs"]
 mod bot;
@@ -32,32 +31,32 @@ const FOCUS_SECS: f64 = 90.0 * 60.0;
 /// Cooking, Shellcraft, Weaving, Building, Survival) in the mixed three hours;
 /// -1 is "not by 3 h".
 const MIXED: [[f64; 3]; 13] = [
-    [10.5, 70.1, -1.0],
-    [4.8, 98.7, -1.0],
-    [-1.0, -1.0, -1.0],
-    [49.7, 143.4, -1.0],
-    [49.1, 145.2, -1.0],
-    [42.3, 118.7, -1.0],
-    [23.4, 62.7, 126.1],
-    [47.9, 141.6, -1.0],
-    [47.0, 113.6, -1.0],
-    [48.5, 144.4, -1.0],
-    [50.2, 145.1, -1.0],
-    [48.4, 144.3, -1.0],
-    [31.5, 130.4, -1.0],
+    [9.6, 11.0, 102.4],
+    [3.7, 82.1, 166.3],
+    [2.9, 89.5, 178.0],
+    [41.5, 95.8, 162.6],
+    [42.7, 94.8, 168.6],
+    [41.0, 94.2, 171.6],
+    [41.9, 96.9, 162.7],
+    [30.9, 46.5, 67.5],
+    [15.5, 26.6, 58.0],
+    [38.4, 84.8, 139.8],
+    [40.2, 61.2, 134.3],
+    [38.5, 77.5, 139.9],
+    [35.4, 88.1, 155.9],
 ];
 
 /// Level-ups across all thirteen skills in each 5-minute window of the mixed run.
 const LEVELUPS_PER_5MIN: [u32; 36] = [
-    4, 5, 3, 9, 9, 2, 3, 8, 2, 8, 2, 3, 3, 7, 5, 1, 3, 5, 4, 4, 1, 4, 5, 1, 4, 4, 1, 2, 4, 3, 5, 0,
-    3, 5, 3, 0,
+    13, 9, 8, 10, 8, 7, 5, 6, 10, 5, 7, 8, 4, 6, 3, 8, 8, 3, 8, 6, 7, 3, 4, 7, 3, 3, 5, 6, 2, 2, 5,
+    4, 2, 5, 2, 1,
 ];
 
 /// Distinct kinds of work (node kinds, recipes, fights, climbs...) in each
 /// 5-minute window of the mixed run.
 const DISTINCT_PER_5MIN: [u32; 36] = [
-    15, 2, 10, 11, 11, 10, 12, 10, 10, 12, 6, 14, 12, 10, 13, 12, 7, 11, 12, 12, 12, 6, 13, 12, 12,
-    5, 12, 12, 12, 8, 9, 14, 13, 13, 11, 6,
+    15, 3, 12, 15, 14, 13, 12, 9, 16, 15, 15, 17, 8, 15, 12, 16, 15, 8, 17, 15, 12, 6, 19, 18, 6,
+    18, 13, 17, 8, 19, 11, 11, 17, 14, 17, 10,
 ];
 
 /// Every stretch of over 3 minutes on one node kind or recipe while something
@@ -65,7 +64,7 @@ const DISTINCT_PER_5MIN: [u32; 36] = [
 const LONG_STRETCHES: &[(f64, &str, f64)] = &[];
 
 /// The focused Prying run: minutes to level 5, 10 and 15 (-1: not reached).
-const PRYING_FOCUS: [f64; 3] = [4.5, 13.6, 28.2];
+const PRYING_FOCUS: [f64; 3] = [4.2, 10.2, 16.9];
 
 // ---- The measurement ----
 
@@ -258,9 +257,7 @@ fn the_cached_tables_are_well_formed() {
 }
 
 /// The owner's targets for levels 1 to 15, against the cached measurement.
-/// Currently EXPECTED TO FAIL: the progression work is what meets them.
 #[test]
-#[ignore = "target, not met yet (progression work in progress)"]
 fn first_hours_targets() {
     let mut failures = Vec::new();
 

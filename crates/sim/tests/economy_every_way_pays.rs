@@ -85,7 +85,8 @@ fn every_tier_one_item_stays_useful() {
         .filter(|n| n.tier == 1)
         .filter_map(|n| n.yields)
         .collect();
-    assert_eq!(tier_one.len(), 5);
+    // Five tier 1 kinds and the five half-tier kinds (level 8).
+    assert_eq!(tier_one.len(), 10);
     for item in tier_one {
         let rs = uses(item);
         assert!(

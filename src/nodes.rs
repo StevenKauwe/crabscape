@@ -118,7 +118,7 @@ fn fresh_parts(kind: NodeKind, tint: Color) -> Vec<Part> {
     match kind {
         // Prying, tier by tier: a clump of mussels, clams, a glass scallop
         // fan, seep mussels and vent clams.
-        K::MusselClump | K::SeepMusselBed => (0..5)
+        K::MusselClump | K::SeepMusselBed | K::BarnacleRock => (0..5)
             .map(|i| {
                 let x = -10.0 + 5.0 * i as f32;
                 let up = if i % 2 == 0 { 7.0 } else { 4.5 };
@@ -154,7 +154,7 @@ fn fresh_parts(kind: NodeKind, tint: Color) -> Vec<Part> {
         }
         // Harvesting: fronds, sea pens, a glass sponge vase, black coral
         // branches, bamboo coral stems.
-        K::KelpStand => vec![
+        K::KelpStand | K::EelgrassBed => vec![
             blade(3.0, 30.0, deep, -9.0, 0.28),
             blade(3.5, 38.0, tint, -3.0, 0.1),
             blade(3.0, 34.0, deep, 4.0, -0.12),
@@ -202,7 +202,7 @@ fn fresh_parts(kind: NodeKind, tint: Color) -> Vec<Part> {
             })
             .collect(),
         // Excavating: a heap of grit, a clay bank, teeth, whale bone, nodules.
-        K::GritHeap => vec![
+        K::GritHeap | K::SandDollarBed => vec![
             shape(Ellipse::new(15.0, 6.0), deep, 0.0, 3.0, 0.0),
             shape(
                 Triangle2d::new(
@@ -271,7 +271,7 @@ fn fresh_parts(kind: NodeKind, tint: Color) -> Vec<Part> {
             .chain([shape(Circle::new(1.6), tint, -3.0, 6.0, 0.0)])
             .collect(),
         // Foraging: snails, a fish fall, a carcass, a scaly-foot colony.
-        K::SnailRocks | K::ScalyFootSnails => (0..3)
+        K::SnailRocks | K::ScalyFootSnails | K::BrittleStarCrevice => (0..3)
             .flat_map(|i| {
                 let x = -11.0 + 11.0 * i as f32;
                 [
@@ -311,7 +311,12 @@ fn fresh_parts(kind: NodeKind, tint: Color) -> Vec<Part> {
             ]
         }
         // Culturing: glowing mats low on the rock, and the vent pot.
-        K::ShoreGlow | K::PitGlowSite | K::TwilightGlow | K::SulfurMatSite | K::VentMatSite => {
+        K::ShoreGlow
+        | K::PurpleFilmMat
+        | K::PitGlowSite
+        | K::TwilightGlow
+        | K::SulfurMatSite
+        | K::VentMatSite => {
             vec![
                 shape(Ellipse::new(17.0, 4.5), deep, 0.0, 2.0, 0.0),
                 shape(Ellipse::new(14.0, 3.6), tint, 0.0, 3.0, 0.0),

@@ -61,7 +61,12 @@ fn close(a: f32, b: f32) -> bool {
 fn strokes_earn_swimming() {
     let t = Tuning::default();
     let (_, sim) = stroke_gap(crab_with(Skill::Swimming, 1));
-    assert_eq!(sim.crabs()[0].mover.swim_xp, 2.0 * t.swim_xp_per_stroke);
+    // (The first hours pay Climbing and Swimming 180% below level 15.)
+    let early = crabsim::economy::ladder::move_xp_percent(1) as f32 / 100.0;
+    assert_eq!(
+        sim.crabs()[0].mover.swim_xp,
+        2.0 * t.swim_xp_per_stroke * early
+    );
 }
 
 #[test]
@@ -73,7 +78,10 @@ fn each_swimming_level_quickens_the_stroke_rhythm_and_the_rest_by_five_percent()
         println!("Swimming {level}: strokes {gap:.3} s apart (want {want:.3})");
         assert!(close(gap, want), "level {level}: {gap} s, want {want}");
         let rest = rest_time(crab_with(Skill::Swimming, level));
-        let want = t.stamina_refill_time * share;
+        // Above level 10 the stroke stops getting quicker, but the legs rest
+        // faster (`ladder.rs`).
+        let legs = crabsim::economy::ladder::legs_rest_percent(level) as f32 / 100.0;
+        let want = t.stamina_refill_time * share * (1.0 - legs);
         println!("Swimming {level}: rested in {rest:.3} s (want {want:.3})");
         assert!(close(rest, want), "level {level}: {rest} s, want {want}");
     }
@@ -111,17 +119,21 @@ fn claw_blows_earn_fighting_and_beating_a_creature_earns_more() {
     let t = Tuning::default();
     let (dealt, xp) = smash_a_bag(1, 1000.0);
     assert!(dealt > 0.0, "the smash landed");
-    assert_eq!(xp, dealt * t.fight_xp_per_damage);
+    // (The first hours pay Fighting 1,200% at level 1.)
+    let early = crabsim::economy::ladder::fight_xp_percent(1) as f32 / 100.0;
+    let want = dealt * t.fight_xp_per_damage * early;
+    assert!((xp - want).abs() < 1e-3, "{xp} vs {want}");
     // A bag the smash beats: what it had left, and the win.
     let (dealt, xp) = smash_a_bag(1, 5.0);
     assert_eq!(dealt, 5.0);
-    assert_eq!(xp, 5.0 * t.fight_xp_per_damage + t.fight_xp_per_win);
+    let want = (5.0 * t.fight_xp_per_damage + t.fight_xp_per_win) * early;
+    assert!((xp - want).abs() < 1e-3, "{xp} vs {want}");
 }
 
 #[test]
 fn each_fighting_level_hits_five_percent_harder() {
     let (base, _) = smash_a_bag(1, 1000.0);
-    for (level, share) in [(2, 1.05), (3, 1.1), (10, 1.45), (40, 1.45)] {
+    for (level, share) in [(2, 1.05), (3, 1.1), (10, 1.45), (40, 1.55)] {
         let (dealt, _) = smash_a_bag(level, 1000.0);
         println!("Fighting {level}: a smash deals {dealt:.2} (level 1: {base:.2})");
         assert!((dealt - base * share).abs() < 1e-3, "level {level}");
