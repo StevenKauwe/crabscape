@@ -2348,7 +2348,13 @@ fn the_route_gets_harder_with_room_to_breathe() {
             assert_eq!(e.pos, *authored);
             assert!(e.pos.y > level.floor_height(e.pos.x));
         } else {
-            assert_eq!(e.pos.y, level.floor_height(e.pos.x), "{:?}", e.kind);
+            // The sea floor, or a cavern's own floor where one is authored.
+            assert_eq!(
+                e.pos.y,
+                level.footing(authored.x, authored.y),
+                "{:?}",
+                e.kind
+            );
         }
     }
 }

@@ -1539,7 +1539,8 @@ fn climb_and_collide(m: &mut Mover, t: &Tuning, level: &Level, dt: f32) {
             m.grounded = true;
         }
     } else {
-        let floor = level.floor_height(m.pos.x);
+        // The ground under the grip: the sea floor, or a cavern's own floor.
+        let floor = level.footing(m.pos.x, m.pos.y);
         if m.pos.y - m.half_width(t) <= floor {
             m.pos.y = floor;
             m.vel = Vec2::ZERO;
@@ -1635,7 +1636,7 @@ fn move_and_collide(
             support = Some(s);
         }
     };
-    consider(level.floor_height(m.pos.x));
+    consider(level.footing(m.pos.x, high));
     for r in level.solids() {
         if over(&r, m.pos.x) {
             consider(r.max.y);
@@ -1657,8 +1658,9 @@ fn move_and_collide(
         m.grounded = false;
     }
 
-    // Safety net: never end up inside the sea floor.
-    let floor = level.floor_height(m.pos.x);
+    // Safety net: never end up inside the ground (the sea floor, or in a
+    // cavern the cavern's floor).
+    let floor = level.footing(m.pos.x, m.pos.y + step_up);
     if m.pos.y < floor - step_up {
         m.pos.y = floor;
         m.vel.y = m.vel.y.max(0.0);

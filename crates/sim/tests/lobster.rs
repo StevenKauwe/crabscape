@@ -9,7 +9,9 @@ use crabsim::world::cues::Cue;
 use crabsim::{Controls, Kind, Level, PlayerId, Replay, Sim, Tuning};
 
 const P: PlayerId = PlayerId(0);
-const X: f32 = 1500.0;
+// On the shelf: the trench floor that was once its arena now holds the Silt
+// Galleries' mouth (a hole in the floor between 1,540 and 1,700).
+const X: f32 = 900.0;
 
 fn arena() -> Sim {
     let mut sim = Sim::with_one_crab(Vec2::new(X, 0.0));
@@ -556,7 +558,7 @@ fn it_lives_at_a_landmark_in_the_test_level() {
 
 const HOST: PlayerId = PlayerId(0);
 const GUEST: PlayerId = PlayerId(1);
-const FAR: Vec2 = Vec2::new(1150.0, 110.0);
+const FAR: Vec2 = Vec2::new(2300.0, 35.0);
 
 fn world(spawn: bool) -> Sim {
     let mut sim = Sim::new(Tuning::default(), Level::test_level());

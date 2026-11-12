@@ -6,7 +6,14 @@ use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
 
 pub(super) const BAKE_TICKS: u64 = 9000;
-pub(super) const FORMAT: u32 = 1;
+pub(super) const FORMAT: u32 = 2;
+/// The bake works on fixed square chunks of this many cells a side, aligned to
+/// the world's cell grid (chunk `(i, j)` holds cells `1024 i .. 1024 (i + 1)`).
+pub(crate) const CHUNK_CELLS: i32 = 1024;
+/// Each chunk is simulated with this many extra cells all round (clipped to
+/// the world) and only its own cells are kept. See `docs/design/settled-terrain.md`.
+#[cfg(any(test, feature = "terrain-bake"))]
+pub(crate) const HALO_CELLS: i32 = 160;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Grain {
@@ -15,33 +22,152 @@ pub(crate) struct Grain {
     pub grain: u8,
     pub suspended: u8,
 }
+
+/// One chunk's baked cells: the columns of its own cells that differ from the
+/// authored terrain, and the fingerprint of everything that bake depended on.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub(crate) struct Seed {
-    pub format: u32,
+pub(crate) struct ChunkSeed {
+    pub cx: i32,
+    pub cy: i32,
     pub fingerprint: [u8; 32],
+    pub sediment: usize,
+    /// One entry per column of the chunk (left to right), sorted by `y`.
+    pub columns: Vec<Vec<Grain>>,
+}
+
+/// The file: every chunk, in `(cx, cy)` order.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct SeedFile {
+    pub format: u32,
+    pub ticks: u64,
+    pub origin: (i32, i32),
+    pub width: usize,
+    pub height: usize,
+    pub chunks: Vec<ChunkSeed>,
+}
+
+/// The loaded seed: the file's chunks merged into whole columns.
+#[derive(Clone, Debug)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) struct Seed {
     pub ticks: u64,
     pub origin: (i32, i32),
     pub width: usize,
     pub height: usize,
     pub sediment: usize,
     pub columns: Vec<Vec<Grain>>,
+    pub chunks: Vec<ChunkMeta>,
 }
 
-pub(crate) fn fingerprint(level: &crate::Level) -> [u8; 32] {
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) struct ChunkMeta {
+    pub cx: i32,
+    pub cy: i32,
+    pub fingerprint: [u8; 32],
+}
+
+impl SeedFile {
+    pub(crate) fn decode(bytes: &[u8]) -> Option<SeedFile> {
+        let unpacked = miniz_oxide::inflate::decompress_to_vec_zlib(bytes).ok()?;
+        postcard::from_bytes(&unpacked).ok()
+    }
+
+    pub(crate) fn merge(&self) -> Seed {
+        let mut columns: Vec<Vec<Grain>> = vec![Vec::new(); self.width];
+        let mut chunks: Vec<&ChunkSeed> = self.chunks.iter().collect();
+        chunks.sort_by_key(|c| (c.cx, c.cy));
+        for chunk in &chunks {
+            let x0 = chunk.cx * CHUNK_CELLS - self.origin.0;
+            for (dx, patch) in chunk.columns.iter().enumerate() {
+                if let Some(column) = usize::try_from(x0 + dx as i32)
+                    .ok()
+                    .and_then(|x| columns.get_mut(x))
+                {
+                    column.extend_from_slice(patch);
+                }
+            }
+        }
+        Seed {
+            ticks: self.ticks,
+            origin: self.origin,
+            width: self.width,
+            height: self.height,
+            sediment: chunks.iter().map(|c| c.sediment).sum(),
+            columns,
+            chunks: chunks
+                .iter()
+                .map(|c| ChunkMeta {
+                    cx: c.cx,
+                    cy: c.cy,
+                    fingerprint: c.fingerprint,
+                })
+                .collect(),
+        }
+    }
+}
+
+#[cfg(any(test, feature = "terrain-bake"))]
+/// The cell rectangle (`x0, y0, x1, y1`, half-open) a chunk covers, clipped to
+/// the world `(origin, width, height)`; `None` when the chunk lies outside it.
+pub(crate) fn chunk_rect(
+    cx: i32,
+    cy: i32,
+    origin: (i32, i32),
+    width: usize,
+    height: usize,
+) -> Option<(i32, i32, i32, i32)> {
+    let x0 = (cx * CHUNK_CELLS).max(origin.0);
+    let y0 = (cy * CHUNK_CELLS).max(origin.1);
+    let x1 = ((cx + 1) * CHUNK_CELLS).min(origin.0 + width as i32);
+    let y1 = ((cy + 1) * CHUNK_CELLS).min(origin.1 + height as i32);
+    (x1 > x0 && y1 > y0).then_some((x0, y0, x1, y1))
+}
+
+#[cfg(any(test, feature = "terrain-bake"))]
+/// A chunk's fingerprint: its own authored cells and the halo round them (the
+/// whole window the bake reads), the bake's settings, and the engine's
+/// normalised source. A change anywhere outside that window cannot alter it.
+pub(crate) fn chunk_fingerprint(
+    level: &crate::Level,
+    cx: i32,
+    cy: i32,
+    origin: (i32, i32),
+    width: usize,
+    height: usize,
+) -> [u8; 32] {
     use sha2::{Digest, Sha256};
     let mut hash = Sha256::new();
     hash.update(
         postcard::to_allocvec(&(
             FORMAT,
             BAKE_TICKS,
-            &level.floor,
-            &level.rocks,
-            level.max_x,
+            CHUNK_CELLS,
+            HALO_CELLS,
+            (cx, cy),
+            origin,
             SAND_PROPERTIES,
             MUD_PROPERTIES,
         ))
-        .expect("encode authored terrain fingerprint"),
+        .expect("encode chunk fingerprint header"),
     );
+    if let Some((x0, y0, x1, y1)) = chunk_rect(cx, cy, origin, width, height) {
+        let (wx0, wy0) = (
+            (x0 - HALO_CELLS).max(origin.0),
+            (y0 - HALO_CELLS).max(origin.1),
+        );
+        let wx1 = (x1 + HALO_CELLS).min(origin.0 + width as i32);
+        let wy1 = (y1 + HALO_CELLS).min(origin.1 + height as i32);
+        hash.update(postcard::to_allocvec(&(wx0, wy0, wx1, wy1)).expect("encode window"));
+        let map = level.layers_shared();
+        let mut row = Vec::with_capacity((wy1 - wy0) as usize);
+        for gx in wx0..wx1 {
+            let column = map.column((gx as f32 + 0.5) * GAME_CELL);
+            row.clear();
+            row.extend((wy0..wy1).map(|gy| column.cell_at_row(gy) as u8));
+            hash.update(&row);
+        }
+    }
     // Conservative invalidation: physics or authored special terrain changes
     // require a new bake, even if a change might not affect this seed.
     hash.update(env!("CRAB_BAKED_PHYSICS_HASH").as_bytes());
@@ -63,22 +189,19 @@ pub(super) fn for_level(level: &crate::Level) -> Option<&'static Seed> {
         if bytes.is_empty() {
             return None;
         }
-        let unpacked = miniz_oxide::inflate::decompress_to_vec_zlib(bytes)
-            .expect("trusted settled seed compression");
-        let seed: Seed = postcard::from_bytes(&unpacked).expect("trusted settled seed format");
-        assert_eq!(seed.format, FORMAT, "rebuild settled world seed");
-        assert_eq!(
-            seed.fingerprint,
-            fingerprint(authored),
-            "terrain/physics changed: rebuild settled world seed"
-        );
-        assert_eq!(seed.ticks, BAKE_TICKS);
+        let file = SeedFile::decode(bytes).expect("trusted settled seed format");
+        assert_eq!(file.format, FORMAT, "rebuild settled world seed");
+        assert_eq!(file.ticks, BAKE_TICKS);
+        let seed = file.merge();
         assert_eq!(seed.columns.len(), seed.width);
         assert!(
             seed.columns
                 .iter()
                 .all(|column| column.windows(2).all(|p| p[0].y < p[1].y))
         );
+        // Each chunk's fingerprint is checked by `bundled_seed_is_current`
+        // (and by the bake tool), not on every start: hashing the whole map's
+        // authored cells would cost the web build a visible hitch.
         Some(seed)
     })
     .as_ref()
@@ -130,15 +253,6 @@ impl<'a> Sampler<'a> {
     }
 }
 
-#[cfg(feature = "terrain-bake")]
-pub(crate) fn raw_cell(level: &crate::Level, gx: i32, gy: i32) -> Cell {
-    authored_terrain_cell(level, gx, gy)
-}
-#[cfg(feature = "terrain-bake")]
-pub(crate) fn raw_grain(gx: i32, gy: i32) -> u8 {
-    initial_grain(gx, gy)
-}
-
 impl World {
     /// Spawn footing also exists outside the active window. Stored cells win;
     /// only never-visited cells use the same initial history as streaming.
@@ -173,7 +287,7 @@ impl World {
                 )
         };
         let first = ((ceiling - GAME_BOTTOM) / GAME_CELL).floor() as i32 - 1;
-        let last = ((level.floor_height(x) - 512.0 - GAME_BOTTOM) / GAME_CELL).floor() as i32;
+        let last = ((level.footing(x, ceiling) - 512.0 - GAME_BOTTOM) / GAME_CELL).floor() as i32;
         for row in (last..=first).rev() {
             let supported = (x0..=x1)
                 .filter(|&gx| (0..3).all(|dy| cell(gx, row - dy) != Cell::Water))
@@ -215,7 +329,7 @@ mod tests {
         }
         let actual = format!("{:x}", hash.finalize());
         assert_eq!(
-            actual, "a0df3da11e9424d4007008ca0ded84288274ff2415dc5156c551327344b761c6",
+            actual, "4e1e79fcb52337b390ea90c79633ef7c4976a8beb6a4b532199e776c312c5a6c",
             "terrain changed: rebake and update the probe digest; see docs/design/settled-terrain.md"
         );
     }
@@ -487,9 +601,20 @@ mod tests {
     #[test]
     fn bundled_seed_is_current_and_chunk_edges_share_one_history() {
         let level = crate::Level::test_level();
-        let seed = for_level(&level).expect("run the offline five-minute world bake");
-        assert_eq!(seed.fingerprint, fingerprint(&level));
+        let seed = for_level(&level).expect("run the offline world bake");
         assert_eq!(seed.ticks, 9000);
+        // Every chunk's fingerprint is what its authored window hashes to now.
+        let (origin, width, height) = (seed.origin, seed.width, seed.height);
+        assert!(!seed.chunks.is_empty());
+        for chunk in &seed.chunks {
+            assert_eq!(
+                chunk.fingerprint,
+                chunk_fingerprint(&level, chunk.cx, chunk.cy, origin, width, height),
+                "chunk ({}, {}) is stale: rebake with `bake_settled_world --write`",
+                chunk.cx,
+                chunk.cy
+            );
+        }
         assert!(seed.sediment > 100_000);
         assert!(seed.columns.iter().map(Vec::len).sum::<usize>() > 1000);
         for id in [
@@ -514,6 +639,100 @@ mod tests {
             for_level(&changed).is_none(),
             "custom geometry must not receive an incompatible bake"
         );
+    }
+
+    /// The five-minute settling must not slump the galleries' walls and floors
+    /// into their cavities: every cavity stays mostly open water, and a crab
+    /// (65 units tall at its biggest) can pass every column of every room and
+    /// door. (Sand swept off the trench floor drifts down the mouth and piles
+    /// in the first door, up to about 56 units: measured, and tolerated.)
+    #[test]
+    fn galleries_keep_their_cavities_through_the_bake() {
+        let level = crate::Level::test_level();
+        let mut worst = (1.0f32, "");
+        for room in crate::level::silt_galleries::rooms() {
+            let (mut open, mut total) = (0u32, 0u32);
+            let r = room.rect;
+            let (x0, x1) = ((r.min.x / GAME_CELL) as i32, (r.max.x / GAME_CELL) as i32);
+            let (y0, y1) = (
+                ((r.min.y - GAME_BOTTOM) / GAME_CELL) as i32,
+                ((r.max.y - GAME_BOTTOM) / GAME_CELL) as i32,
+            );
+            let mut lowest_column = f32::MAX;
+            for gx in x0..x1 {
+                let mut column_open = 0;
+                for gy in y0..y1 {
+                    total += 1;
+                    let water = initial_terrain_cell(&level, gx, gy) == Cell::Water;
+                    open += u32::from(water);
+                    column_open += i32::from(water);
+                }
+                lowest_column = lowest_column.min(column_open as f32 * GAME_CELL);
+            }
+            let kept = open as f32 / total as f32;
+            eprintln!(
+                "{}: {:.1}% open water; least open column {lowest_column} units",
+                room.name,
+                kept * 100.0
+            );
+            if r.height() <= 300.0 {
+                assert!(lowest_column >= 90.0, "{} is nearly blocked", room.name);
+            }
+            if kept < worst.0 {
+                worst = (kept, room.name);
+            }
+        }
+        assert!(worst.0 > 0.7, "{} slumped: {:.3}", worst.1, worst.0);
+    }
+
+    /// Changing a rock changes the fingerprint of the chunk that holds it and
+    /// of the neighbours whose halo reaches it, and of no other chunk.
+    #[test]
+    fn a_rock_in_one_chunk_changes_only_the_chunks_it_touches() {
+        let level = crate::Level::test_level();
+        let (origin, width, height) = seed_bake::world_bounds(&level);
+        let (cxs, cys) = seed_bake::chunk_grid(origin, width, height);
+        let fingerprints = |level: &crate::Level| -> Vec<((i32, i32), [u8; 32])> {
+            cxs.iter()
+                .flat_map(|&cx| cys.iter().map(move |&cy| (cx, cy)))
+                .map(|(cx, cy)| {
+                    (
+                        (cx, cy),
+                        chunk_fingerprint(level, cx, cy, origin, width, height),
+                    )
+                })
+                .collect()
+        };
+        let before = fingerprints(&level);
+        // A rock in the open water over the basin floor: x 3000 is cell 750
+        // (chunk 0), y -690 is cell row -82 (chunk -1, 82 rows under chunk 0,
+        // inside its 160-cell halo).
+        let mut changed = level.clone();
+        changed
+            .rocks
+            .push(bevy_math::Rect::new(3000.0, -690.0, 3060.0, -660.0));
+        let after = fingerprints(&changed);
+        let moved: Vec<(i32, i32)> = before
+            .iter()
+            .zip(&after)
+            .filter(|(a, b)| a.1 != b.1)
+            .map(|(a, _)| a.0)
+            .collect();
+        assert_eq!(
+            moved,
+            vec![(0, -1), (0, 0)],
+            "the chunk and the one neighbour whose halo touches it"
+        );
+        // And a rock in a far corner leaves this one alone.
+        let mut far = level.clone();
+        far.rocks
+            .push(bevy_math::Rect::new(20000.0, -9000.0, 20060.0, -8970.0));
+        let far_after = fingerprints(&far);
+        for (a, b) in before.iter().zip(&far_after) {
+            if a.0.0 <= 2 {
+                assert_eq!(a, b, "chunk {:?} should not move", a.0);
+            }
+        }
     }
     #[test]
     fn edited_seed_cells_survive_sleep_return_and_checkpoint() {

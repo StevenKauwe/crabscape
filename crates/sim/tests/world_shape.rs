@@ -25,8 +25,10 @@ fn every_gate_landmark_covers_an_existing_net_brittle_or_bare_rock() {
     let expected: Vec<_> = level
         .nets
         .iter()
-        // A zero-area net is the tether's event marker, not a gate.
-        .filter(|n| !n.rect.is_empty())
+        // A zero-area net is the tether's event marker, not a gate, and the
+        // Silt Galleries' plug is dug open, not cut (its own landmark, a
+        // Plug, is proved in `silt_galleries.rs`).
+        .filter(|n| !n.rect.is_empty() && n.rect != crabsim::level::silt_galleries::PLUG)
         .map(|n| (n.rect, Needs::Scissors))
         .chain(level.brittle.iter().map(|b| (b.rect, Needs::Crusher)))
         .chain(
@@ -66,7 +68,10 @@ fn home_and_every_crevice_are_refuges() {
             level
                 .climbs
                 .iter()
-                .filter(|c| c.kind != Growth::Rock)
+                // The galleries' stalks are the way out of a drop, no refuge.
+                .filter(|c| {
+                    c.kind != Growth::Rock && !crabsim::level::silt_galleries::CORAL.contains(c)
+                })
                 .map(|c| Rect::new(c.x - 60.0, c.bottom, c.x + 60.0, c.top)),
         )
         .collect();

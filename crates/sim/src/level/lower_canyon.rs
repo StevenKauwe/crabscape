@@ -73,7 +73,7 @@ pub(super) const SEEP_GARDEN_PRIZE: Vec2 = Vec2::new(19160.0, -10470.0);
 pub(super) const WARM_SEAM_PRIZE: Vec2 = Vec2::new(20420.0, -11410.0);
 /// The home burrow's first-dig clam and the two in its gallery floor.
 pub(super) const FIRST_DIG_CLAM: Vec2 = Vec2::new(172.0, -45.0);
-pub(super) const GALLERY_CLAMS: [Vec2; 2] = [Vec2::new(330.0, -528.0), Vec2::new(440.0, -528.0)];
+pub(super) const GALLERY_CLAMS: [Vec2; 2] = [Vec2::new(300.0, -528.0), Vec2::new(360.0, -528.0)];
 /// The crust between the crust vault and the warm seam (needs a full charge).
 pub(super) const WARM_SEAM_CRUST: Rect = Rect::new(20480.0, -10800.0, 20600.0, -10760.0);
 /// The hanging garden: coral on the dam's east face, at the seep's outlet.
@@ -270,7 +270,11 @@ fn build_specs() -> Vec<Frame> {
         "crust vault",
         vault,
         Some(Tunnel),
-        vec![top(vault, 20540.0, W, true), bottom(vault, 20540.0, true)],
+        vec![
+            top(vault, 20540.0, W, true),
+            bottom(vault, 20540.0, true),
+            left(vault, -10300.0, true),
+        ],
     ));
     let seam = Rect::new(20300.0, -11500.0, 20960.0, -10800.0);
     out.push(Frame {
@@ -286,6 +290,28 @@ fn build_specs() -> Vec<Frame> {
             WARM_SEAM_PRIZE,
         )),
     });
+
+    // The crust vault's second door (it had one, on the vent floor; the seam
+    // behind its crust is the gate and gets none): a duct west from the vault
+    // (120 tall, the crab's height with room to turn), then a short shaft up to
+    // the vent floor.
+    let duct = Rect::new(20120.0, -10360.0, 20400.0, -10240.0);
+    out.push(full(
+        "vault duct",
+        duct,
+        Some(Tunnel),
+        vec![top(duct, 20180.0, W, true), right(duct, -10300.0, true)],
+    ));
+    let shaft_up = Rect::new(20120.0, -10200.0, 20240.0, -10020.0);
+    out.push(full(
+        "vault shaft",
+        shaft_up,
+        Some(Tunnel),
+        vec![
+            bottom(shaft_up, 20180.0, true),
+            top(shaft_up, 20180.0, W, true),
+        ],
+    ));
 
     // The Plunge: water inside, sealed from everything except the odd
     // tunnel's dead end (the Plunge lane scripts the rest).

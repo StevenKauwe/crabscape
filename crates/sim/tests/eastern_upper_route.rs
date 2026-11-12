@@ -184,7 +184,12 @@ fn upper_expedition_closes_a_loop_along_the_lower_seabed() {
 fn rubble_haven_is_a_usable_side_stop_at_the_cap() {
     for moults in [0, 100] {
         let level = Level::test_level();
-        let index = level.crevices.len() - 2;
+        // Found by place: later regions append their own crevices.
+        let index = level
+            .crevices
+            .iter()
+            .position(|c| c.door.min.x == 10255.0)
+            .expect("the rubble haven");
         let haven = level.crevices[index];
         let mut sim = Sim::with_one_crab(Vec2::new(10480.0, level.floor_height(10480.0)));
         sim.crab_mut(P0).unwrap().mover.moults = moults;

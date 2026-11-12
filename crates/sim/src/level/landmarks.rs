@@ -74,7 +74,17 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
         );
     }
     for (i, crevice) in level.crevices.iter().enumerate() {
-        add(format!("crevice {i}"), crevice.door, Kind::Refuge);
+        let named = super::silt_galleries::REST_POINTS
+            .iter()
+            .position(|(door, _)| *door == crevice.door);
+        add(
+            named.map_or_else(
+                || format!("crevice {i}"),
+                |n| super::silt_galleries::REST_NAMES[n].into(),
+            ),
+            crevice.door,
+            Kind::Refuge,
+        );
     }
     for (i, climb) in level.climbs.iter().enumerate() {
         let (name, kind) = match climb.kind {
@@ -88,14 +98,19 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
                 },
             ),
         };
+        // The stalks that climb out of the galleries' drops are no place to be
+        // set down (a ride's landing picks the nearest refuge).
+        let gallery = super::silt_galleries::CORAL.iter().position(|c| c == climb);
         add(
             if *climb == super::lower_canyon::HANGING_GARDEN {
                 "hanging garden".into()
+            } else if let Some(n) = gallery {
+                format!("gallery coral {n}")
             } else {
                 format!("{name} {i}")
             },
             Rect::new(climb.x - 60.0, climb.bottom, climb.x + 60.0, climb.top),
-            kind,
+            if gallery.is_some() { Kind::Frame } else { kind },
         );
     }
     // A zero-area net is an event marker (the lower canyon's tether switch),
@@ -104,7 +119,7 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
         .nets
         .iter()
         .enumerate()
-        .filter(|(_, n)| !n.rect.is_empty())
+        .filter(|(_, n)| !n.rect.is_empty() && n.rect != super::silt_galleries::PLUG)
     {
         add(
             format!("ghost net {i}"),
@@ -256,5 +271,6 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
             });
         }
     }
+    landmarks.extend(super::silt_galleries::landmarks(level));
     landmarks
 }

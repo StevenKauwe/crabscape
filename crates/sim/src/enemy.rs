@@ -1495,7 +1495,7 @@ fn step_inner(
                 .cells
                 .as_ref()
                 .and_then(|cells| cells.game_surface_below(x, half, e.pos.y + MAX_STEP));
-            let mut y = dynamic_surface.unwrap_or_else(|| level.floor_height(x));
+            let mut y = dynamic_surface.unwrap_or_else(|| level.footing(x, e.pos.y + MAX_STEP));
             if level.cells.is_some() {
                 // A solid lip within leg reach is a step, not a wall.
                 for rock in level.solids() {

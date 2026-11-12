@@ -4,14 +4,31 @@ New places begin with sediment that has already experienced five minutes of the
 actual material simulation. This is the owner's 2026-11-04 world-generation rule,
 not a promise that an untouched ocean floor never moves afterward.
 
-The offline generator builds one global grid covering the authored campaign,
-with 512 world units of lower, upper and right padding. It runs 9,000 ordinary
-30 Hz material steps at the same 0.35 baseline current used by the historical
-opening bake. There are no independently settled pages and therefore no internal
-page seams or discarded cross-page grains. Live region bounds and untrusted
-checkpoint limits are unchanged; the larger grid exists only in the offline
-`terrain-bake` feature. The generator asserts separate sand/mud mass conservation,
-including suspended grains, and no escaped falling packets.
+The offline generator bakes the campaign **chunk by chunk**: the world (with 512
+world units of lower, upper and right padding) is cut into fixed chunks of
+1,024 x 1,024 cells (4,096 units), aligned to the cell grid. Each chunk is
+simulated inside a window, the chunk plus a 160-cell halo all round (clipped to
+the world), for 9,000 ordinary 30 Hz material steps at the same 0.35 baseline
+current used by the historical opening bake, and only the chunk's own cells are
+kept. Every chunk has its own **fingerprint**: a hash of the authored raster of
+its whole window, the bake settings and the engine's normalised source
+(`CRAB_BAKED_PHYSICS_HASH`). `bake_settled_world --write` compares each chunk's
+fingerprint with the seed already on disk and rebakes only the chunks that
+changed, printing which and how long each took, so a gallery edit rebakes two
+chunks in under a minute and a full bake of all 24 chunks takes about two
+minutes (the old whole-map bake took 300 to 800 seconds). Each window conserves
+its sand and mud mass, including suspended grains, and lets no falling packet
+escape. The seed is one indexed file (a record per chunk) merged into whole
+columns at load.
+
+**Seams.** The windows are separate simulations, so the same grain can settle
+differently from a whole-map bake. `bake_settled_world --seams` bakes the whole
+map as one grid and compares: with the 160-cell halo, 9,746 of 152,573 sediment
+cells (6.4 %) differ; 4,051 of them lie within 160 cells of an interior chunk
+edge and 5,695 farther in, and the count per 16-cell band is no higher at the
+edges than inside, so the differences are the ordinary chaos of two long
+simulations, not a visible seam. A larger halo costs bake time quadratically;
+reconsider it if a seam is ever seen in play.
 
 The initial grid includes the actual floor, authored rock, excavation sediment,
 Canyon Drift shelves, shellwash bank and shallow shortcut. The global seed replaces
@@ -61,19 +78,18 @@ The full 640 × 360 bone-hall window measured 2.223 ms p95 against a 16.667 ms
 ```sh
 timeout 1500 cargo run -p crabsim --profile terrain-bake --features terrain-bake \
   --example bake_settled_world -- --probe 30
-timeout 1500 cargo run -p crabsim --profile terrain-bake --features terrain-bake \
-  --example bake_settled_world -- --write /tmp/crab-world-settled-full.postcard.deflate
-timeout 1500 cargo run -p crabsim --profile terrain-bake --features terrain-bake \
-  --example compact_settled_world -- /tmp/crab-world-settled-full.postcard.deflate \
-  crates/sim/assets/world-settled.postcard.deflate
+timeout 3000 cargo run -p crabsim --profile terrain-bake --features terrain-bake \
+  --example bake_settled_world -- --write [path] [--jobs 3]
+timeout 3000 cargo run -p crabsim --profile terrain-bake --features terrain-bake \
+  --example bake_settled_world -- --seams [path]
 ```
 
-The first command only measures cost and checks mass. The second writes the true
-five-minute seed; never run it on the gameplay thread. The third explicitly
-re-encodes that completed bake, verifying its existing fingerprint rather than
-retagging it or simulating again. Empty-water grain bytes are unused permutation
-trails: the compactor canonicalizes them and drops only identity-only water
-patches. All sediment grain identity/suspension and all actual material changes
+The first command only measures cost and checks mass over the whole map. The
+second rebakes the stale chunks of the seed (the committed file by default) and
+writes it back; never run it on the gameplay thread. The third measures the
+seams (see above). Empty-water grain bytes are unused permutation trails: the
+packer canonicalizes them and drops only identity-only water patches (this
+replaces the old separate compaction step). All sediment grain identity/suspension and all actual material changes
 (including emptied bed cells) remain. A real-kernel regression perturbs only water
 identity bytes and verifies identical subsequent material, flow, suspension,
 non-water grain state and falling packets under wakes and strong current. The development ARM64 Mac
@@ -89,9 +105,11 @@ removing 777,695 empty-water identity-only patches. Progress is printed every
 recursively under `src/underwater/` except `settled_seed.rs`,
 `src/physics/consts.rs`, and `src/level/coral_rise.rs`. Paths are relative to
 `crates/sim`. Path separators and CRLF are normalized for cross-platform checkouts.
-Edits to those files force a rebake. Runtime combines that source digest with the
-authored floor, rocks, maximum x, material parameters and seed-format/timing constants.
-Changes to those runtime inputs also force a rebake.
+Edits to those files rebake every chunk. Each chunk's fingerprint combines that
+source digest with the authored cells of its window (the layer map's raster,
+`level/layers.rs`: the floor, sediment, strata, rocks and every authored
+region), the material parameters and the seed-format/timing constants; a change
+to authored terrain rebakes only the chunks whose window it touches.
 
 `world.rs`, `tuning.rs`, `physics.rs` and `level/circulation.rs` are outside the
 source digest. Adding a tuning field or a call in `Sim::tick` therefore needs no

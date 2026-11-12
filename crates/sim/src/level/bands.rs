@@ -185,7 +185,7 @@ fn exact_bed(name: &str) -> Option<Declared> {
         | "pebble warren" | "clay cathedral" | "cathedral seep" | "hanging garden" => Bed(3),
         "vent field" | "seep garden" | "crust vault" | "warm seam" | "chimney hall"
         | "chimney mouth" | "chimney return" | "odd tunnel" | "Plunge shaft" | "Plunge crack"
-        | "angler stage" => Bed(4),
+        | "angler stage" | "vault duct" | "vault shaft" => Bed(4),
         "seep shaft"
         | "long chimney"
         | "long chimney crust plug"
@@ -199,7 +199,20 @@ fn exact_bed(name: &str) -> Option<Declared> {
         | "bare-rock band"
         | "ghost net"
         | "brittle rock"
-        | "basin return ledge" => Depth,
+        | "basin return ledge"
+        // The Silt Galleries (`level/silt_galleries.rs`) take their depth's bed.
+        | "upper gallery"
+        | "sponge gallery"
+        | "plug shaft"
+        | "silt mouth"
+        | "silt gallery plug"
+        | "gallery coral"
+        | "lower gallery"
+        | "moray hall"
+        | "drop cavern"
+        | "drop ledge"
+        | "silt mouth rest"
+        | "moray hall door rest" => Depth,
         _ => return None,
     })
 }

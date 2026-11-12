@@ -257,38 +257,41 @@ pub fn initial_terrain_cell(level: &crate::Level, cell_x: i32, cell_y: i32) -> C
 }
 
 fn authored_terrain_cell(level: &crate::Level, cell_x: i32, cell_y: i32) -> Cell {
-    let wx = (cell_x as f32 + 0.5) * GAME_CELL;
-    terrain_at_height(level, wx, cell_y, level.floor_height(wx))
+    TerrainColumn::new(level, cell_x).cell(cell_y)
 }
 
-fn terrain_at_height(level: &crate::Level, wx: f32, cell_y: i32, floor: f32) -> Cell {
-    let wy = GAME_BOTTOM + (cell_y as f32 + 0.5) * GAME_CELL;
-    if !level
-        .rocks
-        .iter()
-        .any(|r| r.contains(bevy_math::Vec2::new(wx, wy)))
-        && let Some(cell) = crate::level::strata::cell_at(level, wx, wy)
-    {
-        return cell;
-    }
-    terrain_with_rocks(wx, cell_y, floor, |wy| {
-        level
-            .rocks
-            .iter()
-            .any(|r| r.contains(bevy_math::Vec2::new(wx, wy)))
-    })
-}
-
-/// Sample authored rock membership once per column, not once per cell.
-/// This is transient generation work; saved cells always take precedence.
+/// One column of the level's 2D layer map (`level/layers.rs`), sampled once
+/// per column, not once per cell. This is transient generation work; saved
+/// cells always take precedence.
 struct TerrainColumn {
+    column: crate::level::layers::Column,
+}
+
+impl TerrainColumn {
+    fn new(level: &crate::Level, gx: i32) -> Self {
+        let wx = (gx as f32 + 0.5) * GAME_CELL;
+        Self {
+            column: level.layers_shared().column(wx),
+        }
+    }
+
+    fn cell(&self, gy: i32) -> Cell {
+        self.column.cell_at_row(gy)
+    }
+}
+
+/// The pre-layer-map generator, kept as the reference the layer map is
+/// proved against (`legacy_raster_matches_the_old_generator_cell_for_cell`).
+#[cfg(test)]
+struct LegacyColumn {
     wx: f32,
     floor: f32,
     rock_spans: Vec<(f32, f32)>,
     strata: Vec<crate::level::strata::StrataBody>,
 }
 
-impl TerrainColumn {
+#[cfg(test)]
+impl LegacyColumn {
     fn new(level: &crate::Level, gx: i32) -> Self {
         let wx = (gx as f32 + 0.5) * GAME_CELL;
         Self {
@@ -329,6 +332,7 @@ impl TerrainColumn {
     }
 }
 
+#[cfg(test)]
 fn terrain_with_rocks(wx: f32, cell_y: i32, floor: f32, rock_at: impl FnOnce(f32) -> bool) -> Cell {
     let wy = GAME_BOTTOM + (cell_y as f32 + 0.5) * GAME_CELL;
     // An authored shelf at the Canyon Drift Run. New pages start with this
@@ -4736,6 +4740,25 @@ impl World {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn legacy_raster_matches_the_old_generator_cell_for_cell() {
+        let level = crate::Level::world_without_galleries();
+        let map = level.layers();
+        let width = ((level.max_x + 512.0) / GAME_CELL).ceil() as i32;
+        let (lo, hi) = (-2700, 1500);
+        let mut cells = 0u64;
+        for gx in 0..width {
+            let old = LegacyColumn::new(&level, gx);
+            let new = map.column((gx as f32 + 0.5) * GAME_CELL);
+            for gy in lo..hi {
+                let (a, b) = (old.cell(gy), new.cell_at_row(gy));
+                assert_eq!(a, b, "cell ({gx}, {gy}): old {a:?}, layers {b:?}");
+                cells += 1;
+            }
+        }
+        eprintln!("compared {cells} cells over the whole map");
+    }
+
     use super::*;
 
     #[test]
@@ -4750,7 +4773,9 @@ mod tests {
         }
         for gx in xs {
             let column = TerrainColumn::new(&level, gx);
-            let floor_y = ((column.floor - GAME_BOTTOM) / GAME_CELL).floor() as i32;
+            let floor_y = ((level.floor_height((gx as f32 + 0.5) * GAME_CELL) - GAME_BOTTOM)
+                / GAME_CELL)
+                .floor() as i32;
             for gy in floor_y - 80..=floor_y + 200 {
                 assert_eq!(
                     column.cell(gy),
@@ -4776,13 +4801,12 @@ mod tests {
         let distant = *level.rocks.iter().find(|r| r.min.x > 8800.0).unwrap();
         level.rocks.extend(std::iter::repeat_n(distant, 1000));
         let after = TerrainColumn::new(&level, 490);
-        assert_eq!(before.rock_spans, after.rock_spans);
         for gy in -300..600 {
             assert_eq!(before.cell(gy), after.cell(gy));
         }
         // The inner cell sampler owns only this local list, so world growth
         // cannot reintroduce a full authored-rock scan for every entering cell.
-        assert!(after.rock_spans.len() < 4);
+        assert!(after.column.len() < 50);
     }
 
     #[test]
@@ -6746,7 +6770,14 @@ mod tests {
     fn digging_in_starting_pebbles_conserves_sediment_and_aggregates() {
         use crate::{Controls, PlayerId, Sim};
         use bevy_math::Vec2;
-        let mut sim = Sim::with_one_crab(Vec2::new(400.0, 0.0));
+        // The historical opening window: the galleries' mouth shaft opens
+        // through its lower edge (sand falls out there on purpose), so the
+        // proof of conservation runs on the world without them.
+        let mut sim = Sim::new(
+            crate::Tuning::default(),
+            crate::Level::world_without_galleries(),
+        );
+        sim.add_crab(PlayerId(0), Vec2::new(400.0, 0.0));
         sim.enable_underwater_cells();
         sim.level.cells = Some(World::opening_pebble_fixture(&sim.level));
         let before = sim.level.cells.as_ref().unwrap();
@@ -7395,7 +7426,7 @@ mod strata_tests {
     fn strata_layers_fill_each_frame_in_order() {
         let level = crate::Level::test_level();
         let bodies = level.strata();
-        assert_eq!(bodies.len(), 19);
+        assert_eq!(bodies.len(), 21);
         for body in bodies {
             let mut top = body.frame.max.y;
             for (material, thickness) in body.layers {
@@ -7444,7 +7475,7 @@ mod strata_tests {
     #[test]
     fn generation_outside_frames_is_unchanged() {
         use sha2::{Digest, Sha256};
-        let level = crate::Level::test_level();
+        let level = crate::Level::world_without_galleries();
         let bodies = level.strata();
         let side = TERRAIN_CHUNK_CELLS;
         let mut checked = 0;
@@ -7466,13 +7497,11 @@ mod strata_tests {
                 let mut baseline = Sha256::new();
                 for gx in cx * side..(cx + 1) * side {
                     let column = TerrainColumn::new(&level, gx);
+                    let old = LegacyColumn::new(&level, gx);
                     for gy in cy * side..(cy + 1) * side {
                         actual.update([column.cell(gy) as u8]);
-                        baseline.update([terrain_with_rocks(column.wx, gy, column.floor, |wy| {
-                            column
-                                .rock_spans
-                                .iter()
-                                .any(|&(lo, hi)| wy >= lo && wy <= hi)
+                        baseline.update([terrain_with_rocks(old.wx, gy, old.floor, |wy| {
+                            old.rock_spans.iter().any(|&(lo, hi)| wy >= lo && wy <= hi)
                         }) as u8]);
                     }
                 }

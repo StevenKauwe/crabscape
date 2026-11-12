@@ -46,6 +46,3 @@ required-features = ["terrain-bake"]
 [build-dependencies]
 sha2 = "0.10.9"
 
-[[example]]
-name = "compact_settled_world"
-required-features = ["terrain-bake"]
