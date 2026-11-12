@@ -317,7 +317,7 @@ fn prove(level: &Level, pockets: &[Pocket], c: &Complex, ducts: bool) -> Report 
 fn every_pocket_is_sealed_but_for_its_doors_and_has_two_ways_out() {
     let level = Level::test_level();
     let pockets = level.pockets();
-    assert_eq!(pockets.len(), 15);
+    assert_eq!(pockets.len(), 17);
     let mut dead_ends = Vec::new();
     for c in complexes(&level, &pockets) {
         let names: Vec<_> = c.pockets.iter().map(|&i| pockets[i].name).collect();
@@ -335,10 +335,10 @@ fn every_pocket_is_sealed_but_for_its_doors_and_has_two_ways_out() {
             dead_ends.push(names);
         }
     }
-    // The one dead end: the crust vault and the warm seam behind its crust
-    // have a single door on the vent field's floor (a hole in the map's
-    // terrain, reported; only a new frame can give it a second).
-    assert_eq!(dead_ends, vec![vec!["crust vault", "warm seam"]]);
+    // No dead ends. (The crust vault and the warm seam behind its crust had
+    // a single door on the vent field's floor; the vault's duct and shaft are
+    // its second. The seam stays behind the crust: no door of its own.)
+    assert!(dead_ends.is_empty(), "{dead_ends:?}");
 }
 
 /// The proof can fail: told the bone hall is smaller than it is, the flood

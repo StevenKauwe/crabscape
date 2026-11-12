@@ -8,7 +8,7 @@ use crabsim::{Level, PlayerId, Sim, Tuning};
 fn pockets_match_landmarks_and_have_two_mouths() {
     let level = Level::test_level();
     let pockets = level.pockets();
-    assert_eq!(pockets.len(), 15);
+    assert_eq!(pockets.len(), 17);
     for pocket in pockets {
         // A chamber reachable only through another pocket uses that pocket's
         // exits: the warm seam's one door opens into the crust vault.

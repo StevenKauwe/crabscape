@@ -177,6 +177,15 @@ impl Node {
     pub fn mover(&self) -> &crabsim::Mover {
         &self.sim.crab(ME).expect("the crab").mover
     }
+
+    /// This crab, at rest where it is, as the start of a new survey.
+    pub fn restart(&self) -> Node {
+        Node {
+            parent: None,
+            how: None,
+            ..self.clone()
+        }
+    }
 }
 
 pub fn world(kit: Kit, start: Vec2, foes: bool) -> Sim {

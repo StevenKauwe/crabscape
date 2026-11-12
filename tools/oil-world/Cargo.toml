@@ -1,0 +1,14 @@
+[package]
+name = "oil-world"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Makes the painted world's material tiles: swatches for the oil painter, then seamless tiles cut from what it paints."
+
+# An art tool in the workspace (not part of the game's build): `tools/paint-world.sh`.
+
+[dependencies]
+png = "0.18"
+
+[lints]
+workspace = true

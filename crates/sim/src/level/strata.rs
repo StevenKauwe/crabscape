@@ -145,13 +145,6 @@ impl Level {
     }
 }
 
-/// Allocation-free scalar counterpart of the column generator.
-pub(crate) fn cell_at(level: &Level, x: f32, y: f32) -> Option<Cell> {
-    bodies()
-        .iter()
-        .find_map(|body| body.cell_at(x, y).filter(|_| body.present(level)))
-}
-
 impl StrataBody {
     fn present(&self, level: &Level) -> bool {
         level

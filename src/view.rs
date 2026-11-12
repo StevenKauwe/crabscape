@@ -1,13 +1,13 @@
 //! The camera (which part of the level is on screen) and the HUD text.
 
 use bevy::camera::ScalingMode;
-use bevy::color::Mix;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 
 use crate::input::TouchControls;
 use crate::level::Parallax;
-use crate::memory::{WATER, water_at};
+use crate::memory::{WATER, depth_factor, water_at};
+use crate::painted_world::RidgeMaterial;
 use crate::player::{GameSet, LocalPlayer};
 use crate::tuning::ViewTuning;
 use crabsim::Mover;
@@ -118,7 +118,10 @@ fn start_zoom() -> Option<f32> {
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        None
+        // `--zoom 4` (photo runs, `photo.rs`).
+        let args: Vec<String> = std::env::args().collect();
+        let at = args.iter().position(|a| a == "--zoom")?;
+        args.get(at + 1)?.parse::<f32>().ok()
     }
 }
 
@@ -348,29 +351,76 @@ fn tint_water(
     }
 }
 
-/// Far-away layers follow the camera part of the way, so they seem distant.
-/// Zoomed out into the crab's memory they sink into the water: scenery it
-/// only half remembers.
+/// Where a far layer's root sits so that its painted strip always fills the view.
+///
+/// A layer with `factor` f follows the camera by f: a feature of it that lies at `u` along the strip is drawn at
+/// `u + f * camera - camera` on screen, so when the camera moves by d the feature moves by (1 - f) * d: far layers
+/// (f near 1) hardly move, near ones (f near 0) move almost with the world. The strip repeats every `period`
+/// world units, so the root can jump by whole periods without anything on screen moving: it does, to keep the
+/// strip's middle within half a period of what the camera sees, however far the camera is from the origin (a
+/// strip a few spires long ran out about a screen-and-a-half from home).
+///
+/// Vertically the layer stands on the far floor, which it keeps in proportion to `anchor` (the smoothed height of
+/// the floor under the camera) and not to the camera's own height: a camera that dives sees the far ridge keep to
+/// its floor, not float up the screen with the dive. `base` is where the strip's bottom edge of paint sits
+/// relative to that floor.
+pub(crate) fn layer_root(camera: Vec2, anchor: f32, factor: f32, period: f32, base: f32) -> Vec2 {
+    let shift = ((1.0 - factor) * camera.x / period).round() * period;
+    Vec2::new(
+        factor * camera.x + shift,
+        factor * camera.y + (1.0 - factor) * anchor + base,
+    )
+}
+
+/// How far the far layers have sunk into the water: a layer's own recession, and zoomed out they sink further
+/// (scenery the crab only half remembers).
+pub(crate) fn layer_recession(own: f32, zoom_out: f32) -> f32 {
+    own.max(((zoom_out - ZOOM_START) / 3.0).clamp(0.0, 0.85))
+}
+
+/// How lit the far ridges are, from the camera's depth (the daylight there): 1 in sunlight, 0 in the dark. A
+/// ridge is far beyond the lantern, so only the daylight lights it.
+pub(crate) fn ridge_light(depth_factor: f32) -> f32 {
+    let day = 1.0 - depth_factor.clamp(0.0, 1.0);
+    day * day
+}
+
+/// Far-away layers follow the camera part of the way, so they seem distant (see [`layer_root`]), stand on the
+/// floor under the camera (eased, so a drop in the floor never jerks them), sink into the water the further back
+/// they are and the further out the view, and blend their lit and dark paint from the daylight where the camera is.
 fn move_parallax(
+    time: Res<Time>,
+    sim: Res<Sim>,
     camera: Single<&Transform, With<Camera2d>>,
     zoom: Res<Zoom>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut materials: ResMut<Assets<RidgeMaterial>>,
     mut layers: Query<(&Parallax, &mut Transform), Without<Camera2d>>,
+    mut anchor: Local<Option<f32>>,
 ) {
-    let fade = ((zoom.out - ZOOM_START) / 3.0).clamp(0.0, 0.85);
+    let at = camera.translation.truncate();
+    let floor = sim.level.floor_height(at.x);
+    let held = anchor.get_or_insert(floor);
+    // Ease towards the floor under the camera; far away from it (a teleport home) snap.
+    if (floor - *held).abs() > 12000.0 {
+        *held = floor;
+    }
+    *held += (floor - *held) * (1.0 - (-1.2 * time.delta_secs()).exp());
+    let water = LinearRgba::from(water_at(at)).to_vec4();
+    let light = ridge_light(depth_factor(at));
     for (layer, mut tr) in &mut layers {
-        let colour = layer
-            .colour
-            .mix(&water_at(camera.translation.truncate()), fade);
-        if materials
-            .get(&layer.material)
-            .is_some_and(|m| m.color != colour)
-            && let Some(mut m) = materials.get_mut(&layer.material)
+        let root = layer_root(at, *held, layer.factor, layer.period, layer.base);
+        tr.translation.x = root.x;
+        tr.translation.y = root.y;
+        let recede = layer_recession(layer.recede, zoom.out);
+        if let Some(mut m) = materials.get_mut(&layer.material)
+            && (m.paint.water != water
+                || m.paint.settings.y != light
+                || m.paint.settings.z != recede)
         {
-            m.color = colour;
+            m.paint.water = water;
+            m.paint.settings.y = light;
+            m.paint.settings.z = recede;
         }
-        tr.translation.x = camera.translation.x * layer.factor;
-        tr.translation.y = camera.translation.y * layer.factor * 0.6;
     }
 }
 
@@ -681,5 +731,117 @@ mod camera_stability_tests {
         assert!(!pinch_eligible(screen, left, middle));
         assert!(!pinch_eligible(screen, middle, left));
         assert!(pinch_eligible(screen, middle, middle + Vec2::X * 40.0));
+    }
+}
+
+#[cfg(test)]
+mod parallax_tests {
+    use super::*;
+
+    const PERIOD: f32 = 1600.0;
+    /// The widest view the game allows: the furthest zoom out on a very wide window.
+    const WIDEST_HALF_VIEW: f32 = 340.0 * 2.4 * ZOOM_MAX / 2.0;
+    /// `level.rs`: how far either side of its middle a strip reaches.
+    const HALF_LENGTH: f32 = 17000.0;
+
+    fn on_screen(root: Vec2, along: f32, camera: Vec2) -> Vec2 {
+        Vec2::new(root.x + along - camera.x, root.y - camera.y)
+    }
+
+    /// Far layers move less on screen than near ones, and by exactly (1 - factor) of the camera's move.
+    #[test]
+    fn far_layers_move_less_than_near_ones() {
+        // How far (to the left, in screen units) a feature of the layer moves when the camera moves 100 right,
+        // modulo whole periods (the root jumps by those, invisibly).
+        let leftwards = |factor: f32| {
+            let a = Vec2::new(1000.0, -300.0);
+            let b = a + Vec2::new(100.0, 0.0);
+            let at = |c: Vec2| on_screen(layer_root(c, 0.0, factor, PERIOD, 0.0), 0.0, c).x;
+            (at(a) - at(b)).rem_euclid(PERIOD)
+        };
+        let (near, far) = (leftwards(0.45), leftwards(0.7));
+        assert!(far < near, "far {far} near {near}");
+        assert!(
+            (near - 55.0).abs() < 1e-2,
+            "moves left by 0.55 of 100: {near}"
+        );
+        assert!((far - 30.0).abs() < 1e-2, "moves left by 0.3 of 100: {far}");
+    }
+
+    /// A strip never runs out: wherever the camera is in the level or beyond, and at the widest view, the root's
+    /// strip covers everything the camera sees, and the layer never leaves the strip's middle by more than half a
+    /// period (so the root's jump by a period is the only thing that moves, and the strip repeats there).
+    #[test]
+    fn the_strip_always_covers_the_view() {
+        for factor in [0.45, 0.7] {
+            let mut x = -30000.0;
+            while x < 60000.0 {
+                let camera = Vec2::new(x, -1234.0);
+                let root = layer_root(camera, 0.0, factor, PERIOD, 0.0);
+                let left = camera.x - WIDEST_HALF_VIEW - root.x;
+                let right = camera.x + WIDEST_HALF_VIEW - root.x;
+                assert!(
+                    left >= -HALF_LENGTH && right <= HALF_LENGTH,
+                    "x {x} factor {factor}: strip shows {left}..{right}"
+                );
+                x += 137.0;
+            }
+        }
+    }
+
+    /// A jump of the root by whole periods moves nothing on screen: a feature's place is its place along the
+    /// repeating strip, less (1 - factor) of the camera, whichever period the root is in.
+    #[test]
+    fn the_roots_jump_is_invisible() {
+        let factor = 0.7;
+        let mut x = 0.0f32;
+        let mut last: Option<f32> = None;
+        while x < 20000.0 {
+            let camera = Vec2::new(x, 0.0);
+            let root = layer_root(camera, 0.0, factor, PERIOD, 0.0);
+            // A feature 100 units along the strip, wrapped to the period: where it should be on screen.
+            let drawn = (on_screen(root, 100.0, camera).x).rem_euclid(PERIOD);
+            let expected = (100.0 - (1.0 - factor) * x).rem_euclid(PERIOD);
+            assert!((drawn - expected).abs() < 1e-1 || (drawn - expected).abs() > PERIOD - 1e-1);
+            if let Some(before) = last {
+                let step = (drawn - before).rem_euclid(PERIOD);
+                // Moves left by (1 - factor) * 25 per step, never jumps.
+                assert!(
+                    (PERIOD - step - (1.0 - factor) * 25.0).abs() < 1e-1,
+                    "x {x}: step {step}"
+                );
+            }
+            last = Some(drawn);
+            x += 25.0;
+        }
+    }
+
+    /// Diving moves a far layer by (1 - factor) of the dive, standing on its floor (the anchor): when the floor
+    /// is the camera's own floor, the ridge's base stays at the same distance below the camera.
+    #[test]
+    fn a_dive_keeps_the_ridge_on_its_floor() {
+        for factor in [0.45, 0.7] {
+            let floor_at = |y: f32| {
+                let camera = Vec2::new(5000.0, y + 60.0);
+                layer_root(camera, y, factor, PERIOD, -200.0).y - camera.y
+            };
+            // The same whether the floor under the camera is at 0 or 6000 down: no drift with depth.
+            assert!((floor_at(0.0) - floor_at(-6000.0)).abs() < 1e-3);
+        }
+    }
+
+    #[test]
+    fn far_ridges_sink_further_and_zooming_out_sinks_more() {
+        assert!(layer_recession(0.62, 1.0) > layer_recession(0.34, 1.0));
+        assert!(layer_recession(0.34, ZOOM_MAX) > layer_recession(0.34, ZOOM_START));
+        assert_eq!(layer_recession(0.62, ZOOM_START), 0.62);
+        assert!(layer_recession(0.34, ZOOM_MAX) <= 0.85);
+    }
+
+    #[test]
+    fn ridges_are_lit_by_the_daylight_where_the_camera_is() {
+        assert_eq!(ridge_light(0.0), 1.0);
+        assert_eq!(ridge_light(1.0), 0.0);
+        assert!(ridge_light(0.3) > ridge_light(0.6));
     }
 }

@@ -333,11 +333,13 @@ fn two_sims_agree_through_a_pocket_and_the_plunge() {
 
 /// The open water between the slump dam and the narrows is not a crossing
 /// (no shark swims there: the sixgill holds the canyon crossings and the vent
-/// field), so no refuge-in-sight rule binds it; its worst distance is printed
-/// for the record (`--ignored --nocapture`).
+/// field), but the descent is a long way down with nothing to hold: from every
+/// point of its column a refuge (a coral clump, a crevice, a burrow mouth) is
+/// within 1,500 units, as on the canyon's wide crossings. The hanging garden
+/// at the dam's top left a gap of 1,946 units at y -7,900 until a clump went on
+/// the dam's face there.
 #[test]
-#[ignore = "prints the lower canyon descent's refuge distances"]
-fn survey_the_lower_canyon_descent_refuges() {
+fn the_lower_canyon_descent_is_never_far_from_a_refuge() {
     let marks = marks();
     let refuges: Vec<Rect> = marks
         .iter()
@@ -361,4 +363,5 @@ fn survey_the_lower_canyon_descent_refuges() {
         "descent column x 17900: worst refuge distance {:.0} at {:?}",
         worst.0, worst.1
     );
+    assert!(worst.0 <= 1500.0, "{:.0} at {:?}", worst.0, worst.1);
 }

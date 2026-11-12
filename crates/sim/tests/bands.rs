@@ -256,7 +256,7 @@ fn pockets_mute_the_outside() {
         "muted, never silent"
     );
     let pockets = level.pockets();
-    assert_eq!(pockets.len(), 15);
+    assert_eq!(pockets.len(), 17);
     for pocket in &pockets {
         let middle = pocket.frame.center();
         assert_eq!(level.pocket_mute(middle), POCKET_MUTE, "{}", pocket.name);

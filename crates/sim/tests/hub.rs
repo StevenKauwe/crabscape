@@ -277,8 +277,12 @@ fn the_flood_runs_up_the_crack_to_the_hub_and_the_coral_still_climbs_it_on_the_e
 #[test]
 fn a_glass_sponge_lies_buried_in_the_hubs_sand_and_digging_turns_it_up() {
     let level = Level::test_level();
-    let at = *level.sponges.last().unwrap();
-    assert!(at.x > HUB.0 && at.x < HUB.1);
+    // Found by place: later regions append their own sponges.
+    let at = *level
+        .sponges
+        .iter()
+        .find(|p| p.x > HUB.0 && p.x < HUB.1)
+        .expect("a sponge in the hub");
     assert!(at.y < HUB.2 - 50.0, "buried, not lying on the floor");
     // In the material world, a crab with nothing but its scoop digs down
     // to it: no glass grips, no canyon.
@@ -303,7 +307,13 @@ fn a_glass_sponge_lies_buried_in_the_hubs_sand_and_digging_turns_it_up() {
         "at {}",
         crab.mover.pos
     );
-    assert_eq!(crab.sponges_taken.last(), Some(&true));
+    let index = sim
+        .level
+        .sponges
+        .iter()
+        .position(|p| *p == at)
+        .expect("the hub's sponge");
+    assert_eq!(crab.sponges_taken.get(index), Some(&true));
     // Walking over the spot does not find it.
     let r = run(
         &format!("start x={} y={}\nt=0 walk=right", at.x - 100.0, HUB.2),
