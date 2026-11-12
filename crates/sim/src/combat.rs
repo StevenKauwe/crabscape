@@ -206,7 +206,7 @@ impl Phase {
 }
 
 /// A claw strike under way.
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Swing {
     pub claw: Claw,
     /// Ticks into the swing: 1 on the tick it was pressed.
@@ -230,6 +230,39 @@ pub struct Swing {
     pub full_charge: u32,
     /// ...and how much harder it hits at full charge.
     pub charge_bonus: f32,
+}
+
+impl Clone for Swing {
+    fn clone(&self) -> Self {
+        Self {
+            claw: self.claw,
+            tick: self.tick,
+            hits: self.hits.clone(),
+            counter: self.counter,
+            windup: self.windup,
+            charged: self.charged,
+            charging: self.charging,
+            power: self.power,
+            aim: self.aim,
+            full_charge: self.full_charge,
+            charge_bonus: self.charge_bonus,
+        }
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        // Keep the hit list's allocation across presentation frames.
+        self.hits.clone_from(&source.hits);
+        self.claw = source.claw;
+        self.tick = source.tick;
+        self.counter = source.counter;
+        self.windup = source.windup;
+        self.charged = source.charged;
+        self.charging = source.charging;
+        self.power = source.power;
+        self.aim = source.aim;
+        self.full_charge = source.full_charge;
+        self.charge_bonus = source.charge_bonus;
+    }
 }
 
 impl Swing {
@@ -277,7 +310,7 @@ impl Swing {
 }
 
 /// A crab's fighting state.
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::component::Component))]
 pub struct Fighter {
     pub vitals: Vitals,
@@ -331,6 +364,62 @@ pub struct Fighter {
     pub drop_hold: u32,
     /// In an ink cloud: creatures that hunt by sight lose it.
     pub blinded: bool,
+}
+
+impl Clone for Fighter {
+    fn clone(&self) -> Self {
+        Self {
+            vitals: self.vitals,
+            facing: self.facing,
+            swing: self.swing.clone(),
+            queued: self.queued,
+            knocked: self.knocked,
+            dead: self.dead,
+            blocking: self.blocking,
+            block_age: self.block_age,
+            parry_lockout: self.parry_lockout,
+            counter: self.counter,
+            armour_break: self.armour_break,
+            dodge_age: self.dodge_age,
+            crush: self.crush,
+            back: self.back,
+            turn: self.turn,
+            turn_step: self.turn_step,
+            calm: self.calm,
+            grabbed: self.grabbed,
+            venom: self.venom.clone(),
+            legs_lost: self.legs_lost,
+            drop_hold: self.drop_hold,
+            blinded: self.blinded,
+        }
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        // src/player.rs refreshes this presentation snapshot every frame.
+        // Derived Clone's default clone_from replaces these nested buffers.
+        self.swing.clone_from(&source.swing);
+        self.venom.clone_from(&source.venom);
+        self.vitals = source.vitals;
+        self.facing = source.facing;
+        self.queued = source.queued;
+        self.knocked = source.knocked;
+        self.dead = source.dead;
+        self.blocking = source.blocking;
+        self.block_age = source.block_age;
+        self.parry_lockout = source.parry_lockout;
+        self.counter = source.counter;
+        self.armour_break = source.armour_break;
+        self.dodge_age = source.dodge_age;
+        self.crush = source.crush;
+        self.back = source.back;
+        self.turn = source.turn;
+        self.turn_step = source.turn_step;
+        self.calm = source.calm;
+        self.grabbed = source.grabbed;
+        self.legs_lost = source.legs_lost;
+        self.drop_hold = source.drop_hold;
+        self.blinded = source.blinded;
+    }
 }
 
 /// Held in a bite (see [`crate::tuning::GrabTuning`]).
