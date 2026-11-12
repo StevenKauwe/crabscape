@@ -27,6 +27,7 @@ pub const LONG_SPEED: f32 = 1000.0;
 /// How fast a lane lets go of the crab at its exit.
 pub const EXIT_SPEED: f32 = 240.0;
 pub const SEEP: &str = "seep chimney";
+pub const CATHEDRAL_SEEP: &str = "cathedral seep";
 pub const LONG: &str = "long chimney home";
 /// A refuge farther than this from a lane's exit is not its landing.
 const LANDING_REACH: f32 = 3000.0;
@@ -35,14 +36,51 @@ fn find<'a>(landmarks: &'a [Landmark], name: &str) -> Option<&'a Landmark> {
     landmarks.iter().find(|l| l.name == name)
 }
 
-/// The refuge nearest to `exit` that is not below it: where the lane sets
-/// the crab down.
+/// The distance from `p` to the nearest point of `r` (0 inside it).
+fn near(r: Rect, p: Vec2) -> f32 {
+    (r.min - p).max(p - r.max).max(Vec2::ZERO).length()
+}
+
+/// Does a gate (a net, a brittle rock, a bare-rock band) stand between `a` and
+/// `b`, in the same passage (within 300 units above or below the run)? A gate
+/// that sits at `a` itself is the lane's own plug, not a barrier.
+fn gate_between(landmarks: &[Landmark], a: Vec2, b: Vec2) -> bool {
+    let (x0, x1) = (a.x.min(b.x), a.x.max(b.x));
+    let (y0, y1) = (a.y.min(b.y) - 300.0, a.y.max(b.y) + 300.0);
+    landmarks.iter().any(|l| {
+        matches!(l.kind, Kind::Gate { .. })
+            && near(l.rect, a) > 30.0
+            && l.rect.max.x > x0
+            && l.rect.min.x < x1
+            && l.rect.max.y > y0
+            && l.rect.min.y < y1
+    })
+}
+
+/// The refuge nearest to `exit` that is not below it and that no gate
+/// separates from it: where the lane sets the crab down. The mouth of the
+/// lane's own exit is a refuge too (a burrow door), so a lane that comes out
+/// on the ground beside a gate sets the crab down on its own side of it.
 fn landing(landmarks: &[Landmark], exit: Vec2) -> Option<Vec2> {
+    // A door sealed by a crust (the long chimney's plug) is not somewhere to
+    // be set down; the lane's own exit door is, a step to its side (a point
+    // inside the lane's own reach would hold the crab there for good).
+    let sealed = |r: Rect| {
+        landmarks
+            .iter()
+            .any(|g| matches!(g.kind, Kind::Gate { .. }) && !g.rect.intersect(r).is_empty())
+    };
     landmarks
         .iter()
-        .filter(|l| matches!(l.kind, Kind::Refuge))
-        .map(|l| Vec2::new(l.rect.center().x, l.rect.max.y))
+        .filter_map(|l| match l.kind {
+            Kind::Refuge => Some(Vec2::new(l.rect.center().x, l.rect.max.y)),
+            Kind::Mouth if near(l.rect, exit) <= 30.0 && !sealed(l.rect) => {
+                Some(Vec2::new(l.rect.max.x + 100.0, l.rect.max.y))
+            }
+            _ => None,
+        })
         .filter(|p| p.y >= exit.y - 150.0 && p.distance(exit) <= LANDING_REACH)
+        .filter(|p| !gate_between(landmarks, exit, *p))
         .min_by(|a, b| a.distance(exit).total_cmp(&b.distance(exit)))
 }
 
@@ -61,6 +99,21 @@ pub fn lanes_from(landmarks: &[Landmark]) -> Vec<Lane> {
                 speed: SEEP_SPEED,
             }],
             landing: landing(landmarks, Vec2::new(r.center().x, r.max.y)),
+            exit_speed: EXIT_SPEED,
+        });
+    }
+    if let Some(seep) = find(landmarks, "cathedral seep") {
+        let r = seep.rect;
+        lanes.push(Lane {
+            name: CATHEDRAL_SEEP.into(),
+            open: Open::Free,
+            segments: vec![Segment {
+                rect: r,
+                dir: Vec2::X,
+                speed: SEEP_SPEED,
+            }],
+            landing: find(landmarks, "hanging garden")
+                .map(|g| Vec2::new(g.rect.center().x, g.rect.max.y)),
             exit_speed: EXIT_SPEED,
         });
     }

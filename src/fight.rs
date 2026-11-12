@@ -261,6 +261,9 @@ fn hint(kind: Kind) -> Option<&'static str> {
         Kind::AlarmJelly => Some(
             "GUARD the trailing tentacle. Strike or bump the bell to flash blue.\nA nearby idle hunter investigates the light; slip past below.",
         ),
+        Kind::Sixgill => Some(
+            "The water swells: something big has turned your way.\nGet under coral, kelp or into a crevice before it comes.",
+        ),
         Kind::Fixture => None,
         // The bestiary's lanes write each hint; until then they run the plain tell and strike.
         Kind::LoggerheadTurtle

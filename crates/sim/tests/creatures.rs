@@ -328,6 +328,13 @@ fn every_body_is_its_real_size_at_crab_scale() {
             "body length",
             19.0..=36.0,
         ),
+        // A 2 m sixgill (up to 4.8 m: [FLMNH-SG]; the 65 cm low end not verified).
+        (
+            "bluntnose sixgill",
+            long(Kind::Sixgill),
+            "total length",
+            65.0..=480.0,
+        ),
         // Six 50 cm fish (30-63.5 cm), coiled into a knot.
         (
             "hagfish",

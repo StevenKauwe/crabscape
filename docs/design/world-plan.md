@@ -56,7 +56,9 @@ one GitHub issue (label `world-plan`) that stands on its own.
    Do not guess at taste. Packages marked **(gate)** do not auto-merge: open the PR without `--auto` and wait.
 8. **Rebakes.** The settled-world seed's source fingerprint (`crates/sim/build.rs`) hashes
    `crates/sim/src/underwater.rs`, all Rust files recursively in `underwater/` except `settled_seed.rs`,
-   `physics/consts.rs` and `level/coral_rise.rs`. Runtime also fingerprints the floor, rocks, maximum x,
+   `physics/consts.rs` and `level/coral_rise.rs`, after normalising each (comments, whitespace and
+   `#[cfg(test)]` items dropped: `crates/sim/build_support/fingerprint.rs`), so comments, tests and lint-only
+   edits no longer force a bake. Runtime also fingerprints the floor, rocks, maximum x,
    material parameters and seed-format/timing constants. Changes to these inputs require the ~9-minute bake
    (`docs/design/settled-terrain.md`). `world.rs`, `tuning.rs`, `physics.rs`, `level/circulation.rs` and
    loader/test-only edits to `settled_seed.rs` do not force one. A field added to `Tuning` or a call added to
@@ -69,29 +71,35 @@ one GitHub issue (label `world-plan`) that stands on its own.
    (`crates/sim/src/underwater.rs`, `crates/sim/src/underwater/`, `src/cellular*`) unless the issue says it is a
    **gated engine package**.
 
-## Where things stand (2026-11-10, lead designer)
-Read this first if you are continuing without the lead designer. Check each item's live state with `gh pr view <n>`
-or `gh issue view <n>` before acting.
-- **Merged:** plan and bible (#473, #476, #486, #488, #494, #507), W0.1 landmarks (#474), W0.2 route library
-  (#480), W0.3 fear invariants (#485), W0.4 seed fingerprint (#479), W0.5 compact memory saves (#495), W1.1 depth
-  bands (#478), W1.3 canyon refuges (#490), W1.3b lower canyon and frames (#506), W1.4 tether and deep food (#509),
-  W2.1 pressure on the body (#483), W2.3 anxiety (#484), W3.0 strata in the frames (#511), and **W2.2 sound
-  (#493, merged 2026-11-10 after the owner's play-test)**. The final sound design only adds sound: warnings swell,
-  nothing ducks or pauses the music, and the music path is `main`'s.
-- **Now: the first burrow (Milestone "first burrow" = W3.1 + W3.2 in one PR, one bake).** W3.1 (#465) and W3.2
-  (#466) both reshape the home burrow's strata, so they ship together on branch `issue-465-burrow` (worktree
-  `.claude/worktrees/burrow`, the old `issue-465-pockets` work cherry-picked onto `main`): the hunter rule, mouth
-  shafts from the home burrow up to the floor, a gallery and clam beds inside, the mantis moved to the mantis mouth
-  with its ground tell drawn on the ground, one bake. The coding is done by Claude Sonnet subagents from a written
-  brief; the lead reviews every diff.
-- **Then, in order:** W3.3 mantis mouth chain and bone hall (#467, **Milestone 3 taste gate**: stop there and wait
-  for the owner); after the owner's go, W4.1 seep chimney (#468, a rock package), W4.2 long chimney (#469), the
-  open-water hunter W1.2 (#458, unblocked by #493: it uses the existing `Cue::Tell` swell, there is no `Hush`; see the
-  issue's last comment; Milestone 1 taste gate), then the Plunge (#470 to #472; #471 is the Milestone 4 gate).
-- **Coding agents:** the owner wants Claude Sonnet to write the code (not Codex). Write the package brief (files,
-  behaviour, tests first, constraints, taste check, hidden rules), run it as a Sonnet subagent in the package's own
-  worktree (it runs fmt, clippy native and wasm32, tests; it never opens PRs), then review and open the PR yourself.
-  At most two coders at once, never two on the same files. Item 4 above (Codex) is kept for reference only.
+## Where things stand (2026-11-11, lead designer)
+Read this first if you are continuing without the lead designer. Check each item's live state with `gh pr view <n>`.
+- **On main:** the plan and bible, W0.x, W1.1, W1.3, W1.3b, W1.4, W2.1, W2.2 sound (#493), W2.3, W3.0, the tunnel rules
+  (#586: no hunter enters a tunnel; an ambusher reaches only its body length into a mouth), the seep chimneys and the
+  long chimney home with act three (#589), the ten creatures from the creature team (#599) and the economy (#596).
+- **The big Plate D PR #610** (branch `issue-466-geometry`; closes #465, #466, #470, #471, #472, #458), one bake:
+  - The world steps down to the right: the basin pit filled (its egg 4, clue and tooth now the bone hall's prize), the
+    canyon floor raised to -6,000, everything east of the canyon 2,000 lower, the lower canyon (-10,000) deepest.
+  - Five sediment bodies with doors: home burrow (two silt shafts, a clay gallery, clam beds; round trip 23.5 s and
+    0.09 reserve), mantis mouth → clay tunnel → bone hall (+ seep shaft out), clay cathedral and pebble warren (+ the
+    cathedral seep to the hanging garden on the dam's face), seep garden and chimney hall, crust vault and warm seam;
+    the long chimney's crust plug; the Plunge's frames open.
+  - The whole Plunge (odd tunnel tells after act three, the dig, the lip, the 30 s fall, the crack, the angler scene,
+    the wild light as an economy item, the answer, the 20 s vent home), proven on the real map.
+  - The sixgill open-water hunter (long tell from 1,200+, refuge always wins, never kills; libm trig; sharks sleep far
+    from crabs).
+  - The seed fingerprint now ignores comments, whitespace and tests (only real terrain or physics changes force a bake).
+- **#587 the bone hall's clock** (sulfide pulses, 1.5 s hiss, scavengers): green except the King's castle browser
+  check, which is red on main too (#607, fixed in #609 by another session). Rerun after #609.
+- **Taste gates (posted, never waited on):** Milestone 1 (#458), 3 (#467), 4 (#471): the preview link and the "what
+  to try" lists from this plan go on each issue once the PR's preview is live.
+
+### Next, in order
+1. Merge the big PR and #587 once main's castle check is green (rerun their failed jobs).
+2. Post the three taste-gate previews; fold the owner's feedback in as it comes.
+3. Lane A (atmosphere per bed: smells, sounds and lantern for the new beds; the three Plunge hints' sound) and lane V
+   (route-solver proofs over the new map with chimneys and digs: no gate bypass, every pocket's exits, round trips).
+4. Not built from Plate D: the second and cold canyons and the abyssal fan; the dug-and-shored tunnel from the clam
+   beds to the mantis burrow is left to the player.
 
 ### How the built map differs from the owner's Plate D (and what it costs)
 Plate D draws the strata as layered banks running under the canyon's walls, with pockets embedded in them, mouths as

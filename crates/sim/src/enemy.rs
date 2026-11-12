@@ -63,10 +63,13 @@ pub enum Kind {
     Hagfish,
     /// A swarm of amphipods: a cloud of tiny scavengers.
     AmphipodSwarm,
+    /// The bluntnose sixgill: a shark of the open water with a long tell
+    /// (`crate::sixgill`).
+    Sixgill,
 }
 
 /// Every kind, for parsing and lists.
-pub const KINDS: [Kind; 18] = [
+pub const KINDS: [Kind; 19] = [
     Kind::Fixture,
     Kind::Mantis,
     Kind::Snapper,
@@ -85,6 +88,7 @@ pub const KINDS: [Kind; 18] = [
     Kind::GiantIsopod,
     Kind::Hagfish,
     Kind::AmphipodSwarm,
+    Kind::Sixgill,
 ];
 
 impl Kind {
@@ -98,6 +102,7 @@ impl Kind {
             Kind::Monkey => crate::codes::monkey_tuning(),
             Kind::Triggerfish => crate::tuning::triggerfish_tuning(),
             Kind::AlarmJelly => crate::tuning::alarm_jelly_tuning(),
+            Kind::Sixgill => &t.sixgill.base,
             k => crate::creatures::tuning(k).expect("every new kind has a creature module"),
         }
     }
@@ -122,6 +127,7 @@ impl Kind {
             Kind::GiantIsopod => "giant-isopod",
             Kind::Hagfish => "hagfish",
             Kind::AmphipodSwarm => "amphipod-swarm",
+            Kind::Sixgill => "sixgill",
         }
     }
 
@@ -132,14 +138,16 @@ impl Kind {
     /// Swims through open water (no walking on the floor, so no tunnel test
     /// for a hunter's route).
     pub fn swims(self) -> bool {
-        matches!(self, Kind::Moray | Kind::Triggerfish | Kind::AlarmJelly)
-            || crate::creatures::midwater(self)
+        matches!(
+            self,
+            Kind::Moray | Kind::Triggerfish | Kind::AlarmJelly | Kind::Sixgill
+        ) || crate::creatures::midwater(self)
     }
 
     /// Keeps the depth it was authored at when spawned (the rest settle on
     /// the live bed).
     pub fn keeps_depth(self) -> bool {
-        self == Kind::AlarmJelly || crate::creatures::midwater(self)
+        matches!(self, Kind::AlarmJelly | Kind::Sixgill) || crate::creatures::midwater(self)
     }
 }
 
@@ -427,6 +435,11 @@ impl Enemy {
         if let Some(p) = crate::creatures::phase(self, t) {
             return p;
         }
+        if self.kind == Kind::Sixgill
+            && let Some(p) = crate::sixgill::phase(self)
+        {
+            return p;
+        }
         if self.kind == Kind::Snapper
             && self.state == State::Recover
             && self.state_len == crate::tuning::SNAPPER_REST_TICKS
@@ -485,6 +498,9 @@ impl Enemy {
 
     /// Can it be hit right now?
     pub fn hittable(&self, t: &Tuning) -> bool {
+        if self.kind == Kind::Sixgill {
+            return false; // a 2 m shark is not for a 12 cm crab to fight
+        }
         if self.dropping() {
             return false;
         }
@@ -747,6 +763,12 @@ pub(crate) fn swimmer_blocked(level: &Level, p: Vec2, half: f32, height: f32) ->
     if level.tunnel_interiors().any(|r| r.contains(p)) {
         return true;
     }
+    swimmer_blocked_by_terrain(level, p, half, height)
+}
+
+/// [`swimmer_blocked`] without the tunnel-interior scan, for callers that
+/// keep their own cached list of the interiors near them.
+pub(crate) fn swimmer_blocked_by_terrain(level: &Level, p: Vec2, half: f32, height: f32) -> bool {
     let (left, right, bottom, top) = (
         p.x - half * 0.65,
         p.x + half * 0.65,
@@ -856,13 +878,14 @@ pub fn step(
     let before = e.pos;
     // All species (including those with their own state machines) share the
     // same sanctuary boundary. Omit protected crabs before sensing or combat.
+    // A crab the Plunge carries or shelters is out of every hunter's reach.
     let protected = crabs
         .iter()
-        .any(|c| !e.can_reach_tunnel_point(level, c.mover.pos, t));
+        .any(|c| c.mover.plunge_safe || !e.can_reach_tunnel_point(level, c.mover.pos, t));
     let blows = if protected {
         let mut reachable: Vec<_> = crabs
             .iter()
-            .filter(|c| e.can_reach_tunnel_point(level, c.mover.pos, t))
+            .filter(|c| !c.mover.plunge_safe && e.can_reach_tunnel_point(level, c.mover.pos, t))
             .cloned()
             .collect();
         let blows = step_inner(e, &mut reachable, t, level, rng, animals, bounded_region);
@@ -942,6 +965,9 @@ fn step_inner(
     }
     if let Some(b) = crate::creatures::step(e, crabs, t, level, rng, animals, bounded_region) {
         return b;
+    }
+    if e.kind == Kind::Sixgill {
+        return crate::sixgill::step(e, crabs, t, level, rng);
     }
     if e.kind == Kind::AlarmJelly {
         return crate::alarm_jelly::step(e, crabs, t, level, bounded_region);

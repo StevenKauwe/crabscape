@@ -174,7 +174,9 @@ pub fn spots(level: &Level) -> Vec<Vec2> {
     let x = basin.rect.min.x - 250.0;
     vec![Vec2::new(
         x,
-        basin.rect.max.y.max(level.floor_height(x)) + 700.0,
+        // 1,200 over the basin so its leash stays above the long
+        // chimney's top (no hunters in tunnels).
+        basin.rect.max.y.max(level.floor_height(x)) + 1200.0,
     )]
 }
 

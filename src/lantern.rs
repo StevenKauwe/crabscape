@@ -31,6 +31,20 @@ use crate::tuning::ViewTuning;
 #[derive(Component)]
 pub struct LightSource;
 
+/// The colour of a crab's own lantern light, multiplied into the jar's glow
+/// (a component on the crab, set by the Plunge: the cold of the odd tunnel,
+/// the colour draining in the fall, a blue-green culture). Never a filter:
+/// it colours only the lantern's own shapes. `[r, g, b, alpha]`.
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct LanternHue(pub [f32; 4]);
+
+fn hued(tint: [f32; 3], hue: Option<&LanternHue>) -> ([f32; 3], f32) {
+    match hue {
+        Some(LanternHue([r, g, b, a])) => ([tint[0] * r, tint[1] * g, tint[2] * b], *a),
+        None => (tint, 1.0),
+    }
+}
+
 /// Reacts to the lantern's light. `centre` is the middle of the thing,
 /// relative to its entity (the point whose distance to the lantern counts).
 #[derive(Component, Default)]
@@ -255,6 +269,7 @@ fn flicker(
     time: Res<Time>,
     mut flicker: ResMut<Flicker>,
     crabs: Query<&Mover>,
+    hues: Query<&LanternHue>,
     mut glows: Query<(&Glow, &mut Sprite)>,
 ) {
     let t = time.elapsed_secs();
@@ -267,12 +282,14 @@ fn flicker(
             .get(glow.crab)
             .map_or(1.0, |m| m.lantern_light_factor());
         let reach = (1.0 + BRIGHTER_PER_CULTURE * cultures) * factor;
-        let band = mover_band(&sim, crabs.get(glow.crab).ok());
-        sprite.color = band_colour(WARM, band.lantern_tint).with_alpha(
+        let band = mover_bed(&sim, crabs.get(glow.crab).ok());
+        let (tint, fade) = hued(band.lantern_tint, hues.get(glow.crab).ok());
+        sprite.color = band_colour(WARM, tint).with_alpha(
             glow.alpha
                 * wave
                 * (1.0 + 0.1 * cultures)
                 * factor
+                * fade
                 * luminosity(&tuning, crabs.get(glow.crab).ok()),
         );
         sprite.custom_size = Some(Vec2::splat(glow.size * reach * band.lantern_reach_factor));
@@ -284,6 +301,7 @@ fn flicker(
 fn fill_jars(
     sim: Res<Sim>,
     movers: Query<&Mover>,
+    hues: Query<&LanternHue>,
     mut specks: Query<(&JarCulture, &mut Visibility)>,
     mut cores: Query<(&JarCore, &mut Sprite)>,
 ) {
@@ -296,17 +314,27 @@ fn fill_jars(
         });
     }
     for (core, mut sprite) in &mut cores {
-        let band = mover_band(&sim, movers.get(core.crab).ok());
+        let band = mover_bed(&sim, movers.get(core.crab).ok());
         let factor = movers
             .get(core.crab)
             .map_or(1.0, |m| m.lantern_light_factor());
-        sprite.color = band_colour(CORE, band.lantern_tint).with_alpha(CORE.alpha() * factor);
+        let (tint, fade) = hued(band.lantern_tint, hues.get(core.crab).ok());
+        sprite.color = band_colour(CORE, tint).with_alpha(CORE.alpha() * factor * fade);
         let n = cultures(core.crab).min(SPECKS.len() as u32) as f32;
         let size = Some(Vec2::splat(CORE_SIZE * (1.0 + 0.18 * n)));
         if sprite.custom_size != size {
             sprite.custom_size = size;
         }
     }
+}
+
+/// The bed the crab's eyes are in, for the lantern's colour and the smell
+/// wisp: a pocket is the bed of the ground it is dug into (the home burrow is
+/// the shallows' own, warm). How far the light reaches stays the depth band's
+/// (`mover_band`), because sight is a rule and rules keep to depth.
+fn mover_bed<'a>(sim: &'a Sim, mover: Option<&Mover>) -> &'a crabsim::level::bands::Band {
+    let eye = mover.map_or(Vec2::ZERO, |m| m.pos + Vec2::Y * m.height(&sim.tuning));
+    sim.level.bed_at(eye)
 }
 
 /// Sample at the crab's eyes, exactly as memory does, including remote drawings.

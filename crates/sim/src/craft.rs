@@ -104,6 +104,8 @@ pub enum Recipe {
     ReservePortions,
     /// Change the home auto-eat preference.
     ToggleAutoEat,
+    /// A wild blue-green light grown into the lantern: its colour only.
+    BlueLantern,
 }
 
 /// One row of the recipe list.
@@ -121,7 +123,7 @@ pub struct RecipeDef {
 }
 
 /// Every recipe, in the menu's order.
-pub const RECIPES: [RecipeDef; 8] = [
+pub const RECIPES: [RecipeDef; 9] = [
     RecipeDef {
         recipe: Recipe::ScissorClaws,
         word: "scissors",
@@ -178,6 +180,13 @@ pub const RECIPES: [RecipeDef; 8] = [
         needs: &[],
         does: "Toggle automatic meals at home.",
     },
+    RecipeDef {
+        recipe: Recipe::BlueLantern,
+        word: "blue-lantern",
+        name: "Blue-green lantern",
+        needs: &[(Material::WildLight, 1)],
+        does: "Tint the lantern blue-green.",
+    },
 ];
 
 impl Recipe {
@@ -225,6 +234,7 @@ impl Sim {
             Recipe::ScissorClaws => m.scissor_claw,
             Recipe::GlassGrips => m.glass_grips,
             Recipe::ClamGuards => m.clam_guards,
+            Recipe::BlueLantern => crab.plunge.blue_lantern,
             Recipe::Lantern
             | Recipe::BuildHome
             | Recipe::ShellPortions
@@ -297,6 +307,7 @@ impl Sim {
                 }
             }
             Recipe::ToggleAutoEat => m.prepared_food.auto_eat = !m.prepared_food.auto_eat,
+            Recipe::BlueLantern => crab.plunge.blue_lantern = true,
         }
         if recorded {
             self.note_craft(tick, recipe);
@@ -308,7 +319,7 @@ impl Sim {
             }
             Recipe::BuildHome => (Skill::Building, 20.0),
             Recipe::ShellPortions | Recipe::ReservePortions => (Skill::Cooking, 12.0),
-            Recipe::Lantern | Recipe::ToggleAutoEat => return Ok(()),
+            Recipe::Lantern | Recipe::ToggleAutoEat | Recipe::BlueLantern => return Ok(()),
         };
         self.earn(id, skill, xp);
         Ok(())

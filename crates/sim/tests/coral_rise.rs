@@ -40,13 +40,13 @@ fn four_strokes_can_approach_above_the_guard_collect_and_return_unhurt() {
     for moults in [0, 100] {
         let mut sim = setup(16460.0, moults);
         let health = sim.crab(P0).unwrap().fighter.vitals.health;
-        ascend(&mut sim, -2520.0);
+        ascend(&mut sim, -4520.0);
         for frame in 0..1200 {
             let m = &sim.crab(P0).unwrap().mover;
             if m.pos.x >= 17110.0 {
                 break;
             }
-            let paddle = m.pos.y < -2670.0;
+            let paddle = m.pos.y < -4670.0;
             tick(
                 &mut sim,
                 Controls {
@@ -86,7 +86,7 @@ fn four_strokes_can_approach_above_the_guard_collect_and_return_unhurt() {
             if m.pos.x <= 16430.0 {
                 break;
             }
-            let paddle = m.pos.y < -2670.0;
+            let paddle = m.pos.y < -4670.0;
             let gripping = m.climbing;
             tick(
                 &mut sim,
@@ -131,7 +131,7 @@ fn eastern_sand_shortcut_can_be_excavated_in_and_out() {
             dig_held: true,
             ..Default::default()
         };
-        dig_to(&mut sim, Controls { down: true, ..dig }, |p| p.y <= -2840.0);
+        dig_to(&mut sim, Controls { down: true, ..dig }, |p| p.y <= -4840.0);
         dig_to(&mut sim, Controls { walk: -1.0, ..dig }, |p| p.x <= 17130.0);
         dig_to(
             &mut sim,
@@ -139,7 +139,7 @@ fn eastern_sand_shortcut_can_be_excavated_in_and_out() {
                 dig_up: true,
                 ..dig
             },
-            |p| p.y >= -2820.0,
+            |p| p.y >= -4820.0,
         );
         for _ in 0..180 {
             tick(&mut sim, Controls::default());
@@ -150,7 +150,7 @@ fn eastern_sand_shortcut_can_be_excavated_in_and_out() {
             "at {:?}",
             sim.crab(P0).unwrap().mover.pos
         );
-        dig_to(&mut sim, Controls { down: true, ..dig }, |p| p.y <= -2840.0);
+        dig_to(&mut sim, Controls { down: true, ..dig }, |p| p.y <= -4840.0);
         dig_to(&mut sim, Controls { walk: 1.0, ..dig }, |p| p.x >= 17520.0);
         dig_to(
             &mut sim,
@@ -158,7 +158,7 @@ fn eastern_sand_shortcut_can_be_excavated_in_and_out() {
                 jump_held: true,
                 ..Default::default()
             },
-            |p| p.y >= -2604.0,
+            |p| p.y >= -4604.0,
         );
         assert_eq!(
             sim.crab(P0).unwrap().mover.carrying,
@@ -173,7 +173,7 @@ fn eastern_sand_shortcut_can_be_excavated_in_and_out() {
 fn roof_is_reversible_from_both_banks_with_four_strokes() {
     for moults in [0, 100] {
         let mut sim = setup(17460.0, moults);
-        ascend(&mut sim, -2120.0);
+        ascend(&mut sim, -4120.0);
         for frame in 0..900 {
             let roof_x = sim.crab(P0).unwrap().mover.pos.x;
             tick(
@@ -181,40 +181,31 @@ fn roof_is_reversible_from_both_banks_with_four_strokes() {
                 Controls {
                     walk: -1.0,
                     // The optional roof cache is an ordinary jump, not a feat gate.
+                    // The pebble warren's door is a hole in the step's floor
+                    // (x 16,400 to 16,520) between the roof and the west
+                    // bank: hop over it.
                     jump_pressed: frame == 0
-                        || (frame % 60 == 0 && (16840.0..17200.0).contains(&roof_x)),
+                        || (frame % 60 == 0 && (16840.0..17200.0).contains(&roof_x))
+                        || (frame % 12 == 0 && (16520.0..16640.0).contains(&roof_x)),
                     jump_held: true,
                     ..Default::default()
                 },
             );
-            if sim.crab(P0).unwrap().mover.pos.x < 16530.0 {
+            if sim.crab(P0).unwrap().mover.pos.x < 16380.0 {
                 break;
             }
         }
         assert!(
-            sim.crab(P0).unwrap().mover.pos.x < 16530.0,
+            sim.crab(P0).unwrap().mover.pos.x < 16380.0,
             "roof return: {:?}",
             sim.crab(P0).unwrap().mover.pos
         );
-        for _ in 0..600 {
-            tick(&mut sim, Controls::default());
-        }
-        for _ in 0..120 {
-            tick(
-                &mut sim,
-                Controls {
-                    walk: -1.0,
-                    ..Default::default()
-                },
-            );
-            if sim.crab(P0).unwrap().mover.pos.x <= 16295.0 {
-                break;
-            }
-        }
-        for _ in 0..30 {
-            tick(&mut sim, Controls::default());
-        }
-        ascend(&mut sim, -2350.0);
+        // The way back east is its own trip from the west bank with fresh
+        // strokes. (A crab left to sink after the westbound leg drifts into
+        // the clay cathedral's open door, under the west coral: a door, not a
+        // defect, so the second leg does not begin from wherever it lands.)
+        let mut sim = setup(16295.0, moults);
+        ascend(&mut sim, -4350.0);
         for frame in 0..1200 {
             tick(
                 &mut sim,
@@ -248,23 +239,24 @@ fn bank_encloses_the_find_and_separates_sediment_from_bedrock() {
             ((y - GAME_BOTTOM) / GAME_CELL).floor() as i32,
         )
     };
-    assert_eq!(level.cultures.len(), 6); // Appended roof cache; cavern index stays 4.
-    assert_eq!(level.cultures[4], Vec2::new(17130.0, -2784.0));
-    assert_eq!(
-        level
-            .foes
-            .iter()
-            .filter(|(k, _)| crabsim::creatures::tuning(*k).is_none())
-            .count(),
-        20
-    ); // Appended midwater alarm jellies (east, canyon).
-    assert_eq!(cell(17130.0, -2300.0), Cell::Rock);
-    assert_eq!(cell(17280.0, -2740.0), Cell::Rock);
-    assert_eq!(cell(17130.0, -2784.0), Cell::Water);
-    assert_eq!(cell(17280.0, -2820.0), Cell::Sand);
-    assert_eq!(cell(17520.0, -2820.0), Cell::Sand);
-    assert_eq!(cell(17280.0, -2964.0), Cell::Rock);
-    assert_eq!(cell(17520.0, -2964.0), Cell::Rock);
+    // Appended roof cache; cavern index stays 4 (Plate D appended more cultures
+    // after them, so the count is no longer the promise).
+    assert!(level.cultures.len() >= 6);
+    assert_eq!(level.cultures[4], Vec2::new(17130.0, -4784.0));
+    // The appended midwater alarm jellies (east, canyon) are still there.
+    let jellies = level
+        .foes
+        .iter()
+        .filter(|(k, _)| *k == crabsim::Kind::AlarmJelly)
+        .count();
+    assert!(jellies >= 2, "{jellies} alarm jellies");
+    assert_eq!(cell(17130.0, -4300.0), Cell::Rock);
+    assert_eq!(cell(17280.0, -4740.0), Cell::Rock);
+    assert_eq!(cell(17130.0, -4784.0), Cell::Water);
+    assert_eq!(cell(17280.0, -4820.0), Cell::Sand);
+    assert_eq!(cell(17520.0, -4820.0), Cell::Sand);
+    assert_eq!(cell(17280.0, -4964.0), Cell::Rock);
+    assert_eq!(cell(17520.0, -4964.0), Cell::Rock);
 }
 
 #[test]
@@ -282,7 +274,7 @@ fn the_floor_approach_enters_the_existing_guards_notice() {
         let guard = sim
             .enemies()
             .iter()
-            .find(|e| e.kind == Kind::Mantis && e.home.x == 16800.0)
+            .find(|e| e.kind == Kind::Mantis && e.home.x == 16700.0)
             .unwrap();
         if matches!(
             guard.state,

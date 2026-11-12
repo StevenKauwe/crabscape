@@ -215,7 +215,7 @@ mod tests {
         }
         let actual = format!("{:x}", hash.finalize());
         assert_eq!(
-            actual, "a15d93044637177b91afa30155e1df585b61c542613bbf5042a0018e60870a83",
+            actual, "a0df3da11e9424d4007008ca0ded84288274ff2415dc5156c551327344b761c6",
             "terrain changed: rebake and update the probe digest; see docs/design/settled-terrain.md"
         );
     }
@@ -589,7 +589,7 @@ mod tests {
     fn settled_material_still_responds_to_later_forces_and_gravity() {
         let level = crate::Level::test_level();
         let mut world = World::from_level_settled(&level);
-        world.follow_player(&level, 10000.0, -1800.0);
+        world.follow_player(&level, 10000.0, -3800.0);
         let (x, y) = (0..world.height as i32 - 8)
             .rev()
             .find_map(|y| {

@@ -13,27 +13,23 @@
 //! are a design choice.
 use super::{Climb, Growth, Level};
 
-/// The near wall's face below the shelf, and the far wall's face.
+/// The near wall's face below the shelf.
 const NEAR: f32 = 6160.0;
-const FAR: f32 = 7690.0;
 
-/// (x, top) of each clump; each is 200 tall.
-const CLUMPS: [(f32, f32); 7] = [
-    // Just above the sea-pen floor, by the far wall: the only one a crab on
-    // the floor can reach, and nothing is within a rise of its top.
-    (FAR, -9150.0),
-    // Up the near wall.
-    (NEAR, -7800.0),
-    (NEAR, -6150.0),
-    // A full rise below the shelf, so it is never a step up to it.
+/// (x, top) of each clump; each is 200 tall. The canyon's floor rose to
+/// y -6,000, so the three clumps that stood below it are gone and the floor
+/// has none of its own: the one a floor crab can reach would be a ladder up
+/// to the far-wall cave.
+const CLUMPS: [(f32, f32); 3] = [
+    // Up the near wall: a full rise below the shelf, so it is never a step
+    // up to it.
     (NEAR, -4550.0),
-    // Far wall, below the cave by more than a rise.
-    (FAR, -6450.0),
     // Immediately below the dead-end egg cave: its retreat. The root meets
     // the far wall; the tip catches a crab backing out of the west door.
     (7670.0, -5150.0),
-    // High on the far wall, a full rise below the far rim.
-    (FAR, -3000.0),
+    // On the den rock's west face above the far rim (y -1700 once the rim
+    // has dropped): the crossing's east end had its landing 2,000 lower.
+    (8330.0, 300.0),
 ];
 
 pub(super) fn shape(level: &mut Level) {

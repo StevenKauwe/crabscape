@@ -3,7 +3,7 @@ use bevy_math::{Rect, Vec2};
 use crabsim::{Controls, PlayerId, Replay, Sim};
 
 const P: PlayerId = PlayerId(0);
-const START: Vec2 = Vec2::new(4000.0, -500.0);
+const START: Vec2 = Vec2::new(7550.0, -500.0);
 const DOWN: Controls = Controls {
     down: true,
     walk: 0.0,
@@ -119,7 +119,7 @@ fn diving_lands_on_the_actual_rock_for_both_sizes() {
         let mut sim = Sim::with_one_crab(START);
         sim.level
             .rocks
-            .push(Rect::new(3500.0, -2000.0, 4200.0, -1950.0));
+            .push(Rect::new(7400.0, -2000.0, 7690.0, -1950.0));
         sim.enable_underwater_cells();
         sim.crab_mut(P).unwrap().mover.moults = moults;
         let mut landed = false;
@@ -166,7 +166,7 @@ fn the_same_posture_works_with_up_down_and_slack_water() {
             let mut sim = falling(moults);
             sim.tick();
             sim.level.upwelling.clear();
-            sim.level.currents = vec![Rect::new(3000.0, -5000.0, 4300.0, 0.0)];
+            sim.level.currents = vec![Rect::new(7400.0, -5500.0, 7680.0, 0.0)];
             sim.level.tide = flow;
             sim.tuning.tide.up_speed = 200.0;
             sim.tuning.tide.down_speed = 200.0;

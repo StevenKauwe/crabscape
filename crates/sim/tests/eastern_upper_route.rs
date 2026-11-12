@@ -4,14 +4,14 @@ use crabsim::{Carry, Controls, Level, PlayerId, Sim};
 
 const P0: PlayerId = PlayerId(0);
 const CROWNS: [(f32, f32); 8] = [
-    (11100.0, -2320.0),
-    (11580.0, -2450.0),
-    (12000.0, -2500.0),
-    (12520.0, -2620.0),
-    (13000.0, -2760.0),
-    (13500.0, -2990.0),
-    (13900.0, -3240.0),
-    (14900.0, -3240.0),
+    (11100.0, -4320.0),
+    (11580.0, -4450.0),
+    (12000.0, -4500.0),
+    (12520.0, -4620.0),
+    (13000.0, -4760.0),
+    (13500.0, -4990.0),
+    (13900.0, -5240.0),
+    (14900.0, -5240.0),
 ];
 
 fn tick(sim: &mut Sim, controls: Controls) {
@@ -95,7 +95,7 @@ fn coral_transfers_connect_banks_to_gallery_and_back_with_the_sponge() {
         for crown in &CROWNS[1..] {
             transfer(&mut sim, *crown);
             if crown.0 == 13000.0 {
-                transfer(&mut sim, (13130.0, -2800.0));
+                transfer(&mut sim, (13130.0, -4800.0));
             }
         }
         assert_eq!(sim.crab(P0).unwrap().mover.carrying, Some(Carry::Glass));
@@ -103,7 +103,7 @@ fn coral_transfers_connect_banks_to_gallery_and_back_with_the_sponge() {
         for crown in CROWNS[..CROWNS.len() - 1].iter().rev() {
             transfer(&mut sim, *crown);
             if crown.0 == 12000.0 {
-                transfer(&mut sim, (12140.0, -2540.0));
+                transfer(&mut sim, (12140.0, -4540.0));
                 for _ in 0..600 {
                     tick(&mut sim, Controls::default());
                 }
@@ -131,7 +131,7 @@ fn upper_expedition_closes_a_loop_along_the_lower_seabed() {
         for crown in &CROWNS[1..] {
             transfer(&mut sim, *crown);
             if crown.0 == 13000.0 {
-                transfer(&mut sim, (13130.0, -2800.0));
+                transfer(&mut sim, (13130.0, -4800.0));
             }
         }
         // Leave the last coral to the east, outside the gallery mouth.

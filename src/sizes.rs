@@ -351,6 +351,15 @@ fn rows() -> Vec<Row> {
             hit: Some(body(Kind::Hagfish).0),
         },
         Row {
+            animal: "Bluntnose sixgill",
+            measure: "total length",
+            real: (65.0, 480.0),
+            source: "up to 4.8 m [FLMNH-SG]; the 65 cm low end not verified; a 2 m one, a design call",
+            // Drawn procedurally to its sim body (`src/deep.rs`).
+            drawn: body(Kind::Sixgill).0,
+            hit: Some(body(Kind::Sixgill).0),
+        },
+        Row {
             animal: "Scavenging amphipod",
             measure: "one animal's length",
             real: (1.5, 2.5),

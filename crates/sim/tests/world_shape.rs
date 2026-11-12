@@ -94,8 +94,8 @@ fn landmarks_are_derived_the_same_every_time() {
 fn authored_chambers_and_chimney_are_tagged() {
     let level = Level::test_level();
     for (name, rect, prize) in [
-        ("octopus den", level.den, Vec2::new(8650.0, -1896.0)),
-        ("far-wall cave", level.secrets[1], level.eggs[4]),
+        ("octopus den", level.den, Vec2::new(8650.0, -3896.0)),
+        ("far-wall cave", level.secrets[0], level.eggs[4]),
     ] {
         let all = level.landmarks();
         let landmark = all
@@ -129,8 +129,8 @@ fn authored_chambers_and_chimney_are_tagged() {
     );
     for point in [
         Vec2::new(7000.0, -2000.0),
-        Vec2::new(7000.0, -9000.0),
-        Vec2::new(3800.0, -8000.0),
+        Vec2::new(7000.0, -5500.0),
+        Vec2::new(3800.0, -500.0),
         Vec2::new(3000.0, -600.0),
         Vec2::new(4800.0, -600.0),
     ] {
@@ -203,28 +203,68 @@ fn no_hunter_roams_inside_a_tunnel() {
             // Conservative envelope of chase centres plus body and lunge.
             // Include every floor height in a walker's leash, even across
             // cliffs it cannot step over, so slopes cannot hide an intrusion.
+            // A burrowing ambusher stationed at a pocket's mouth is the
+            // hunter rule's own case (`pockets.rs`: it reaches only its body
+            // length into the mouth, never roams inside).
+            let ambusher_at_a_mouth = k.burrows
+                && level
+                    .pockets()
+                    .iter()
+                    .flat_map(|p| &p.mouths)
+                    .any(|m| home.distance(home.clamp(m.min, m.max)) <= k.body.0);
+            if ambusher_at_a_mouth {
+                continue;
+            }
             let swimming = kind.swims();
             let leash = crabsim::enemy::Enemy::new(0, kind, home, &tuning).home_leash(&tuning);
-            let chase = leash + k.approach_speed * k.tell_ticks as f32 * route::DT as f32;
+            // The goliath grouper hangs at its cave and never leaves it (its
+            // approach speed is zero and its tests pin it to the spot): its
+            // reach is its own body and gulp, not a chase.
+            let chase = if kind == crabsim::enemy::Kind::GoliathGrouper {
+                0.0
+            } else {
+                leash + k.approach_speed * k.tell_ticks as f32 * route::DT as f32
+            };
+            // A sheer drop (the slump dam) is a wall to a hunter standing east
+            // of it: its leash stops at the wall.
+            let wall = landmarks
+                .iter()
+                .filter(|l| l.kind == Kind::Drop && l.rect.max.x <= home.x)
+                .map(|l| l.rect.max.x)
+                .fold(f32::NEG_INFINITY, f32::max);
             let (bottom, top) = if swimming {
-                (home.y - chase, home.y + chase)
+                // A swimmer cannot go through the seabed: its leash stops at
+                // the lowest ground within reach (pockets under the floor are
+                // entered by their doors, which the sanctuary guard and the
+                // mouth tests cover).
+                let seabed = level
+                    .floor
+                    .iter()
+                    .filter(|p| (p.x - home.x).abs() <= chase && p.x >= wall)
+                    .map(|p| p.y)
+                    .chain([
+                        level.floor_height((home.x - chase).max(wall)),
+                        level.floor_height(home.x + chase),
+                    ])
+                    .fold(f32::INFINITY, f32::min);
+                ((home.y - chase).max(seabed.min(home.y)), home.y + chase)
             } else {
                 level
                     .floor
                     .iter()
-                    .filter(|p| (p.x - home.x).abs() <= chase)
+                    .filter(|p| (p.x - home.x).abs() <= chase && p.x >= wall)
                     .map(|p| p.y)
                     .chain([
                         home.y,
-                        level.floor_height(home.x - chase),
+                        level.floor_height((home.x - chase).max(wall)),
                         level.floor_height(home.x + chase),
                     ])
                     .fold((home.y, home.y), |(low, high), y| (low.min(y), high.max(y)))
             };
-            let centres = Rect::new(home.x - chase, bottom, home.x + chase, top);
+            let centres = Rect::new((home.x - chase).max(wall), bottom, home.x + chase, top);
             let horizontal = chase + k.body.0 * 0.5 + k.strike.lunge;
             let envelope = Rect::new(
-                home.x - horizontal,
+                (home.x - horizontal).max(wall),
                 bottom,
                 home.x + horizontal,
                 top + k.body.1,
@@ -447,7 +487,6 @@ fn open_water_refuges(needs_rock: bool) {
                 | "canyon shelf crossing"
                 | "canyon deep water"
                 | "far basin"
-                | "pit open water"
                 | "vent field"
         );
         if blocked != needs_rock {
@@ -487,6 +526,16 @@ fn open_water_refuges(needs_rock: bool) {
     assert!(failures.is_empty(), "missing visible refuge: {failures:?}");
 }
 
+/// Is `r` one of the shafts rising from the pocket's frame (just above it)?
+fn shaft_of(level: &Level, pocket: &crabsim::level::landmarks::Landmark, r: &Rect) -> bool {
+    level.pockets().iter().any(|p| {
+        p.frame == pocket.rect
+            && r.min.x >= p.frame.min.x
+            && r.max.x <= p.frame.max.x
+            && r.min.y >= p.frame.max.y - 1.0
+    })
+}
+
 #[test]
 fn every_pocket_has_two_exits() {
     let level = Level::test_level();
@@ -495,14 +544,23 @@ fn every_pocket_has_two_exits() {
         .iter()
         .filter(|l| matches!(l.kind, Kind::Tunnel | Kind::Chamber { .. }))
     {
+        // The pocket and the silt shafts that rise from it to the ground.
+        let region: Vec<Rect> =
+            std::iter::once(pocket.rect)
+                .chain(level.tunnel_interiors().filter(|r| {
+                    !r.intersect(pocket.rect).is_empty() || shaft_of(&level, pocket, r)
+                }))
+                .collect();
         let exits: Vec<_> = landmarks
             .iter()
             .filter(|l| {
                 matches!(l.kind, Kind::Mouth | Kind::OpenWater | Kind::Refuge)
-                    && l.rect.min.x <= pocket.rect.max.x + 40.0
-                    && l.rect.max.x >= pocket.rect.min.x - 40.0
-                    && l.rect.min.y <= pocket.rect.max.y + 40.0
-                    && l.rect.max.y >= pocket.rect.min.y - 40.0
+                    && region.iter().any(|r| {
+                        l.rect.min.x <= r.max.x + 40.0
+                            && l.rect.max.x >= r.min.x - 40.0
+                            && l.rect.min.y <= r.max.y + 40.0
+                            && l.rect.max.y >= r.min.y - 40.0
+                    })
             })
             .map(|l| l.name.as_str())
             .collect();
@@ -638,11 +696,11 @@ fn refuges_make_no_new_climb() {
         glass: false,
         ..FULL_KIT
     };
-    let mut start = route::start_node(kit, Vec2::new(6900.0, -9400.0), false);
+    let mut start = route::start_node(kit, Vec2::new(6900.0, -5990.0), false);
     start.sim.tuning.tide.up_speed = 0.0;
     start.sim.tuning.tide.down_speed = 0.0;
     start.sim.tuning.tide.upwelling_speed = 0.0;
-    let s = route::survey_from(start, kit, |n| n.mover().pos.y > -8000.0, route::BUDGET);
+    let s = route::survey_from(start, kit, |n| n.mover().pos.y > -4000.0, route::BUDGET);
     let highest = s
         .nodes
         .iter()
@@ -662,7 +720,6 @@ fn refuges_make_no_new_climb() {
 }
 
 #[test]
-#[ignore = "the Plate D geometry batch opens every pocket to traversable ground; un-ignore it there"]
 fn pocket_mouths_have_crab_clearance_outside_the_frame() {
     let level = Level::test_level();
     let t = Tuning::default();

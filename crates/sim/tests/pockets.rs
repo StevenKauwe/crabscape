@@ -8,9 +8,11 @@ use crabsim::{Level, PlayerId, Sim, Tuning};
 fn pockets_match_landmarks_and_have_two_mouths() {
     let level = Level::test_level();
     let pockets = level.pockets();
-    assert_eq!(pockets.len(), 4);
+    assert_eq!(pockets.len(), 15);
     for pocket in pockets {
-        assert!(pocket.mouths.len() >= 2);
+        // A chamber reachable only through another pocket uses that pocket's
+        // exits: the warm seam's one door opens into the crust vault.
+        assert!(pocket.mouths.len() >= 2 || pocket.name == "warm seam");
         assert!(
             level
                 .landmarks()
@@ -88,6 +90,11 @@ fn ambusher_reaches_into_a_mouth_only_its_body_length() {
     {
         for mouth in &pocket.mouths {
             let edge = mouth.center().clamp(pocket.frame.min, pocket.frame.max);
+            // Only a door in the frame's wall has an ambusher's reach: the
+            // home burrow's doors are shafts' tops, far above the frame.
+            if mouth.center().distance(edge) > 40.0 {
+                continue;
+            }
             let inward = (edge - mouth.center()).normalize();
             let e = Enemy::new(0, enemy::Kind::Mantis, mouth.center(), &t);
             let width = e.kind.tuning(&t).body.0;
@@ -117,18 +124,43 @@ fn ambusher_reaches_into_a_mouth_only_its_body_length() {
 }
 
 #[test]
-#[ignore = "the Plate D geometry batch opens every pocket to traversable ground; un-ignore it there"]
 fn every_pocket_has_two_exits_with_the_starting_reserve() {
     use crabsim::Controls;
     let mut failures = Vec::new();
     for pocket in Level::test_level().pockets() {
         for (exit, mouth) in pocket.mouths.iter().enumerate() {
             let mut level = Level::test_level();
+            // The home burrow's doors are the tops of silt shafts far above
+            // its frame; `plate_d::home_burrow_round_trip_is_cheap` digs in at
+            // one and out at the other in the real burrow, which a crab
+            // started sealed inside the clay cannot (grains need water in
+            // claw reach).
+            if mouth
+                .center()
+                .distance(mouth.center().clamp(pocket.frame.min, pocket.frame.max))
+                > 40.0
+            {
+                continue;
+            }
+            // A door behind a brittle crust opens only to a full crusher
+            // charge (the warm seam's, the long chimney's top): the other
+            // door of the pocket, or of its neighbour, is its exit. A seep
+            // chimney's free ride carries the crab out of its far door, so
+            // the way back to the near one is not an exit to reach.
+            if level
+                .brittle
+                .iter()
+                .any(|b| !b.rect.intersect(*mouth).is_empty())
+                || (exit == 0 && matches!(pocket.name, "seep shaft" | "cathedral seep"))
+            {
+                continue;
+            }
             level.foes.clear();
             let mut sim = Sim::new(Tuning::default(), level);
             let edge = mouth.center().clamp(pocket.frame.min, pocket.frame.max);
             let outward = (mouth.center() - edge).normalize();
             let start = edge - outward * 40.0;
+
             sim.add_crab(PlayerId(0), start);
             sim.enable_underwater_cells();
             sim.crab_mut(PlayerId(0)).unwrap().mover.pos = start;
@@ -175,14 +207,21 @@ fn every_pocket_has_two_exits_with_the_starting_reserve() {
                     PlayerId(0),
                     Controls {
                         walk: if dx.abs() > 8.0 { dx.signum() } else { 0.0 },
-                        dig_held: true,
+                        // Dig where there is sediment; in open water (the
+                        // pockets' rooms and passages) swim, climbing out
+                        // from under the ground as a crab always can.
+                        dig_held: supported,
                         dig_up: supported && dx.abs() <= 8.0 && goal.y > p.y + 8.0,
-                        jump_held: goal.y > p.y + 8.0,
-                        jump_pressed: goal.y > p.y + 8.0 && tick % 60 == 0,
+                        jump_held: !supported && goal.y > p.y + 8.0,
+                        jump_pressed: !supported && goal.y > p.y + 8.0 && tick % 60 == 0,
                         down: dx.abs() <= 8.0 && goal.y < p.y - 8.0,
                         ..Default::default()
                     },
                 );
+                // What the game does every frame: the cell window follows.
+                let mut cells = sim.level.cells.take().unwrap();
+                cells.follow_player(&sim.level, p.x, p.y);
+                sim.level.cells = Some(cells);
                 sim.tick();
             }
             if !reached || min_reserve <= 0.0 {
