@@ -71,6 +71,18 @@ fn spawn(mut commands: Commands) {
         });
 }
 
+/// What the guide line says while nothing else is pinned: the current
+/// first-hour step, with its count when it has one. `None` once the guide is
+/// skipped or done.
+pub fn guide_text(sim: &Sim, id: PlayerId) -> Option<String> {
+    let status = sim.guide_status(id).filter(|s| !s.skipped)?;
+    let step = status.step?;
+    Some(match status.progress {
+        Some((have, want)) => format!("Guide: {}, {have}/{want}", step.title.to_lowercase()),
+        None => format!("Guide: {}", step.title.to_lowercase()),
+    })
+}
+
 /// What the goal line says, and whether it is ready (gold), for crab `id`:
 /// `None` when nothing is pinned.
 pub fn goal_text(sim: &Sim, id: PlayerId) -> Option<(String, bool)> {
@@ -105,12 +117,22 @@ fn show_goal(
     mut pill: Single<(&mut Node, &mut BorderColor), (With<GoalPill>, Without<GoalMark>)>,
     mut mark: Single<(&mut BorderColor, &mut BackgroundColor), (With<GoalMark>, Without<GoalPill>)>,
     mut line: Single<(&mut Text, &mut TextColor), With<GoalLine>>,
+    inside: Res<crate::interior::Inside>,
 ) {
     let Ok((id, mover)) = me.single() else {
         return;
     };
     let home = sim.level.place_at(mover.pos) == Some(Place::Home);
-    let goal = if home { None } else { goal_text(&sim, *id) };
+    // A pinned goal while out; otherwise the first-hour guide's step, out or
+    // on the doorstep (inside the shell the Goals tab shows it): the one
+    // clear next goal.
+    let goal = if home { None } else { goal_text(&sim, *id) }.or_else(|| {
+        if inside.on {
+            None
+        } else {
+            guide_text(&sim, *id).map(|words| (words, false))
+        }
+    });
     let display = if goal.is_some() {
         Display::Flex
     } else {
@@ -144,6 +166,19 @@ fn show_goal(
 mod tests {
     use super::*;
     use crabsim::Item;
+
+    #[test]
+    fn the_guide_line_shows_the_step_until_skipped() {
+        let mut sim = Sim::with_one_crab(Vec2::new(900.0, 0.0));
+        let id = PlayerId(0);
+        let words = guide_text(&sim, id).unwrap();
+        assert!(words.starts_with("Guide: pry mussels"), "{words}");
+        assert!(words.ends_with("0/8"), "{words}");
+        assert!(sim.guide_skip(id));
+        assert_eq!(guide_text(&sim, id), None);
+        assert!(sim.guide_on(id));
+        assert!(guide_text(&sim, id).is_some());
+    }
 
     #[test]
     fn the_goal_line_reads_have_over_need_then_goes_home() {

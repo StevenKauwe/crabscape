@@ -538,9 +538,9 @@ impl RegionJournal {
                 CellSessionAction::Royal(action) => {
                     sim.royal_action(*id, *action);
                 }
-                CellSessionAction::Pin(_) | CellSessionAction::Piece(_) => {
-                    action.apply_home_wants(sim, *id)
-                }
+                CellSessionAction::Pin(_)
+                | CellSessionAction::Piece(_)
+                | CellSessionAction::Guide(_) => action.apply_home_wants(sim, *id),
             }
         }
         for (id, control) in &run.controls {

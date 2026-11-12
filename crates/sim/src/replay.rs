@@ -54,6 +54,7 @@
 //! | `moult=climbing` | the player moulted, growing that skill's feat (`crabsim::moult`) |
 //! | `craft=lantern` | the player made something at the workbench (`crabsim::craft`) |
 //! | `pin=kelp-cord` | the player pinned a recipe or home piece as its goal (`pin=none`: let it go) |
+//! | `guide=skip` / `guide=on` | the player ended the first-hour guide, or turned it back on |
 //! | `home`          | the player went straight home (the Home button, `crabsim::home`) |
 //!
 //! Walking and holding jump or dodge last until changed. Presses (`jump`,
@@ -145,6 +146,9 @@ pub struct Replay {
     /// What player 0 pinned as its goal (a recipe), or let go (`None`), in
     /// tick order.
     pub pins: Vec<(u64, Option<&'static str>)>,
+    /// When player 0 ended the first-hour guide (`false`) or turned it
+    /// back on (`true`), in tick order.
+    pub guides: Vec<(u64, bool)>,
     /// When player 0 went straight home (the Home button), in tick order.
     pub homes: Vec<u64>,
     /// What player 0's crab had already grown, taken and stored when the
@@ -186,6 +190,7 @@ impl Default for Replay {
             moults: Vec::new(),
             crafts: Vec::new(),
             pins: Vec::new(),
+            guides: Vec::new(),
             homes: Vec::new(),
             progress: None,
         }
@@ -411,6 +416,14 @@ impl Replay {
                 };
                 replay.pins.push((tick, pin));
             }
+            for w in words.iter().filter_map(|w| w.strip_prefix("guide=")) {
+                let on = match w {
+                    "on" => true,
+                    "skip" => false,
+                    _ => return Err(err(format!("`guide={w}`: say guide=skip or guide=on"))),
+                };
+                replay.guides.push((tick, on));
+            }
             for w in words.iter().filter_map(|w| w.strip_prefix("salvage=")) {
                 let action = serde_json::from_str(w)
                     .map_err(|e| err(format!("invalid salvage action: {e}")))?;
@@ -437,8 +450,8 @@ impl Replay {
             words.retain(|w| {
                 *w != "home"
                     && ![
-                        "spawn=", "feel=", "code=", "moult=", "craft=", "pin=", "salvage=",
-                        "canyon=", "shell=", "royal=",
+                        "spawn=", "feel=", "code=", "moult=", "craft=", "pin=", "guide=",
+                        "salvage=", "canyon=", "shell=", "royal=",
                     ]
                     .iter()
                     .any(|p| w.starts_with(p))
@@ -554,6 +567,9 @@ impl Replay {
         }
         for (tick, pin) in &self.pins {
             out += &format!("@{tick} pin={}\n", pin.unwrap_or("none"));
+        }
+        for (tick, on) in &self.guides {
+            out += &format!("@{tick} guide={}\n", if *on { "on" } else { "skip" });
         }
         for (tick, action) in &self.shell_actions {
             let json = serde_json::to_string(action).expect("shell action serialises");
@@ -817,6 +833,13 @@ impl Replay {
                 None => sim.unpin(crate::PlayerId(0)),
             }
         }
+        for (_, on) in self.guides.iter().filter(|(t, _)| *t == tick) {
+            if *on {
+                sim.guide_on(crate::PlayerId(0));
+            } else {
+                sim.guide_skip(crate::PlayerId(0));
+            }
+        }
         for (_, recipe) in self.crafts.iter().filter(|(t, _)| *t == tick) {
             // It could be made when recorded, so it can now.
             recipe.perform(sim, crate::PlayerId(0));
@@ -1044,6 +1067,11 @@ impl Recorder {
     /// Something was made at the workbench at `tick`.
     pub fn note_craft(&mut self, tick: u64, craft: Craft) {
         self.replay.crafts.push((tick - self.first_tick, craft));
+    }
+
+    /// Player 0 ended the first-hour guide (`false`) or turned it on at `tick`.
+    pub fn note_guide(&mut self, tick: u64, on: bool) {
+        self.replay.guides.push((tick - self.first_tick, on));
     }
 
     /// Player 0 pinned a recipe as its goal (`None`: let it go) at `tick`.
