@@ -87,6 +87,23 @@ fn with_mips(image: &mut Image) {
     image.texture_descriptor.mip_level_count = levels;
 }
 
+/// WebGL cannot be told an array texture's view: wgpu guesses it from the layer count, and takes 6 layers for a cube
+/// and any multiple of 6 for a cube array. The tile sheet's 12 layers were taken for a cube array and every tile read
+/// black in the browser. So a sheet whose count is a multiple of 6 gets one more layer (a copy of its last, never
+/// read), and the guess is an array.
+fn pad_off_cube_counts(image: &mut Image) {
+    let layers = image.texture_descriptor.size.depth_or_array_layers as usize;
+    if !layers.is_multiple_of(6) {
+        return;
+    }
+    if let Some(data) = image.data.as_mut() {
+        let one = data.len() / layers;
+        let last = data[data.len() - one..].to_vec();
+        data.extend_from_slice(&last);
+        image.texture_descriptor.size.depth_or_array_layers += 1;
+    }
+}
+
 /// Decode a stacked PNG into an array texture that repeats sideways (and down too, for tiles).
 fn stacked(bytes: &[u8], layers: u32, repeat_down: bool) -> Image {
     let mut image = Image::from_buffer(
@@ -101,6 +118,7 @@ fn stacked(bytes: &[u8], layers: u32, repeat_down: bool) -> Image {
     image
         .reinterpret_stacked_2d_as_array(layers)
         .expect("the PNG's height divides into its layers");
+    pad_off_cube_counts(&mut image);
     if repeat_down {
         with_mips(&mut image);
     }
@@ -303,14 +321,16 @@ mod tests {
     fn baked_sheets_decode_into_their_layers() {
         let tiles = stacked(TILES_PNG, TILE_LAYERS, true);
         let size = tiles.texture_descriptor.size;
-        assert_eq!(size.depth_or_array_layers, TILE_LAYERS);
+        // One layer more than the sheet holds: a multiple of 6 reads as a cube array in WebGL.
+        assert_eq!(size.depth_or_array_layers, TILE_LAYERS + 1);
+        assert!(!size.depth_or_array_layers.is_multiple_of(6));
         assert_eq!(size.width, size.height, "tiles are square");
         // Seven mips for a 96-pixel tile (96, 48, 24, 12, 6, 3, 1), and the data holds them all.
         assert_eq!(tiles.texture_descriptor.mip_level_count, 7);
         let texels: usize = (0..7).map(|l| ((96usize >> l).max(1)).pow(2)).sum();
         assert_eq!(
             tiles.data.as_ref().map(Vec::len),
-            Some(texels * 4 * TILE_LAYERS as usize)
+            Some(texels * 4 * (TILE_LAYERS as usize + 1))
         );
         let ridges = stacked(RIDGES_PNG, RIDGE_LAYERS, false);
         assert_eq!(
@@ -338,5 +358,191 @@ mod tests {
             lit.min_element() > 0.0 && dark.max_element() <= 1.0,
             "{lit} {dark}"
         );
+    }
+}
+
+/// Every shader the game embeds compiles on the web: WGSL reserves words a shader may not use as a name (`patch`,
+/// a parameter in the terrain shaders, made Chrome reject both and the ground drew as plain water). Native test
+/// runs never compile the shaders, so this reads them.
+#[cfg(test)]
+mod wgsl_reserved_words {
+    /// WGSL's reserved words (the spec's "Reserved Words" list).
+    const RESERVED: &[&str] = &[
+        "NULL",
+        "Self",
+        "abstract",
+        "active",
+        "alignas",
+        "alignof",
+        "as",
+        "asm",
+        "asm_fragment",
+        "async",
+        "attribute",
+        "auto",
+        "await",
+        "become",
+        "cast",
+        "catch",
+        "class",
+        "co_await",
+        "co_return",
+        "co_yield",
+        "coherent",
+        "column_major",
+        "common",
+        "compile",
+        "compile_fragment",
+        "concept",
+        "const_cast",
+        "consteval",
+        "constexpr",
+        "constinit",
+        "crate",
+        "debugger",
+        "decltype",
+        "delete",
+        "demote",
+        "demote_to_helper",
+        "do",
+        "dynamic_cast",
+        "enum",
+        "explicit",
+        "export",
+        "extends",
+        "extern",
+        "external",
+        "fallthrough",
+        "filter",
+        "final",
+        "finally",
+        "friend",
+        "from",
+        "fxgroup",
+        "get",
+        "goto",
+        "groupshared",
+        "highp",
+        "impl",
+        "implements",
+        "import",
+        "inline",
+        "instanceof",
+        "interface",
+        "layout",
+        "lowp",
+        "macro",
+        "macro_rules",
+        "match",
+        "mediump",
+        "meta",
+        "mod",
+        "module",
+        "move",
+        "mut",
+        "mutable",
+        "namespace",
+        "new",
+        "nil",
+        "noexcept",
+        "noinline",
+        "nointerpolation",
+        "non_coherent",
+        "noncoherent",
+        "noperspective",
+        "null",
+        "nullptr",
+        "of",
+        "operator",
+        "package",
+        "packoffset",
+        "partition",
+        "pass",
+        "patch",
+        "pixelfragment",
+        "precise",
+        "precision",
+        "premerge",
+        "priv",
+        "protected",
+        "pub",
+        "public",
+        "readonly",
+        "ref",
+        "regardless",
+        "register",
+        "reinterpret_cast",
+        "require",
+        "resource",
+        "restrict",
+        "self",
+        "set",
+        "shared",
+        "sizeof",
+        "smooth",
+        "snorm",
+        "static",
+        "static_assert",
+        "static_cast",
+        "std",
+        "subroutine",
+        "super",
+        "target",
+        "template",
+        "this",
+        "thread_local",
+        "throw",
+        "trait",
+        "try",
+        "type",
+        "typedef",
+        "typeid",
+        "typename",
+        "typeof",
+        "union",
+        "unless",
+        "unorm",
+        "unsafe",
+        "unsized",
+        "use",
+        "using",
+        "varying",
+        "virtual",
+        "volatile",
+        "wgsl",
+        "where",
+        "with",
+        "writeonly",
+        "yield",
+    ];
+
+    #[test]
+    fn no_shader_uses_a_reserved_word() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut checked = 0;
+        for entry in std::fs::read_dir(&dir).expect("src/") {
+            let path = entry.expect("an entry").path();
+            if path.extension().and_then(|e| e.to_str()) != Some("wgsl") {
+                continue;
+            }
+            let source = std::fs::read_to_string(&path).expect("a shader");
+            for (n, line) in source.lines().enumerate() {
+                // Directives (`#import`) are Bevy's, not WGSL; comments are not code.
+                let code = line.split("//").next().unwrap_or("");
+                if code.trim_start().starts_with('#') {
+                    continue;
+                }
+                for word in code.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')) {
+                    assert!(
+                        !RESERVED.contains(&word),
+                        "{}:{}: `{word}` is a reserved word in WGSL",
+                        path.display(),
+                        n + 1
+                    );
+                }
+            }
+            checked += 1;
+        }
+        assert!(checked >= 5, "read {checked} shaders");
     }
 }
