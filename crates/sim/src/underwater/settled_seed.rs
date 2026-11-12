@@ -238,18 +238,26 @@ pub(crate) fn available(level: &crate::Level) -> bool {
 pub(crate) struct Sampler<'a> {
     level: &'a crate::Level,
     pub(super) seed: Option<&'static Seed>,
+    /// The level's layer map, looked up once for all this sampler's cells.
+    layers: std::cell::OnceCell<std::sync::Arc<crate::level::layers::LayerMap>>,
 }
 impl<'a> Sampler<'a> {
     pub(crate) fn new(level: &'a crate::Level) -> Self {
         Self {
             level,
             seed: for_level(level),
+            layers: std::cell::OnceCell::new(),
         }
     }
     pub(crate) fn cell(&self, gx: i32, gy: i32) -> Cell {
-        self.seed
-            .and_then(|s| s.at(gx, gy))
-            .map_or_else(|| authored_terrain_cell(self.level, gx, gy), |g| g.cell)
+        self.seed.and_then(|s| s.at(gx, gy)).map_or_else(
+            || {
+                let map = self.layers.get_or_init(|| self.level.layers_shared());
+                let wx = (gx as f32 + 0.5) * GAME_CELL;
+                map.column(wx).cell_at_row(gy)
+            },
+            |g| g.cell,
+        )
     }
 }
 
@@ -329,7 +337,7 @@ mod tests {
         }
         let actual = format!("{:x}", hash.finalize());
         assert_eq!(
-            actual, "6d69f54e4b5d16bbcfa4bc275d1badc1aac2edb9a650c375dad983bf484c0814",
+            actual, "2edde5b4463757b352ee9ded48c9dc330d9ee1a9fd272fda25e7d276e3b7910b",
             "terrain changed: rebake and update the probe digest; see docs/design/settled-terrain.md"
         );
     }

@@ -256,6 +256,7 @@ pub fn initial_terrain_cell(level: &crate::Level, cell_x: i32, cell_y: i32) -> C
     settled_seed::Sampler::new(level).cell(cell_x, cell_y)
 }
 
+#[cfg_attr(not(any(test, feature = "terrain-bake")), allow(dead_code))]
 fn authored_terrain_cell(level: &crate::Level, cell_x: i32, cell_y: i32) -> Cell {
     TerrainColumn::new(level, cell_x).cell(cell_y)
 }

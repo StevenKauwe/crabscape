@@ -650,14 +650,15 @@ fn the_crust_vault_has_a_second_door_and_the_warm_seam_is_still_behind_its_crust
         get("vault shaft"),
         get("warm seam"),
     );
-    // Top door, the crust below, and the new west door into the duct.
+    // Top door, the crust below, and the new east door into the duct (east,
+    // clear of the vent field's gathering spots).
     assert_eq!(vault.mouths.len(), 3);
-    let west = vault
+    let east = vault
         .mouths
         .iter()
-        .min_by(|a, b| a.min.x.total_cmp(&b.min.x))
+        .max_by(|a, b| a.max.x.total_cmp(&b.max.x))
         .unwrap();
-    assert!(west.max.x <= vault.frame.min.x && duct.frame.max.x <= west.min.x);
+    assert!(east.min.x >= vault.frame.max.x && east.max.x <= duct.frame.min.x);
     // The shaft's top door is on the vent field's floor, like the vault's own.
     let floor = level.floor_height(shaft.frame.center().x);
     let door = shaft
