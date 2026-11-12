@@ -72,6 +72,13 @@ pub const MARKERS: &[Marker] = &[
         at: [1500.0, -1650.0],
         kind: MarkerKind::Entrance,
     },
+    // The slope mouth (`slope_caves`): the neck down to region 6, east of the
+    // kelp column's foot; the rest point lies on the slope floor west of it.
+    Marker {
+        name: "slope mouth",
+        at: [10640.0, -4300.0],
+        kind: MarkerKind::Entrance,
+    },
     // The octopus lair's door at the Drop's foot. (The far rim's octopus keeps
     // its own derived door; this is the lair's second octopus.)
     Marker {

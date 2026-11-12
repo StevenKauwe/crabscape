@@ -168,6 +168,8 @@ mod tests {
             .climbs
             .iter()
             .filter(|c| c.x > 8800.0 && c.x < 17781.0)
+            // (The slope caves' stalks stand underground, in their own rooms.)
+            .filter(|c| !crate::level::slope_caves::corals().contains(c))
         {
             assert_eq!(climb.bottom, level.floor_height(climb.x));
             assert!(climb.top > climb.bottom);

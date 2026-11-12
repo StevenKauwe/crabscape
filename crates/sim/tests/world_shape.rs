@@ -73,6 +73,7 @@ fn home_and_every_crevice_are_refuges() {
                     c.kind != Growth::Rock
                         && !crabsim::level::silt_galleries::CORAL.contains(c)
                         && !crabsim::level::deep_galleries::corals().contains(c)
+                        && !crabsim::level::slope_caves::corals().contains(c)
                         && **c != crabsim::level::deep_galleries::FAR_CORAL
                 })
                 .map(|c| Rect::new(c.x - 60.0, c.bottom, c.x + 60.0, c.top)),
