@@ -47,20 +47,21 @@ pub struct Pool {
 }
 
 /// The ledge pool, at the foot of the far ledge's slope, 140 under its east
-/// rim (the clam bed at x 2,450 and the grit at 2,200 stay on the old floor).
+/// rim (the clam bed at x 2,450 and the grit at 2,200 stay on the old floor). Its east rim stops at x 2,400:
+/// the co-op cells check digs at about x 2,470, and a crab cannot dig with the bowl's bedrock under its body.
 pub const LEDGE_POOL: Pool = Pool {
     name: "ledge pool",
     profile: &[
         Vec2::new(2290.0, 38.0),
-        Vec2::new(2340.0, -120.0),
-        Vec2::new(2390.0, -120.0),
-        Vec2::new(2440.0, 20.0),
+        Vec2::new(2320.0, -120.0),
+        Vec2::new(2370.0, -120.0),
+        Vec2::new(2400.0, 20.0),
     ],
     rock: &[
         Vec2::new(2290.0, 38.0),
-        Vec2::new(2340.0, -120.0),
-        Vec2::new(2390.0, -120.0),
-        Vec2::new(2440.0, 20.0),
+        Vec2::new(2320.0, -120.0),
+        Vec2::new(2370.0, -120.0),
+        Vec2::new(2400.0, 20.0),
     ],
     top: 60.0,
     bottom: -120.0,
@@ -165,8 +166,8 @@ pub const SITES: &[(&str, &str, Vec2)] = &[
     ("far ledge slope", "MusselClump", Vec2::new(2235.0, 64.0)),
     ("far ledge slope", "KelpStand", Vec2::new(2280.0, 51.0)),
     // In the ledge pool.
-    ("ledge pool", "GritHeap", Vec2::new(2352.0, -120.0)),
-    ("ledge pool", "ShoreGlow", Vec2::new(2380.0, -120.0)),
+    ("ledge pool", "GritHeap", Vec2::new(2335.0, -120.0)),
+    ("ledge pool", "ShoreGlow", Vec2::new(2355.0, -120.0)),
     // The crest of the cliff over the basin.
     ("the crest", "KelpStand", Vec2::new(2745.0, 860.0)),
     ("the crest", "SnailRocks", Vec2::new(2775.0, 860.0)),
@@ -195,7 +196,7 @@ pub const FINDS: &[Vec2] = &[
     // Buried on the far ledge's slope.
     Vec2::new(2215.0, 40.0),
     // Drifting low over the ledge pool.
-    Vec2::new(2365.0, -70.0),
+    Vec2::new(2345.0, -70.0),
 ];
 
 impl Level {

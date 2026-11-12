@@ -80,7 +80,7 @@ the main gathering skill about 15 at minute 20, and every skill 15 within three 
 ### Built (the first-hour world PR, `level/shallows.rs`)
 - Names: "shrimp row", "the shelf", "the trench", "far ledge", "the crest", "ledge pool", "the lookout",
   "trench hollow".
-- **Ledge pool** (x 2,290 to 2,440, bottom y -120, at the foot of the far ledge's slope): the first small dive. The
+- **Ledge pool** (x 2,290 to 2,400, bottom y -120, at the foot of the far ledge's slope): the first small dive. The
   shelf could not take a pool: it is the arena several creature and economy tests are built on.
 - **The lookout** (x 368 to 458, top y 704), stepped onto from the kelp stand by home: the first climb, a site on top
   and a view.
