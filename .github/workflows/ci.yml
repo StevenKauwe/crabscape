@@ -48,7 +48,7 @@ jobs:
           # A pull request is checked out as its merge into the base: its first parent is the base.
           fetch-depth: 0
       - name: Component classifier regression tests
-        run: bash tools/test-changes.sh && bash tools/test-ci-changes.sh && bash tools/test-component-gate.sh
+        run: bash tools/test-changes.sh && bash tools/test-ci-changes.sh && bash tools/test-component-gate.sh && bash tools/test-bridge-publish-policy.sh
       - id: flags
         name: Which checks this change needs
         env:
@@ -544,7 +544,7 @@ jobs:
     # Publishes this run's web build (no second build) to its own folder on the Pages site: /pr-<n>/ for a pull
     # request, /branches/<name>/ for a run started by hand on another branch (gh workflow run ci.yml --ref <name>).
     # The link is commented on the PR. Removed when the PR closes (previews.yml). See tools/previews.sh.
-    if: ${{ !cancelled() && needs.check.result == 'success' && needs.browser.result == 'success' && (needs.web.result == 'success' || needs.bridge-check.result == 'success') && (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')) && !github.event.repository.private }}
+    if: ${{ !cancelled() && needs.check.result == 'success' && needs.browser.result == 'success' && (needs.web.result == 'success' || (vars.CRABBRIDGE_PUBLISH_ENABLED == 'true' && needs.bridge-check.result == 'success')) && (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')) && !github.event.repository.private }}
     needs: [check, browser, web, bridge-check]
     runs-on: ubuntu-latest
     # Lock the entire store update -> snapshot -> deploy transaction, across all three writers.
@@ -563,7 +563,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     env:
       GAME_SELECTED: ${{ needs.web.result == 'success' }}
-      BRIDGE_SELECTED: ${{ needs.bridge-check.result == 'success' }}
+      BRIDGE_SELECTED: ${{ vars.CRABBRIDGE_PUBLISH_ENABLED == 'true' && needs.bridge-check.result == 'success' }}
       FOLDER: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || format('branches/{0}', github.ref_name) }}
       SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
@@ -576,7 +576,7 @@ jobs:
           name: crabscape-web-${{ github.sha }}
           path: artifacts/game
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: needs.bridge-check.result == 'success'
+        if: vars.CRABBRIDGE_PUBLISH_ENABLED == 'true' && needs.bridge-check.result == 'success'
         with:
           name: crabbridge-web-${{ github.sha }}
           path: artifacts/bridge
@@ -619,7 +619,7 @@ jobs:
     # Pages for private repositories needs a paid plan, so only deploy when public.
     # (The private flag is read from the event, so a run started while private skips;
     # rerun with workflow_dispatch on main.)
-    if: ${{ !cancelled() && needs.check.result == 'success' && needs.browser.result == 'success' && (needs.determinism.result == 'success' || needs.determinism.result == 'skipped') && (needs.art.result == 'success' || needs.art.result == 'skipped') && (needs.web.result == 'success' || needs.bridge-check.result == 'success') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && !github.event.repository.private }}
+    if: ${{ !cancelled() && needs.check.result == 'success' && needs.browser.result == 'success' && (needs.determinism.result == 'success' || needs.determinism.result == 'skipped') && (needs.art.result == 'success' || needs.art.result == 'skipped') && (needs.web.result == 'success' || (vars.CRABBRIDGE_PUBLISH_ENABLED == 'true' && needs.bridge-check.result == 'success')) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && !github.event.repository.private }}
     needs: [check, determinism, art, web, browser, bridge-check]
     runs-on: ubuntu-latest
     permissions:
@@ -636,7 +636,7 @@ jobs:
       queue: max
     env:
       GAME_SELECTED: ${{ needs.web.result == 'success' }}
-      BRIDGE_SELECTED: ${{ needs.bridge-check.result == 'success' }}
+      BRIDGE_SELECTED: ${{ vars.CRABBRIDGE_PUBLISH_ENABLED == 'true' && needs.bridge-check.result == 'success' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -648,7 +648,7 @@ jobs:
           name: crabscape-web-${{ github.sha }}
           path: artifacts/game
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: needs.bridge-check.result == 'success'
+        if: vars.CRABBRIDGE_PUBLISH_ENABLED == 'true' && needs.bridge-check.result == 'success'
         with:
           name: crabbridge-web-${{ github.sha }}
           path: artifacts/bridge

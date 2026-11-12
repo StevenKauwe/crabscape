@@ -61,3 +61,16 @@ checkout source files. `compose-web.sh` runs inside the existing gh-pages force-
 ancestry failures and a real local bare-git store roundtrip. `test-previews.sh` retains existing store tests.
 These changes describe executable publishing code, not evidence of a deployment: no production publishing
 command was executed during implementation. Host access remains separate from static frontend publication.
+
+### Publication is disabled by default
+
+New bridge publication is gated by the repository Actions variable
+`CRABBRIDGE_PUBLISH_ENABLED` being exactly the string `true`. Missing, empty or `false` leaves
+bridge artifacts private to CI: bridge-only changes cannot enter a publisher, and mixed/game builds
+do not download or select the bridge artifact. Game publication still preserves any existing stored
+bridge rather than deleting it. The normal protected checks continue to run regardless of this switch.
+
+Only after explicit deployment approval should a repository administrator set that Actions variable
+to `true` and initiate the intended checked workflow. This code change does not set the variable,
+change repository permissions, or authorize a deployment. `test-bridge-publish-policy.sh` checks
+job admission, artifact selection and artifact-download guards for both publishers.
