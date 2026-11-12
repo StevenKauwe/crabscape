@@ -76,8 +76,10 @@ const RESPAWN: [f32; 5] = [45.0, 60.0, 90.0, 150.0, 240.0];
 /// Culturing wild sites pay less than gathering.
 const CULTURE_XP: [u32; 5] = [8, 88, 160, 208, 600];
 
-/// Base seconds to cut one glass sponge (see the garden's row).
-const GLASS_CUT_SECS: f32 = 30.0;
+/// Base seconds to cut one glass sponge (see the garden's row): the
+/// glass-sponge lamp's prize is a slow, calm harvest, but still a hold a
+/// thumb can manage on a phone (lead's call: 30 s was too long a hold).
+const GLASS_CUT_SECS: f32 = 12.0;
 
 const fn gather(
     kind: NodeKind,

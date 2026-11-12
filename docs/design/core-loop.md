@@ -39,7 +39,7 @@ Each lead keeps their own lines here. `[x]` means it is in the game; the rest sa
 - [x] A pinned goal, rules: `pin_want`, `pinned_status`, one-shot `goal_ready` away from home, saved and replayed; a small gold-when-ready goal line on the HUD while out, and a note when it is ready (#617)
 - [x] Home pieces in the shared home, rules: eight pieces, host-authoritative, saved in the host's world; a Home tab builds them (also in co-op sessions) and each is drawn on the shared home (#617)
 - [ ] Nodes on the new Plate D map (#572, after #610)
-- [x] Prize beat sized (#622): a shell holds 4 things, so a prize beat is one shell load and a big want is several trips. The lamp now needs 16 glass (four loads; the last one is the loop) and a glass cut takes 30 s (was 3.5 s), so a load of 4 is 2.1 min at one garden (kelp curtain, low attention: 22 kelp + 2 cords, 1.6 min). Gardens keep 4 charges and 90 s respawn; XP per minute still rises by tier
+- [x] Prize beat sized (#622): a shell holds 4 things, so a prize beat is one shell load and a big want is several trips. The lamp now needs 16 glass (four loads; the last one is the loop) and a glass cut takes 12 s (was 3.5 s; 30 s was tried and is too long a hold for a phone), so a load of 4 is 0.9 min at one garden: the prize beat stays short because the shell holds 4 (a bigger bag or a deeper, slower harvest would fill it) (kelp curtain, low attention: 22 kelp + 2 cords, 1.6 min). Gardens keep 4 charges and 90 s respawn; XP per minute still rises by tier
 - [x] Home pieces are wants (#622): `wants` lists a piece one kind short (not built yet), `pin_want` / `pinned_status` / `goal_ready` take piece words, and building it lets the pin go; the Wants tab shows them
 - [x] Fight wants (#622): a kill still drops 1 item; the bone arch now needs 2 mantis clubs, so it is two wins (a project over two trips, the bank keeps the first club). The reachable mantis is 1,025 units (7 s) from the door: that is the world lane's line below
 - [ ] Re-measure the loop on the new map: `cargo test --release -p crabsim --test loop_pacing -- --ignored --nocapture measure_routes` (about 25 min), paste `ROUTES`
@@ -64,10 +64,10 @@ Glass lamp (gather, tier 3): Harvesting 30, Building 8, glass cutter tier 2, 12 
 | Home | 0-2 | 1.00 | OK | 60 s assumed UI + 0.2 s of commands; the board pins the lamp |
 | Way out | 2-6 | 0.24 | too short | 14 s to the first open water, 2,706 units from the door |
 | Crossing | 6-12 | 1.31 | too short | 79 s from the basin to the doorstep shelter, 2,642 units on; 3 s more to the node |
-| Prize | 12-15 | 2.06 | OK | the last shell load, 4 glass at 30 s each from 1 garden (4 charges) |
+| Prize | 12-15 | 0.86 | too short | the last shell load, 4 glass at 12 s each from 1 garden (4 charges) |
 | Way home | 15-19 | 1.19 | too short | 67 s of route + 4 s walking in; no tired-leg seconds |
 | Build | 19-20 | 0.78 | OK | 45 s assumed UI + 2 s |
-| Total | 20 | 6.58 | | |
+| Total | 20 | 5.38 | | |
 
 Bone arch (fight, mantis club): Building 35, whale bone, clay and the first of its 2 mantis clubs already in the bank, Fighting 1; kit 1 egg.
 
