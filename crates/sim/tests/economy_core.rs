@@ -96,6 +96,7 @@ fn every_recipe_is_valid_and_has_no_orphan_input() {
     // Creature drops come from beating creatures.
     for kind in crabsim::enemy::KINDS {
         made.extend(crabsim::economy::items::drops_of(kind));
+        made.extend(crabsim::economy::items::far_drops_of(kind));
     }
     for r in ECON_RECIPES {
         if let Output::Items(items) = r.makes {

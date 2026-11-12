@@ -107,6 +107,11 @@ items! {
     // From the Plunge's crack: a wild blue-green light, cultured at home
     // into a lantern of that colour (appended: item order is saved order).
     WildLight, "wild-light", "wild blue-green light", "wild blue-green lights", 0, false;
+    // Far drops: what only a creature beyond the canyon leaves (appended;
+    // see `FAR_DROPS`). Sizes and ages are not verified.
+    GreatMantisClub, "great-mantis-club", "great mantis club", "great mantis clubs", 3, false;
+    MorayFang, "moray-fang", "moray fang", "moray fangs", 3, false;
+    MantisTelson, "mantis-telson", "mantis telson", "mantis telsons", 4, false;
 }
 
 /// What a beaten creature of `kind` leaves, as items: the bestiary's drops
@@ -131,6 +136,78 @@ pub fn drops_of(kind: crate::enemy::Kind) -> Vec<Item> {
         .collect();
     out.extend_from_slice(own);
     out
+}
+
+/// Where a far creature leaves a different part (`docs/design/core-loop.md`,
+/// "wants that send you out"): a beaten `kind` whose body is eaten with the
+/// crab between `from_x` and `to_x` leaves `count` of `item` *instead of* its
+/// usual drops. Only creatures that live that far (the reef's mantises and
+/// morays past the canyon) are ever met there; "the far one is a bigger,
+/// older animal" is a game reading, not verified.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FarDrop {
+    pub kind: crate::enemy::Kind,
+    pub item: Item,
+    pub count: u32,
+    pub from_x: f32,
+    pub to_x: f32,
+    /// Where it is, in words, for the board.
+    pub place: &'static str,
+}
+
+/// Beyond the canyon's far rim and the octopus den (x 8,350 to 8,800).
+pub const BEYOND_CANYON: f32 = 9000.0;
+/// The coral rise, where the mantis over the clay cathedral stands.
+pub const CORAL_RISE: f32 = 15000.0;
+
+/// Every far drop. A mantis between the canyon and the rise (x 10,720)
+/// leaves a great club; the one over the clay cathedral (x 16,700) a telson.
+/// A moray past the canyon (x 9,880 and 15,220) sheds three fangs.
+pub const FAR_DROPS: &[FarDrop] = &[
+    FarDrop {
+        kind: crate::enemy::Kind::Mantis,
+        item: Item::GreatMantisClub,
+        count: 1,
+        from_x: BEYOND_CANYON,
+        to_x: CORAL_RISE,
+        place: "beyond the canyon",
+    },
+    FarDrop {
+        kind: crate::enemy::Kind::Mantis,
+        item: Item::MantisTelson,
+        count: 1,
+        from_x: CORAL_RISE,
+        to_x: f32::INFINITY,
+        place: "clay cathedral",
+    },
+    FarDrop {
+        kind: crate::enemy::Kind::Moray,
+        item: Item::MorayFang,
+        count: 3,
+        from_x: BEYOND_CANYON,
+        to_x: f32::INFINITY,
+        place: "beyond the canyon",
+    },
+];
+
+/// What a beaten `kind` leaves when its body is eaten at `x`: its far drops
+/// if it lies in one's range, else [`drops_of`].
+pub fn drops_at(kind: crate::enemy::Kind, x: f32) -> Vec<Item> {
+    let far: Vec<Item> = FAR_DROPS
+        .iter()
+        .filter(|d| d.kind == kind && x >= d.from_x && x < d.to_x)
+        .flat_map(|d| std::iter::repeat_n(d.item, d.count as usize))
+        .collect();
+    if far.is_empty() { drops_of(kind) } else { far }
+}
+
+/// The items a `kind` can leave only far out, each once.
+pub fn far_drops_of(kind: crate::enemy::Kind) -> Vec<Item> {
+    FAR_DROPS
+        .iter()
+        .filter(|d| d.kind == kind)
+        .map(|d| d.item)
+        .collect()
 }
 
 /// The item a creature's drop name (`creatures::drops`) stands for.

@@ -510,6 +510,29 @@ Pieces built into the home change it for everyone in that home's world. Eight, e
 - **Saved** with the world part of `Progress` (`Progress::home_pieces`, next to `clams`): in solo and on the host the
   crab's own world is its home. A guest visiting saves its own world's set, not the host's.
 
+## Wants that send you out (#631)
+The board's wants point outward: each piece or recipe below misses ONE far thing, one shell load, and the rest comes
+from the bank's common stock. The distance does the work (guardrail: never padding).
+
+| Want | Missing | Only from |
+|---|---|---|
+| Shell mosaic (Building 15) | 4 shed teeth | the bone hall's tooth beds |
+| Whelk door (Building 20) | 2 seep mussels | the seep garden's beds |
+| Coral garden (Building 55) | 1 mantis telson | the mantis over the clay cathedral (x 16,700) |
+| Culture bed 3 (Building 40) | 1 great mantis club | the mantis past the canyon (x 10,720) |
+| Moray-tooth claw tips (Shellcraft 42) | 3 moray fangs | morays past the canyon (x 9,880, 15,220) |
+
+Creatures beaten past x 9,000 (`BEYOND_CANYON`) or 15,000 (`CORAL_RISE`) leave a far part instead of their near one,
+by where the crab eats the body (`economy::items::drops_at`); near mantises and morays are unchanged. `Sim::wants`
+names the landmark (`Source::Node { place }`) or the far creature (`Source::Far`). The sixgill breaks off and never
+dies, so no want asks for it. The cathedral has no node of its own yet, so its want is the mantis over it. Tests:
+`wants_out.rs`.
+
+**Digging earns Excavating** (#631): 1 XP per 16-unit block of sediment the claws dig into that the crab has not dug
+among its last 96 (`economy::sim::DigLedger`), so re-digging a refilled tunnel or digging in place pays almost nothing.
+A scripted tunnel from the home burrow's silt shaft pays 206 XP/min (tier 1 gathering 180, tier 3 620:
+`a_minute_of_tunnelling_pays_like_tier_one_gathering`).
+
 ## Hidden rules (from the world build; they apply here)
 - Only `underwater*`, `physics/consts.rs`, `level/coral_rise.rs` and the level's floor and rocks force the ~9-minute
   rebake; the probe digest test says "rebake" if terrain behaviour changes. This economy changes none of them.
@@ -522,6 +545,7 @@ Pieces built into the home change it for everyone in that home's world. Eight, e
 - CI flake: `cell_save::native` on Linux (#482): rerun the failed job.
 
 ## Where things stand
+- **#631:** wants that send you out (five far-thing pieces and recipes), digging earns Excavating XP, and tier 5's trip is measured for real (307 s round trip through the narrows lock; XP/min by tier at unlock 180 / 403 / 620 / 805 / 1049). Next: point the glass lamp's want at the Silt Galleries' glass when the world lane's loop lands, and re-measure.
 - **L1 (#622), the loop measured:** `crates/sim/tests/loop_pacing.rs` plays three wants through the beat sheet
   (glass lamp 4.8 min, bone arch 2.1, kelp curtain 2.8 against 20). Pieces are wants now. Guardrail: the gap to 20 is
   the world's (distance, route choice, crossing, way home), never padded with costs, slow cuts or repeat trips; piece costs
@@ -544,8 +568,12 @@ Pieces built into the home change it for everyone in that home's world. Eight, e
   (strictly rising). Items per minute fall with distance: 20.3, 3.2, 2.5, 2.2, 0.8. T1 power-gathering 157 to 180 XP/min (3 mussel clumps on foot).
   Estimated hours to 30 / 45 / 60 / 99: 0.7 / 2.3 / 8.3 / 340 (0.6 / 1.9 / 6.2 / 213 on the Plate D map, with tier 3's
   XP at 160). Trips (route solver, full kit, seconds round trip): T2 95, T3 164, T4 187 (80 / 96 / 123 on the Plate D map);
-  **T5 is extrapolated (541 s; 329 s on the Plate D map)** because the solver cannot reach the vent field today (the slump dam is
-  one-way and the narrows need the heavy crusher).
+  **T5 is measured (#631): 307 s** (`measure_vent_trip`: the solver to the lower canyon's floor at 151 s, a 1.5 s smash of the
+  narrows lock, the walk to the first vent node at 167 s, then 21 s up the slump and 118 s from Coral Rise home; the solver has no
+  smash move, and the deep-food key still read "available" on the way back, so the 21 s climb is the solver's, not checked against
+  the tether by hand). The extrapolation (329 s) was close: tier 5 pays 1,049 XP / min at its unlock level and 1,063 at level 60,
+  still strictly above tier 4, so its XP per gather is unchanged. The long chimney home (a 33 s free ride after act three) is not
+  in the number.
 - **Tuning that moved (P8, #572): tier 3 XP per gather 200 to 160.** The Plate D map put the tier 3 gardens 40% closer (a 164 s round trip became 96 s), which lifted tier 3 to 774 XP / min at level 30 and 876 at level 60 against 805 / 873 for tier 4, so XP / min no longer rose strictly and a level 60 crab on mussels fell under a quarter of tier 3. At 160: 620 / 700, tier 4 805 / 873, and mussels 27%. The ladder at the unlock level is now 180 / 403 / 620 / 805 / 985 (tiers 1 to 5), at level 60 423 / 587 / 700 / 873 / 998.
 - **Tuning that moved from the first draft:** XP per gather by tier was 10 / 110 / 200 / 260 / 750 (was 10 / 25 / 50 /
   100 / 175; the old numbers made the basin worse than the shallows). Tier-1 nodes on the home side sit in two safe
@@ -573,7 +601,12 @@ Pieces built into the home change it for everyone in that home's world. Eight, e
   2. P9 (#602, **done in #601**): creature drops; see "Creature drops". The creatures lane owns `creatures/*`; the
      economy owns `economy/*` and `craft.rs`. Known gap: the hermit crab ends itself in its own `die`, so its kill
      pays no win XP (creatures lane).
-  3. Excavating XP from real digging (cellular digging has no clean per-unit amount; needs an engine-package hook).
+  3. Excavating XP from real digging (**done, #631**): the cellular engine has no per-unit amount, so it is measured from
+     outside. Every fourth tick a crab holding dig toward sediment (`game_dig_load` above zero) credits the 16-unit block under
+     its claws; a block not among its last 96 earns 1 XP (`DIG_BLOCK_XP`), deterministic, local crab only, not saved. Digging in
+     place or again in a refilled tunnel earns about nothing (4 XP back along a 60 XP tunnel; 1 XP for a minute in place).
+     The home burrow's shaft and gallery pay 206 XP / min at 17.5 s end to end against 180 for a tier 1 round trip and 620 for
+     tier 3 (asserted 0.5x to 1.5x of tier 1 and below tier 3, `economy_pacing.rs`).
   4. Look at the gather ring, prompt, touch button and crafting tabs in a browser at phone size (never seen running).
 - **Hidden rules found:** node indexes come from `placed_nodes` (spots outside a small level are dropped), so never index
   `place::SPOTS` directly; nodes sit about 60 units apart with a 70-unit reach, so a spent node hands the gather to its

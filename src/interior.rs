@@ -1334,6 +1334,7 @@ fn source_text(sim: &Sim, source: &Source) -> String {
             node,
             remembered_at,
             band,
+            place,
         } => {
             let seen = match remembered_at {
                 Some(at) => format!("you saw one {}", how_far(sim, *at)),
@@ -1342,10 +1343,13 @@ fn source_text(sim: &Sim, source: &Source) -> String {
             format!(
                 "{}, {}: {seen}",
                 node.def().name.to_lowercase(),
-                band.to_lowercase()
+                place.unwrap_or(band).to_lowercase()
             )
         }
         Source::Creature(kind) => format!("from a {}", kind.name().to_lowercase()),
+        Source::Far { kind, place } => {
+            format!("from a {}, {place}", kind.name().to_lowercase())
+        }
         Source::Recipe(word) => EconRecipe::parse(word)
             .map_or_else(String::new, |r| format!("made: {}", r.name.to_lowercase())),
     }

@@ -3,6 +3,8 @@
 //! See the spec's "Pacing targets".
 
 mod common;
+#[path = "common/dig.rs"]
+mod dig;
 
 use bevy_math::Vec2;
 use crabsim::economy::place::{SPOTS, band_index, nodes};
@@ -227,7 +229,7 @@ const TRIPS: [(f64, f64, f64); 5] = [
     (22.97, 56.69, 26.04),
     (31.50, 63.77, 34.88),
     (46.39, 75.93, 46.66),
-    (0.0, 0.0, 0.0),
+    (167.45, 139.04, 168.22),
 ];
 
 /// Solve the routes: one full kit survey from home, the seconds out to every
@@ -347,21 +349,7 @@ fn trip_secs(tier: u8) -> f64 {
         return 2.0 * f64::from(way / t.walk_speed) + tuck;
     }
     let (out, back, _) = TRIPS[tier as usize - 1];
-    if tier < 5 {
-        return out + back + tuck;
-    }
-    // Beyond the solver: the pace of tier 4 over the longer way.
-    let mid = |tier: u8| {
-        let mut xs: Vec<f32> = SPOTS
-            .iter()
-            .filter(|s| s.kind.def().tier == tier && s.kind.def().skill != Skill::Cooking)
-            .map(|s| s.x)
-            .collect();
-        xs.sort_by(f32::total_cmp);
-        f64::from(xs[xs.len() / 2] - 150.0)
-    };
-    let (out4, back4, _) = TRIPS[3];
-    (out4 + back4) * mid(5) / mid(4) + tuck
+    out + back + tuck
 }
 
 /// Seconds of one gather at the tier's node for a crab of `level` with a tool
@@ -503,7 +491,7 @@ fn every_node_lies_in_a_band_no_shallower_than_its_tier_and_trips_lengthen_with_
     }
     let trips: Vec<f64> = (1..=5).map(trip_secs).collect();
     assert!(trips.windows(2).all(|w| w[0] < w[1]), "{trips:?}");
-    let medians: Vec<f64> = TRIPS.iter().take(4).map(|t| t.2).collect();
+    let medians: Vec<f64> = TRIPS.iter().map(|t| t.2).collect();
     assert!(medians.windows(2).all(|w| w[0] < w[1]), "{medians:?}");
 }
 
@@ -614,4 +602,118 @@ fn the_real_foes_never_touch_a_crab_working_the_home_cluster() {
         SKILLS.iter().all(|&(s, _)| book.get(s) > 0),
         "all five worked"
     );
+}
+
+// ---- Digging ----
+
+/// A minute of steady tunnelling (the home burrow's silt shaft and gallery,
+/// real ticks) pays about what a minute of tier 1 gathering does at the unlock
+/// level, and less than a round trip to tier 3.
+#[test]
+fn a_minute_of_tunnelling_pays_like_tier_one_gathering() {
+    let (xp, secs) = dig::tunnel(&mut dig::dig_sim(), 120.0);
+    let dig_per_min = f64::from(xp) * 60.0 / secs;
+    let tier1 = round_trip(1, TIER_KINDS[0].def().level, 0, SHELL).1;
+    let tier3 = round_trip(3, TIER_KINDS[2].def().level, 2, SHELL + WOVEN_PACK).1;
+    println!(
+        "tunnelling {dig_per_min:.0} xp/min ({xp} in {secs:.1} s) vs tier 1 {tier1:.0}, tier 3 {tier3:.0}"
+    );
+    assert!(
+        (0.5 * tier1..=1.5 * tier1).contains(&dig_per_min),
+        "{dig_per_min:.0} vs {tier1:.0}"
+    );
+    assert!(dig_per_min < tier3, "{dig_per_min:.0} vs {tier3:.0}");
+}
+
+/// Seconds the heavy crusher's full smash takes at the narrows lock.
+const SMASH_SECS: f64 = 1.5;
+
+/// Tier 5's real trip: the solver to the foot of the slump dam's drop, the
+/// narrows lock smashed open (the solver has no smash move), the walk east to
+/// the vent field's nodes, then the way back (the tether up the slump, then the
+/// solver home). Prints the `TRIPS` row for tier 5.
+#[test]
+#[ignore = "about 10 minutes of route solving; prints the tier 5 TRIPS row"]
+fn measure_vent_trip() {
+    let kit = FULL_KIT;
+    let s = route::survey(kit);
+    // The deepest, easternmost rest the solver reaches before the narrows.
+    let i = (0..s.nodes.len())
+        .filter(|&i| s.nodes[i].mover().pos.y <= -9800.0)
+        .max_by(|&a, &b| {
+            let x = |i: usize| s.nodes[i].mover().pos.x;
+            x(a).total_cmp(&x(b))
+        })
+        .expect("the solver reaches the lower canyon's floor");
+    println!(
+        "lower canyon floor at {:?} after {:.1} s",
+        s.nodes[i].mover().pos,
+        s.nodes[i].time
+    );
+    let mut start = s.nodes[i].clone();
+    for b in &mut start.sim.level.brittle {
+        if b.rect.min.x == 18000.0 {
+            b.cracked = true;
+        }
+    }
+    start.time += SMASH_SECS;
+    let departure = start.time;
+    let level = Level::test_level();
+    let vents: Vec<Vec2> = nodes(&level)
+        .into_iter()
+        .filter(|n| n.kind.def().tier == 5 && n.kind.def().skill != Skill::Cooking)
+        .map(|n| n.pos)
+        .collect();
+    let field_x = vents.iter().map(|p| p.x).fold(f32::MAX, f32::min) - 70.0;
+    let out = route::survey_from(
+        start,
+        kit,
+        |n| n.mover().pos.x >= field_x + 70.0 || n.time > departure + 150.0,
+        1500,
+    );
+    // Seconds out to each vent node, the nearest rest within reach.
+    let reach = |p: Vec2| {
+        (0..out.nodes.len())
+            .filter(|&j| out.nodes[j].mover().pos.distance(p) <= 70.0)
+            .map(|j| (out.nodes[j].time, j))
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+    };
+    let mut times: Vec<(f64, usize)> = vents.iter().filter_map(|&p| reach(p)).collect();
+    times.sort_by(|a, b| a.0.total_cmp(&b.0));
+    println!(
+        "vent nodes reached by the walk: {} of {}",
+        times.len(),
+        vents.len()
+    );
+    let (t_out, j) = *times.first().expect("the walk reaches a vent node");
+    let median = times[times.len() / 2].0;
+    println!(
+        "nearest vent node out at {t_out:.1} s (at {:?}); median {median:.1}; key {:?}",
+        out.nodes[j].mover().pos,
+        out.nodes[j].sim.crab(route::ME).expect("crab").deep_food
+    );
+    // The way back: up the slump on the tether, then home on the solver.
+    let mut from = out.nodes[j].clone();
+    from.time = t_out;
+    let back = route::survey_observed(
+        from,
+        kit,
+        |n| n.mover().pos.x < 17780.0 || n.time > t_out + 150.0,
+        1500,
+        &[],
+        &mut |_| {},
+    );
+    let k = (0..back.nodes.len())
+        .filter(|&k| {
+            let p = back.nodes[k].mover().pos;
+            p.x < 17780.0 && p.y >= -4700.0
+        })
+        .min_by(|&a, &b| back.nodes[a].time.total_cmp(&back.nodes[b].time))
+        .expect("the tether returns to Coral Rise");
+    let up = back.nodes[k].time - t_out;
+    let home = route::way_home(&back, k, kit).expect("the way home from Coral Rise");
+    let rest = home.time - back.nodes[k].time;
+    let (out_secs, back_secs) = (t_out - 0.0, up + rest);
+    println!("up the slump {up:.1} s, Coral Rise to home {rest:.1} s");
+    println!("TRIPS[4] = ({out_secs:.2}, {back_secs:.2}, {:.2});", median);
 }

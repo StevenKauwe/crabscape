@@ -28,6 +28,7 @@ use bevy_math::{Rect, Vec2};
 use common::route::{self, Kit};
 use crabsim::economy::food::Buff;
 use crabsim::economy::home::Piece;
+use crabsim::economy::items::CORAL_RISE;
 use crabsim::economy::place::nodes;
 use crabsim::economy::{Item, NodeKind, Tool, ToolKind, xp};
 use crabsim::enemy::State;
@@ -70,6 +71,16 @@ enum How {
     Club,
     /// Cut kelp beside the door.
     Kelp,
+    /// Beat the mantis over the clay cathedral (past the coral rise) for its
+    /// telson: a want that sends the crab out (#631).
+    Telson,
+}
+
+impl How {
+    /// Does the prize come from a fight?
+    fn fights(self) -> bool {
+        matches!(self, How::Club | How::Telson)
+    }
 }
 
 struct Want {
@@ -92,7 +103,7 @@ struct Want {
     floor_min: f64,
 }
 
-const WANTS: [Want; 3] = [
+const WANTS: [Want; 4] = [
     Want {
         name: "glass lamp (gather, tier 3)",
         how: How::Glass,
@@ -124,6 +135,26 @@ const WANTS: [Want; 3] = [
         // The bank holds whale bone from the canyon floor, so this crab has
         // the kit that got there: the basin's mantis lies across the
         // basin's pit, a dive and a climb out.
+        kit: Kit {
+            eggs: 6,
+            scissors: true,
+            glass: true,
+            crusher: true,
+            dactyls: true,
+        },
+        floor_min: 1.5,
+    },
+    Want {
+        name: "coral garden (fight, mantis telson)",
+        how: How::Telson,
+        piece: Piece::CoralGarden,
+        // Fighting stays level 1: the win is on skill.
+        levels: &[(Skill::Building, 55)],
+        // Black coral from the canyon floor and clay are banked; the telson
+        // is the one far thing (one shell load).
+        bank: &[(Item::BlackCoral, 2), (Item::Clay, 4), (Item::Mussel, 2)],
+        needs: (Item::MantisTelson, 1),
+        tool_tier: 0,
         kit: Kit {
             eggs: 6,
             scissors: true,
@@ -171,7 +202,7 @@ struct Route {
 }
 
 /// Measured by `measure_routes` (release, a few minutes). Order: `WANTS`.
-const ROUTES: [Route; 3] = [
+const ROUTES: [Route; 4] = [
     Route {
         open: 14.48,
         land: 110.16,
@@ -188,6 +219,15 @@ const ROUTES: [Route; 3] = [
         back: 62.76,
         dry: 0.00,
         target_x: 3690.0,
+        home_x: 1228.0,
+    },
+    Route {
+        open: 14.48,
+        land: 119.97,
+        target: 128.59,
+        back: 112.51,
+        dry: 0.00,
+        target_x: 16510.0,
         home_x: 1228.0,
     },
     Route {
@@ -223,6 +263,16 @@ fn target_of(level: &Level, how: How) -> (Vec2, Vec2) {
                 .min_by(|a, b| a.1.x.total_cmp(&b.1.x))
                 .expect("a mantis shrimp");
             // The scripted fighter starts a short walk from it.
+            let stand = at.x - FIGHT_GAP;
+            (Vec2::new(stand, level.floor_height(stand) + 2.0), *at)
+        }
+        How::Telson => {
+            let (_, at) = level
+                .foes
+                .iter()
+                .filter(|(k, at)| *k == Kind::Mantis && at.x >= CORAL_RISE)
+                .min_by(|a, b| a.1.x.total_cmp(&b.1.x))
+                .expect("a mantis past the coral rise");
             let stand = at.x - FIGHT_GAP;
             (Vec2::new(stand, level.floor_height(stand) + 2.0), *at)
         }
@@ -807,7 +857,7 @@ fn play(w: &Want, route: &Route) -> Run {
             let b = build_beat(w, home_sim(w), &free, Some(route.home_x));
             (p, b, false)
         }
-        How::Club => {
+        How::Club | How::Telson => {
             let p = fight_prize(w, goal, thing);
             let free = p.shell.clone();
             let b = build_beat(w, home_sim(w), &free, Some(route.home_x));
@@ -860,7 +910,7 @@ fn play(w: &Want, route: &Route) -> Run {
                 reason: format!(
                     "{crossing:.0} s from the first open water to the '{shelter_name}' shelter, {} units further on; {approach:.0} s more to the first {}",
                     units(goal.x - first_open),
-                    if w.how == How::Club { "fighting stand" } else { "node" }
+                    if w.how.fights() { "fighting stand" } else { "node" }
                 ),
             });
         } else {
@@ -870,7 +920,7 @@ fn play(w: &Want, route: &Route) -> Run {
                 reason: format!(
                     "{:.0} s on foot to the {}, {} units from the door; there is no open water on this way",
                     route.target,
-                    if w.how == How::Club { "fighting stand" } else { "node" },
+                    if w.how.fights() { "fighting stand" } else { "node" },
                     units(goal.x - home)
                 ),
             });
@@ -900,7 +950,7 @@ fn play(w: &Want, route: &Route) -> Run {
             WINDOWS[3].2 - WINDOWS[3].1,
             0.5 * (WINDOWS[3].2 - WINDOWS[3].1) * 60.0 / prize.each
         ),
-        How::Club => format!(
+        How::Club | How::Telson => format!(
             "the real fight took {:.0} s, then {:.0} s to the body; the mantis is {} units from the door",
             prize.working,
             prize.walking,
