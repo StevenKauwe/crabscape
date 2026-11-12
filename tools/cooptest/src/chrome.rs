@@ -512,6 +512,16 @@ impl Chrome {
         .map(drop)
     }
 
+    /// Emulate a screen `width` x `height` CSS pixels at `dpr` device pixels each (3 on a recent iPhone).
+    #[allow(dead_code)] // Used by the HUD scale check.
+    pub fn device_metrics(&mut self, width: u32, height: u32, dpr: f64) -> Result<()> {
+        self.call(
+            "Emulation.setDeviceMetricsOverride",
+            json!({"width":width,"height":height,"deviceScaleFactor":dpr,"mobile":width<700}),
+        )
+        .map(drop)
+    }
+
     /// Test the game's real touch layout without asking for browser permissions.
     #[allow(dead_code)] // Used by the royal region's responsive acceptance.
     pub fn touch_screen(&mut self, enabled: bool) -> Result<()> {

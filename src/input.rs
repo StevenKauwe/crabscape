@@ -672,11 +672,19 @@ fn label_dig_stick(
 }
 
 /// The on-screen buttons: Bevy UI boxes, placed by [`layout_touch_buttons`].
-fn spawn_touch_buttons(mut commands: Commands) {
+/// The buttons a thumb lives on (jump, and the two walks), ringed in amber.
+fn primary(action: TouchAction) -> bool {
+    matches!(
+        action,
+        TouchAction::Jump | TouchAction::Left | TouchAction::Right
+    )
+}
+
+fn spawn_touch_buttons(mut commands: Commands, fonts: Res<crate::ui_theme::UiFonts>) {
     for action in ACTIONS {
         let label = match action {
-            TouchAction::Left => "<",
-            TouchAction::Right => ">",
+            TouchAction::Left => "←",
+            TouchAction::Right => "→",
             TouchAction::Jump => "JUMP",
             TouchAction::Dodge => "DODGE",
             TouchAction::Smash => "SMASH",
@@ -694,22 +702,31 @@ fn spawn_touch_buttons(mut commands: Commands) {
                     position_type: PositionType::Absolute,
                     justify_content: JustifyContent::Center,
                     align_items: AlignItems::Center,
-                    border: UiRect::all(px(2)),
+                    border: UiRect::all(px(if primary(action) { 2.5 } else { 1.5 })),
                     border_radius: BorderRadius::all(percent(50)),
                     ..default()
                 },
-                BorderColor::all(Color::srgba(1.0, 0.85, 0.55, 0.35)),
-                BackgroundColor(Color::srgba(0.05, 0.12, 0.14, 0.35)),
+                BorderColor::all(if primary(action) {
+                    crate::ui_theme::AMBER.with_alpha(0.8)
+                } else {
+                    crate::ui_theme::RIM
+                }),
+                BackgroundColor(crate::ui_theme::BUTTON.with_alpha(0.35)),
                 Visibility::Hidden,
             ))
             .with_children(|b| {
                 let mut text = b.spawn((
                     Text::new(label),
                     TextFont {
-                        font_size: FontSize::Px(if label.len() > 1 { 15.0 } else { 26.0 }),
+                        font: fonts.bold.clone().into(),
+                        font_size: FontSize::Px(if label.chars().count() > 1 {
+                            13.0
+                        } else {
+                            28.0
+                        }),
                         ..default()
                     },
-                    TextColor(Color::srgba(1.0, 0.9, 0.7, 0.8)),
+                    TextColor(crate::ui_theme::TEXT.with_alpha(0.88)),
                     if action == TouchAction::Dig {
                         Node {
                             position_type: PositionType::Absolute,
@@ -818,14 +835,14 @@ fn layout_touch_buttons(
             node.width = w;
             node.height = h;
         }
-        let alpha = if pressed.contains(action)
+        let fill = if pressed.contains(action)
             || (*action == TouchAction::Dig && touch_controls.dig_touch.is_some())
         {
-            0.7
+            crate::ui_theme::BUTTON_ON.with_alpha(0.75)
         } else {
-            0.35
+            crate::ui_theme::BUTTON.with_alpha(0.35)
         };
-        background.set_if_neq(BackgroundColor(Color::srgba(0.05, 0.12, 0.14, alpha)));
+        background.set_if_neq(BackgroundColor(fill));
     }
 }
 

@@ -1,9 +1,13 @@
-//! On-shell cargo and automatic pickup preferences.
+//! On-shell cargo and automatic pickup preferences: the cargo chip in the
+//! top-left corner, under the vitals ("Cargo 3", B), opens into the shell's
+//! list (what clings to it, what rides on its back, what it picks up by
+//! itself, and the lantern).
 use bevy::prelude::*;
 use crabsim::salvage::{FindPhase, ValvePhase};
 use crabsim::{Carry, ShellAction, Sim};
 
 use crate::player::{GameSet, LocalPlayer, PlayerId};
+use crate::ui_theme as theme;
 
 pub struct ShellInventoryPlugin;
 
@@ -67,6 +71,10 @@ pub(crate) fn is_shortcut(key: KeyCode) -> bool {
 #[derive(Component)]
 pub(crate) struct Panel;
 
+/// The closed chip's width, and the open list's.
+const CHIP_W: f32 = 118.0;
+const LIST_W: f32 = 258.0;
+
 fn spawn(mut commands: Commands) {
     commands
         .spawn((
@@ -75,9 +83,10 @@ fn spawn(mut commands: Commands) {
             GlobalZIndex(3),
             Node {
                 position_type: PositionType::Absolute,
-                width: px(258),
+                width: px(LIST_W),
                 flex_wrap: FlexWrap::Wrap,
                 column_gap: px(2),
+                row_gap: px(4),
                 ..default()
             },
         ))
@@ -94,34 +103,27 @@ fn spawn(mut commands: Commands) {
                         choice,
                         Node {
                             width: px(if half {
-                                128
+                                128.0
                             } else if matches!(choice, Choice::Open) {
-                                155
+                                CHIP_W
                             } else {
-                                258
+                                LIST_W
                             }),
                             height: px(if heading { 26 } else { 40 }),
-                            border_radius: BorderRadius::all(px(if passive { 0 } else { 8 })),
+                            border_radius: BorderRadius::all(px(if passive { 4 } else { 10 })),
                             border: UiRect::all(px(if passive { 0 } else { 1 })),
-                            padding: UiRect::horizontal(px(8)),
+                            padding: UiRect::horizontal(px(10)),
                             align_items: AlignItems::Center,
                             ..default()
                         },
-                        BorderColor::all(Color::srgb(0.41, 0.46, 0.39)),
-                        BackgroundColor(if passive {
-                            Color::srgb(0.05, 0.13, 0.15)
-                        } else {
-                            Color::srgb(0.10, 0.22, 0.24)
-                        }),
+                        BorderColor::all(theme::RIM_FAINT),
+                        BackgroundColor(if passive { theme::PANEL } else { theme::BUTTON }),
                     ))
                     .with_children(|row| {
-                        row.spawn((
-                            Text::new(""),
-                            TextFont {
-                                font_size: FontSize::Px(13.0),
-                                ..default()
-                            },
-                            TextColor(Color::srgb(1.0, 0.91, 0.73)),
+                        row.spawn(theme::words(
+                            "",
+                            if heading { theme::CAPTION } else { theme::BODY },
+                            if heading { theme::MUTED } else { theme::TEXT },
                         ));
                     });
             }
@@ -212,7 +214,6 @@ fn refresh(
     open: Res<Open>,
     sim: Res<Sim>,
     local: Query<&PlayerId, With<LocalPlayer>>,
-    window: Single<&Window>,
     settings: Res<crate::settings::panel::Open>,
     mut panel: Single<(&mut Node, &mut Visibility), With<Panel>>,
     mut rows: Query<(&Choice, &mut Node, &Children), Without<Panel>>,
@@ -221,14 +222,9 @@ fn refresh(
     let Some(crab) = local.single().ok().and_then(|id| sim.crab(*id)) else {
         return;
     };
-    let landscape = window.width() > window.height();
-    panel.0.width = px(if open.0 { 258 } else { 155 });
-    panel.0.left = px(if landscape {
-        (window.width() - 258.0) * 0.5
-    } else {
-        8.0
-    });
-    panel.0.top = px(if landscape { 90 } else { 142 });
+    panel.0.width = px(if open.0 { LIST_W } else { CHIP_W });
+    panel.0.left = px(theme::EDGE);
+    panel.0.top = px(theme::CARGO_TOP);
     panel.1.set_if_neq(if settings.is_open() {
         Visibility::Hidden
     } else {
@@ -249,8 +245,8 @@ fn refresh(
     for (choice, mut node, children) in &mut rows {
         let on = |value| if value { "On" } else { "Off" };
         let caption = match *choice {
-            Choice::Open if open.0 => Some(format!("Close inventory{shortcut}")),
-            Choice::Open => Some(format!("Inventory   ({carried}){shortcut}")),
+            Choice::Open if open.0 => Some(format!("Close cargo{shortcut}")),
+            Choice::Open => Some(format!("Cargo  {carried}{shortcut}")),
             _ if !open.0 => None,
             Choice::Lantern => Some(format!(
                 "{}Lantern: {} — tap to {}",
@@ -304,9 +300,7 @@ fn refresh(
             }
             text
         });
-        if *choice == Choice::Open {
-            node.width = px(if open.0 { 258 } else { 155 });
-        }
+
         let display = if caption.is_some() {
             Display::Flex
         } else {
@@ -439,7 +433,7 @@ mod tests {
             ..default()
         });
         app.update();
-        assert!(row(&mut app, Choice::Open).0.contains("(0)"));
+        assert!(row(&mut app, Choice::Open).0.contains("Cargo  0"));
         app.world_mut()
             .resource_mut::<Sim>()
             .salvage
@@ -447,7 +441,7 @@ mod tests {
             .unwrap()
             .valve_phase = ValvePhase::Carried(PlayerId(0));
         app.update();
-        assert!(row(&mut app, Choice::Open).0.contains("(1)"));
+        assert!(row(&mut app, Choice::Open).0.contains("Cargo  1"));
         app.world_mut().resource_mut::<Open>().0 = true;
         app.update();
         assert_eq!(row(&mut app, Choice::Cargo).0, "Carried");

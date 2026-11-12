@@ -15,6 +15,7 @@ and runs all process. Nobody reads code, so tests and CI are the safety net.
 - Digging, strata and levels built around it: `docs/design/digging.md`
 - Zooming out shows the crab's memory, not the world: `docs/design/crab-memory.md`
 - How it plays (movement, combat, controls): `docs/design/how-it-plays.md`
+- HUD and menus (the look, where each thing lives, the font): `docs/design/hud.md`
 - World, zones, economy: `docs/design/world.md` (ecology by depth, food web, creature rules: `docs/design/universe.md`)
 - Enemies (biology, combat spec, rig notes): `docs/design/creatures/` (concept sheets: `art/creatures/`)
 - Co-op promises (what playing together guarantees, and the checks): `docs/design/coop-promises.md`

@@ -21,7 +21,7 @@ pub(crate) const VIEW_MIN_HEIGHT: f32 = 340.0;
 
 /// Marks the HUD's help line so it can be changed for touch screens.
 #[derive(Component)]
-struct HelpText;
+pub(crate) struct HelpText;
 
 /// Camera shake, kick and zoom punch, set off by blows (see `impact.rs`).
 /// It moves the camera, never the world, and settles in a fraction of a
@@ -211,7 +211,7 @@ impl Plugin for ViewPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Shake>()
             .init_resource::<Zoom>()
-            .add_systems(Startup, (spawn_camera, spawn_hud))
+            .add_systems(Startup, spawn_camera)
             .add_systems(
                 Update,
                 (
@@ -446,38 +446,6 @@ fn move_parallax(
     }
 }
 
-/// The HUD is made with Bevy UI: `Node`s laid out like HTML boxes (flexbox),
-/// drawn on top of the game in screen pixels.
-fn spawn_hud(mut commands: Commands) {
-    commands
-        .spawn(Node {
-            position_type: PositionType::Absolute,
-            top: px(8),
-            left: px(12),
-            flex_direction: FlexDirection::Column,
-            ..default()
-        })
-        .with_children(|hud| {
-            hud.spawn((
-                Text::new("CrabScape"),
-                TextFont {
-                    font_size: FontSize::Px(22.0),
-                    ..default()
-                },
-                TextColor(Color::srgb(1.0, 0.75, 0.35)),
-            ));
-            hud.spawn((
-                HelpText,
-                Text::new(""),
-                TextFont {
-                    font_size: FontSize::Px(13.0),
-                    ..default()
-                },
-                TextColor(Color::srgba(0.85, 0.92, 0.95, 0.6)),
-            ));
-        });
-}
-
 /// On touch screens, the keyboard help is replaced by a shorter hint. A
 /// phone-wide window gets one line only: a second would run under the
 /// Invite and Settings buttons in the top corner.
@@ -485,23 +453,23 @@ fn update_help(
     time: Res<Time<Real>>,
     touch: Res<TouchControls>,
     window: Single<&Window>,
-    mut text: Single<(&mut Text, &mut TextColor), With<HelpText>>,
+    text: Single<(&mut Text, &mut TextColor), With<HelpText>>,
     mut shown_for: Local<f32>,
 ) {
     // The keys show for the first 20 s, then fade: after that the game
     // only says something when it matters (hints near each creature).
     *shown_for += time.delta_secs();
-    let alpha = 0.6 * ((25.0 - *shown_for) / 5.0).clamp(0.0, 1.0);
-    let (text, colour) = &mut *text;
-    colour.set_if_neq(TextColor(Color::srgba(0.85, 0.92, 0.95, alpha)));
+    let alpha = 0.9 * ((25.0 - *shown_for) / 5.0).clamp(0.0, 1.0);
+    let (mut text, mut colour) = text.into_inner();
+    colour.set_if_neq(TextColor(crate::ui_theme::MUTED.with_alpha(alpha)));
     let narrow = window.width() < 600.0;
     let help = match (touch.visible, narrow) {
         (true, true) => "JUMP again in the water: swim",
         (true, false) => {
             "JUMP again in the water: swim  Pinch: memory\nGUARD just before a blow: parry"
         }
-        // The keys card (`keys.rs`) lists every key.
-        (false, _) => "? shows or folds the keys",
+        // The keys card (`keys.rs`, its "? Keys" button) lists every key.
+        (false, _) => "",
     };
     if text.0 != help {
         text.0 = help.to_string();
@@ -522,6 +490,7 @@ mod page_bridge {
         time: Res<Time<Real>>,
         sim: Res<Sim>,
         crab: Single<(&Mover, &crabsim::Fighter), With<LocalPlayer>>,
+        window: Single<&Window>,
         mut since: Local<f32>,
     ) {
         let (crab, fighter) = *crab;
@@ -541,6 +510,16 @@ mod page_bridge {
             .and_then(|d| d.get_element_by_id("crabscape"))
         {
             let _ = canvas.set_attribute("data-crab", &value);
+            // The window as the game lays its HUD out: logical size and scale.
+            let _ = canvas.set_attribute(
+                "data-window",
+                &format!(
+                    "{:.0} {:.0} {:.2}",
+                    window.width(),
+                    window.height(),
+                    window.scale_factor()
+                ),
+            );
             if let Some(local) = sim.crabs().iter().find(|c| !c.remote) {
                 let shell = format!(
                     "{} {} {}",

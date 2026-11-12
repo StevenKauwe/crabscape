@@ -4,6 +4,10 @@
 //! same corner, and opens it again; the device keeps which it was. Phones and
 //! tablets have the on-screen buttons instead, so it never shows on a touch
 //! screen (or once the screen has been touched).
+//!
+//! Each key is drawn as a keycap, as on the keyboard under the player's
+//! hands, in two columns (read down the left, then the right), so the card
+//! is short enough to leave the crab its half of the screen.
 
 use bevy::prelude::*;
 
@@ -12,64 +16,91 @@ use crate::player::GameSet;
 
 /// The keys and what they do, in the order a new player needs them (the
 /// same keys as `input.rs`, `go_home.rs`, `view.rs`, `codes.rs`,
-/// `report.rs`, `style.rs` and `replay.rs` read).
-pub(crate) const KEYS: [(&str, &str); 18] = [
-    ("A D / Left Right", "walk"),
-    ("W / Up", "jump or paddle; hold to climb"),
-    ("Shift J + a way", "dodge; hold it: sprint"),
-    ("S / Down", "dive in water; descend a climb"),
-    ("Right click / E L", "smash; hold to charge"),
-    ("Left click / Q O", "jab with the cutter"),
-    ("F I", "guard; tap before a blow: parry"),
-    ("B", "inventory; number keys choose"),
-    ("K / C", "skills / hold to gather"),
-    ("T", "hold still to eat a portion"),
-    ("H", "dim or brighten the lantern"),
-    ("Home, then Y", "go home (it asks first)"),
-    ("- = / wheel", "zoom out: the crab's memory"),
-    ("Enter", "type a code, or chat"),
-    ("R", "report a bug or idea"),
-    ("P", "art style: ink or oil"),
-    ("F9", "save a replay"),
-    ("?", "fold these away"),
+/// `report.rs`, `style.rs` and `replay.rs` read). Each token is a keycap,
+/// except the [`joiner`]s between them ("/" or, "+" with, "then", and the
+/// mouse in lower case).
+pub(crate) const KEYS: [(&[&str], &str); 18] = [
+    (&["A", "D", "/", "\u{2190}", "\u{2192}"], "walk"),
+    (&["W", "/", "\u{2191}"], "jump or paddle; hold to climb"),
+    (&["Shift", "J", "+", "a way"], "dodge; hold it: sprint"),
+    (&["S", "/", "\u{2193}"], "dive in water; descend a climb"),
+    (&["right click", "/", "E", "L"], "smash; hold to charge"),
+    (&["left click", "/", "Q", "O"], "jab with the cutter"),
+    (&["F", "I"], "guard; tap before a blow: parry"),
+    (&["B"], "inventory; number keys choose"),
+    (&["K", "/", "C"], "skills / hold to gather"),
+    (&["T"], "hold still to eat a portion"),
+    (&["H"], "dim or brighten the lantern"),
+    (&["Home", "then", "Y"], "go home (it asks first)"),
+    (&["-", "=", "/", "wheel"], "zoom out: the crab's memory"),
+    (&["Enter"], "type a code, or chat"),
+    (&["R"], "report a bug or idea"),
+    (&["P"], "art style: ink or oil"),
+    (&["F9"], "save a replay"),
+    (&["?"], "fold these away"),
 ];
 
-fn entries(cellular: bool) -> impl Iterator<Item = (&'static str, &'static str)> {
+/// A token drawn as words between keycaps, not as a keycap.
+fn joiner(token: &str) -> bool {
+    matches!(token, "/" | "+") || token.starts_with(|c: char| c.is_lowercase())
+}
+
+fn entries(cellular: bool) -> impl Iterator<Item = (&'static [&'static str], &'static str)> {
     KEYS.into_iter().flat_map(move |(key, text)| {
+        let first = key.first().copied();
         std::iter::once((key, text))
             .chain(
-                (cellular && key == "S / Down")
-                    .then_some(("Space + direction", "dig at bed, turn in water")),
+                (cellular && first == Some("S"))
+                    .then_some((&["Space", "+", "a way"][..], "dig at bed, turn in water")),
             )
             .chain(
-                (cellular && key == "F I").then_some(("G / V", "salvage: first / second choice")),
+                (cellular && first == Some("F"))
+                    .then_some((&["G", "/", "V"][..], "salvage: first / second choice")),
             )
     })
 }
 
 /// Where the device keeps whether the card is folded.
 const KEPT: &str = "-keys";
-/// Its margin from the window's corner, width, line height, padding, the
-/// keys' column's width and the words' size.
+/// Its margin from the window's corner, padding, a row's height, the
+/// title's, the gap between the columns, a column's width and the keycaps'
+/// part of it, and the words' size.
 const MARGIN: f32 = 12.0;
-const WIDTH: f32 = 390.0;
-const LINE: f32 = 14.5;
 const PAD: f32 = 10.0;
-const KEY_COLUMN: f32 = 130.0;
+const ROW: f32 = 24.0;
+const TITLE: f32 = 20.0;
+const COLUMN_GAP: f32 = 14.0;
+const COLUMN: f32 = 300.0;
+const CAPS: f32 = 124.0;
 const TEXT: f32 = 12.0;
 /// The folded tab's size.
 const TAB: Vec2 = Vec2::new(70.0, 26.0);
 
+/// How many rows the taller (left) column has.
+fn rows(cellular: bool) -> usize {
+    entries(cellular).count().div_ceil(2)
+}
+
 /// The card's box, open or folded, in window pixels from the top-left.
 pub(crate) fn card_rect(window: Vec2, open: bool) -> Rect {
     let size = if open {
-        let rows = entries(crate::cellular::enabled()).count();
-        Vec2::new(WIDTH, 2.0 * PAD + LINE * (rows as f32 + 1.0))
+        let rows = rows(crate::cellular::enabled());
+        Vec2::new(
+            2.0 * PAD + 2.0 * COLUMN + COLUMN_GAP,
+            2.0 * PAD + TITLE + ROW * rows as f32,
+        )
     } else {
         TAB
     };
     let bottom = window.y - MARGIN;
     Rect::new(MARGIN, bottom - size.y, MARGIN + size.x, bottom)
+}
+
+/// Whether the open card fits across the window and under the crab (drawn
+/// in the middle): a smaller window shows the tab instead.
+fn fits(window: Vec2) -> bool {
+    let r = card_rect(window, true);
+    r.max.x <= window.x - MARGIN && r.min.y >= window.y * 0.5
 }
 
 /// Open or folded (as kept on the device: open unless folded before).
@@ -112,19 +143,24 @@ fn words(text: &str, alpha: f32) -> impl Bundle {
 /// look as the report form's, in `web/index.html`). `lit` is the brighter
 /// one, for the answer a key press gives when in doubt.
 pub(crate) fn keycap(label: &str, lit: bool) -> impl Bundle {
+    cap(label, lit, 26.0, 15.0)
+}
+
+/// A keycap `height` tall with its letter at `size`.
+fn cap(label: &str, lit: bool, height: f32, size: f32) -> impl Bundle {
     let edge = if lit { 0.75 } else { 0.4 };
     (
         Node {
-            min_width: px(26.0),
-            height: px(26.0),
-            padding: UiRect::horizontal(px(6.0)),
+            min_width: px(height),
+            height: px(height),
+            padding: UiRect::horizontal(px(height * 0.23)),
             justify_content: JustifyContent::Center,
             align_items: AlignItems::Center,
             border: UiRect {
-                bottom: px(3.0),
+                bottom: px((height / 9.0).round().max(2.0)),
                 ..UiRect::all(px(1.0))
             },
-            border_radius: BorderRadius::all(px(6.0)),
+            border_radius: BorderRadius::all(px(height * 0.23)),
             ..default()
         },
         BorderColor::all(Color::srgba(0.96, 0.91, 0.82, edge)),
@@ -132,7 +168,7 @@ pub(crate) fn keycap(label: &str, lit: bool) -> impl Bundle {
         children![(
             Text::new(label),
             TextFont {
-                font_size: FontSize::Px(15.0),
+                font_size: FontSize::Px(size),
                 ..default()
             },
             TextColor(Color::srgb(0.96, 0.91, 0.82)),
@@ -164,40 +200,45 @@ fn spawn_card(mut commands: Commands) {
                 flex_direction: FlexDirection::Column,
                 ..corner()
             },
-            BorderColor::all(Color::srgba(1.0, 0.85, 0.55, 0.25)),
+            BorderColor::all(crate::ui_theme::RIM_FAINT),
             BackgroundColor(Color::srgba(0.03, 0.08, 0.10, 0.72)),
             Visibility::Hidden,
         ))
         .with_children(|card| {
             card.spawn((
                 Node {
-                    height: px(LINE),
+                    height: px(TITLE),
                     ..default()
                 },
                 Text::new("Keys"),
                 TextFont {
-                    font_size: FontSize::Px(13.0),
+                    font_size: FontSize::Px(crate::ui_theme::BODY),
                     ..default()
                 },
                 TextColor(Color::srgb(1.0, 0.75, 0.35)),
             ));
-            for (keys, does) in entries(crate::cellular::enabled()) {
-                card.spawn(Node {
-                    height: px(LINE),
-                    flex_direction: FlexDirection::Row,
-                    ..default()
-                })
-                .with_children(|row| {
-                    row.spawn((
-                        Node {
-                            width: px(KEY_COLUMN),
+            let all: Vec<_> = entries(crate::cellular::enabled()).collect();
+            let (left, right) = all.split_at(rows(crate::cellular::enabled()));
+            card.spawn(Node {
+                flex_direction: FlexDirection::Row,
+                column_gap: px(COLUMN_GAP),
+                ..default()
+            })
+            .with_children(|columns| {
+                for half in [left, right] {
+                    columns
+                        .spawn(Node {
+                            width: px(COLUMN),
+                            flex_direction: FlexDirection::Column,
                             ..default()
-                        },
-                        words(keys, 0.95),
-                    ));
-                    row.spawn(words(does, 0.7));
-                });
-            }
+                        })
+                        .with_children(|column| {
+                            for &(keys, does) in half {
+                                spawn_row(column, keys, does);
+                            }
+                        });
+                }
+            });
         });
     commands
         .spawn((
@@ -210,12 +251,41 @@ fn spawn_card(mut commands: Commands) {
                 align_items: AlignItems::Center,
                 ..corner()
             },
-            BorderColor::all(Color::srgba(1.0, 0.85, 0.55, 0.25)),
-            BackgroundColor(Color::srgba(0.05, 0.12, 0.14, 0.45)),
+            BorderColor::all(crate::ui_theme::RIM_FAINT),
+            BackgroundColor(crate::ui_theme::BUTTON),
             Visibility::Hidden,
         ))
         .with_children(|tab| {
             tab.spawn(words("? Keys", 0.8));
+        });
+}
+
+/// One line of the card: the keys as caps (and the words between), then
+/// what they do.
+fn spawn_row(column: &mut ChildSpawnerCommands, keys: &[&str], does: &str) {
+    column
+        .spawn(Node {
+            height: px(ROW),
+            align_items: AlignItems::Center,
+            ..default()
+        })
+        .with_children(|row| {
+            row.spawn(Node {
+                width: px(CAPS),
+                column_gap: px(3.0),
+                align_items: AlignItems::Center,
+                ..default()
+            })
+            .with_children(|caps| {
+                for &token in keys {
+                    if joiner(token) {
+                        caps.spawn(words(token, 0.6));
+                    } else {
+                        caps.spawn(cap(token, false, 19.0, 11.0));
+                    }
+                }
+            });
+            row.spawn(words(does, 0.78));
         });
 }
 
@@ -231,9 +301,9 @@ fn toggle(
         return;
     }
     let clicked = mouse.just_pressed(MouseButton::Left)
-        && window
-            .cursor_position()
-            .is_some_and(|p| card_rect(window.size(), card.open).contains(p));
+        && window.cursor_position().is_some_and(|p| {
+            card_rect(window.size(), card.open && fits(window.size())).contains(p)
+        });
     if clicked || keys.just_pressed(KeyCode::Slash) {
         card.open = !card.open;
         crate::save::write_key(KEPT, if card.open { "open" } else { "folded" });
@@ -243,6 +313,7 @@ fn toggle(
 /// The card or its tab, on a computer with a keyboard only.
 fn show(
     card: Res<Card>,
+    window: Single<&Window>,
     touch: Res<TouchControls>,
     inside: Res<crate::interior::Inside>,
     mut open: Single<&mut Visibility, (With<Open>, Without<Folded>)>,
@@ -255,8 +326,9 @@ fn show(
             Visibility::Hidden
         }
     };
-    open.set_if_neq(shown(card.open));
-    folded.set_if_neq(shown(!card.open));
+    let fits = fits(window.size());
+    open.set_if_neq(shown(card.open && fits));
+    folded.set_if_neq(shown(!card.open || !fits));
 }
 
 #[cfg(test)]
@@ -286,17 +358,25 @@ mod tests {
                 assert!(r.intersect(settings).is_empty(), "{window}");
             }
             assert!(card_rect(window, false).height() >= 24.0, "clickable");
+            assert!(fits(window), "{window}");
         }
     }
 
     #[test]
     fn every_key_the_game_reads_is_on_the_card() {
-        let card: String = entries(true).map(|(k, _)| format!("{k} ")).collect();
+        let caps: Vec<&str> = entries(true)
+            .flat_map(|(k, _)| k.iter().copied())
+            .filter(|k| !joiner(k))
+            .collect();
         for key in [
             "A", "D", "Space", "W", "K", "B", "G", "V", "Shift", "J", "S", "E", "L", "Q", "O", "F",
-            "I", "T", "H", "Y", "-", "=", "Enter", "R", "P", "F9", "?",
+            "I", "T", "H", "Y", "-", "=", "Enter", "R", "P", "F9", "?", "Home", "C",
         ] {
-            assert!(card.split_whitespace().any(|k| k == key), "{key} missing");
+            assert!(caps.contains(&key), "{key} missing");
+        }
+        // The arrows are drawn as arrows (the font has them).
+        for arrow in ["\u{2190}", "\u{2191}", "\u{2192}", "\u{2193}"] {
+            assert!(caps.contains(&arrow), "{arrow}");
         }
     }
 }
