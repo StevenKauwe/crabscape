@@ -5,9 +5,9 @@ use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 
 use crate::input::TouchControls;
-use crate::level::Parallax;
+use crate::level::{Parallax, RidgePaint};
 use crate::memory::{WATER, depth_factor, water_at};
-use crate::painted_world::RidgeMaterial;
+use crate::painted_world::{FarRidgeMaterial, RidgeMaterial};
 use crate::player::{GameSet, LocalPlayer};
 use crate::tuning::ViewTuning;
 use crabsim::Mover;
@@ -393,7 +393,10 @@ fn move_parallax(
     sim: Res<Sim>,
     camera: Single<&Transform, With<Camera2d>>,
     zoom: Res<Zoom>,
-    mut materials: ResMut<Assets<RidgeMaterial>>,
+    (mut materials, mut far_materials): (
+        ResMut<Assets<RidgeMaterial>>,
+        ResMut<Assets<FarRidgeMaterial>>,
+    ),
     mut layers: Query<(&Parallax, &mut Transform), Without<Camera2d>>,
     mut anchor: Local<Option<f32>>,
 ) {
@@ -412,14 +415,33 @@ fn move_parallax(
         tr.translation.x = root.x;
         tr.translation.y = root.y;
         let recede = layer_recession(layer.recede, zoom.out);
-        if let Some(mut m) = materials.get_mut(&layer.material)
-            && (m.paint.water != water
-                || m.paint.settings.y != light
-                || m.paint.settings.z != recede)
-        {
-            m.paint.water = water;
-            m.paint.settings.y = light;
-            m.paint.settings.z = recede;
+        match &layer.material {
+            RidgePaint::Textured(handle) => {
+                if let Some(mut m) = materials.get_mut(handle)
+                    && (m.paint.water != water
+                        || m.paint.settings.y != light
+                        || m.paint.settings.z != recede)
+                {
+                    m.paint.water = water;
+                    m.paint.settings.y = light;
+                    m.paint.settings.z = recede;
+                }
+            }
+            RidgePaint::Flat {
+                material,
+                lit,
+                dark,
+            } => {
+                // The flat colour is the textured shader's mix, taken once on the CPU.
+                let own = dark.lerp(*lit, light);
+                let colour = own.lerp(water.truncate(), recede).extend(1.0);
+                if let Some(mut m) = far_materials.get_mut(material)
+                    && (m.paint.water != water || m.paint.colour != colour)
+                {
+                    m.paint.water = water;
+                    m.paint.colour = colour;
+                }
+            }
         }
     }
 }
