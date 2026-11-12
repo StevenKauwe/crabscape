@@ -76,6 +76,7 @@ pub mod plunge;
 pub mod prepared_food;
 pub mod progress;
 pub mod replay;
+pub mod rest_points;
 pub mod ride;
 pub mod rng;
 pub mod royal;

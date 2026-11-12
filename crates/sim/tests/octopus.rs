@@ -1051,10 +1051,20 @@ fn a_crab_dying_in_its_den_leaves_it_there() {
         died |= sim.crabs()[0].fighter.dead.is_some();
     }
     assert!(died, "it caught the crab");
+    // A death in its den's arena wakes the crab at the den's door, to try
+    // again at once (`rest_points.rs`), not at home.
+    let door = sim
+        .rest_points()
+        .iter()
+        .find(|p| p.name == "octopus den")
+        .expect("the octopus has a door")
+        .at;
     assert!(
-        sim.crabs()[0].mover.pos.distance(den) > 2000.0,
-        "woke at home"
+        sim.crabs()[0].mover.pos.distance(door) < 5.0,
+        "woke at its door"
     );
+    // The crab goes home; the octopus leaves its den alone and settles.
+    sim.crab_mut(id).unwrap().mover.pos = crabsim::SPAWN;
     wait(&mut sim, 10);
     assert!(at_home(&sim), "{:?}", the_octopus(&sim));
 }

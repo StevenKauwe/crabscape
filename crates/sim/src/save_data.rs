@@ -80,6 +80,7 @@ pub fn player_fits_world(sim: &crate::Sim, player: &SaveData) -> bool {
             || progress
                 .wakes_at
                 .is_some_and(|i| i >= sim.level.crevices.len())
+            || !crate::rest_points::valid(&progress.reached, sim.rest_points())
         {
             return false;
         }
