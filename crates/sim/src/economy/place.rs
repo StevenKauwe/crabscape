@@ -84,7 +84,8 @@ const VENTS: &str = "vent field";
 const GALLERIES: &str = "upper gallery";
 /// The Deep Galleries' three halls (`level::deep_galleries`).
 const LANTERN_HALL: &str = "lanternfish hall";
-const NODULE_HALL: &str = "nodule hall";
+const CORAL_HALL: &str = "black coral hall";
+const NODULE_FIELD: &str = "nodule field";
 const WHALE_HALL: &str = "whale-fall hall";
 
 /// Every spot, by tier. Nodes of one kind are spread over the tier's places,
@@ -209,15 +210,15 @@ pub const SPOTS: &[NodeSpot] = &[
     // the world lane's sites; appended, so earlier indices keep their
     // meaning). The lanternfish hall (floor -4,200) holds fish falls (tier 3)
     // and the whale-fall hall (-8,200) whale-fall bones (tier 4), as authored.
-    // The nodule hall (-6,200) lies in the midnight band, above the deep band
-    // that tier 5 nodules need, so it holds black coral (tier 4: black corals
-    // do grow this deep, not verified) at the authored sites instead.
+    // The black coral hall (-6,200) holds black coral (tier 4: black corals
+    // do grow this deep, not verified), and the nodule field (-10,200, the
+    // deep band) the tier 5 nodules.
     at(LANTERN_HALL, K::FishFall, 2100.0),
     at(LANTERN_HALL, K::FishFall, 2400.0),
     at(LANTERN_HALL, K::FishFall, 2700.0),
-    at(NODULE_HALL, K::BlackCoral, 2200.0),
-    at(NODULE_HALL, K::BlackCoral, 2500.0),
-    at(NODULE_HALL, K::BlackCoral, 2800.0),
+    at(CORAL_HALL, K::BlackCoral, 2200.0),
+    at(CORAL_HALL, K::BlackCoral, 2500.0),
+    at(CORAL_HALL, K::BlackCoral, 2800.0),
     at(WHALE_HALL, K::WhaleFallBones, 3400.0),
     at(WHALE_HALL, K::WhaleFallBones, 3700.0),
     at(WHALE_HALL, K::WhaleFallBones, 4000.0),
@@ -235,6 +236,9 @@ pub const SPOTS: &[NodeSpot] = &[
     at("sponge garden first arch", K::ScallopBed, 12070.0),
     at("sponge garden second arch", K::GlassSpongeGarden, 13230.0),
     at("sponge garden second arch", K::ScallopBed, 13320.0),
+    at(NODULE_FIELD, K::NoduleField, 1620.0),
+    at(NODULE_FIELD, K::NoduleField, 1700.0),
+    at(NODULE_FIELD, K::NoduleField, 1780.0),
 ];
 
 /// Where a spot lies on this level, or `None` when its named place is not

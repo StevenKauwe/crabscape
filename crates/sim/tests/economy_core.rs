@@ -73,7 +73,8 @@ fn nodes_per_kind_follow_the_tiers() {
             | NodeKind::BlackCoral
             | NodeKind::WhaleFallBones
             | NodeKind::GlassSpongeGarden
-            | NodeKind::ScallopBed => 3,
+            | NodeKind::ScallopBed
+            | NodeKind::NoduleField => 3,
             NodeKind::SeaPenField | NodeKind::ClamBed => 1,
             _ => 0,
         };
@@ -356,7 +357,8 @@ fn home_of(kind: NodeKind) -> Option<&'static str> {
 fn deep_hall(level: &Level, pos: Vec2) -> Option<&'static str> {
     [
         "lanternfish hall",
-        "nodule hall",
+        "black coral hall",
+        "nodule field",
         "whale-fall hall",
         "sponge garden kelp ledge",
         "sponge garden tower shelf",
@@ -421,7 +423,8 @@ fn nodes_lie_in_their_places_on_a_floor_and_never_in_a_mouth() {
     assert_eq!(counts.get("upper gallery"), Some(&3));
     // The Deep Galleries: three of one kind in each hall.
     assert_eq!(counts.get("lanternfish hall"), Some(&3));
-    assert_eq!(counts.get("nodule hall"), Some(&3));
+    assert_eq!(counts.get("black coral hall"), Some(&3));
+    assert_eq!(counts.get("nodule field"), Some(&3));
     assert_eq!(counts.get("whale-fall hall"), Some(&3));
     // Region 5: two on each shelf top (one of them on the kelp ledge is a
     // clam bed, which no home names).
@@ -444,11 +447,11 @@ fn a_level_without_a_pocket_drops_its_nodes_and_keeps_the_rest() {
     let left = nodes(&bare);
     // The Silt and Deep Galleries and region 5's shelves go with the rocks
     // too (their roofs and tops are rocks), and with them the three glass
-    // gardens, the halls' nine and the shelves' eight.
+    // gardens, the halls' twelve and the shelves' eight.
     assert_eq!(
         left.len(),
-        all - 32,
-        "the pockets' 12, the galleries' 3, the deep halls' 9 and the shelves' 8 are gone"
+        all - 35,
+        "the pockets' 12, the galleries' 3, the deep halls' 12 and the shelves' 8 are gone"
     );
     assert!(left.iter().all(|n| home_of(n.kind) != Some("bone hall")));
 }
