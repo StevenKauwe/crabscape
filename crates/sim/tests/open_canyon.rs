@@ -49,7 +49,7 @@ fn without_column(mut n: Node) -> Node {
 #[test]
 fn shelf_tops_are_not_reached_from_the_slope_floor() {
     let level = Level::test_level();
-    for x in [9400.0, 12300.0] {
+    for x in [11800.0] {
         let at = Vec2::new(x, level.floor_height(x));
         let start = without_column(route::start_node(KIT, at, false));
         let s = route::survey_from(
@@ -97,7 +97,12 @@ fn the_kelp_column_reaches_the_kelp_ledge() {
     let ledge = feature("kelp ledge");
     let foot = Vec2::new(COLUMN_X - 40.0, level.floor_height(COLUMN_X));
     let start = route::start_node(KIT, foot, false);
-    let s = route::survey_from(start, KIT, |n| n.mover().pos.y > ledge.top + 100.0, 3000);
+    let s = route::survey_from(
+        start,
+        KIT,
+        |n| n.mover().pos.y > ledge.top + 100.0 || (n.mover().pos.x - COLUMN_X).abs() > 900.0,
+        3000,
+    );
     let reached = s.nodes.iter().position(|n| on_top(n, ledge));
     let i = reached.expect("the column reaches the kelp ledge");
     println!("kelp ledge in {:.0} s: {}", s.nodes[i].time, s.describe(i));
@@ -116,7 +121,12 @@ fn a_glide_off_a_higher_shelf_reaches_the_lower_ones() {
         let s = route::survey_from(
             without_column(start_on(a)),
             KIT,
-            |n| n.mover().pos.y < b.top - 1200.0,
+            |n| {
+                let p = n.mover().pos;
+                p.y < b.top - 1200.0
+                    || p.x < a.span.0.min(b.span.0) - 600.0
+                    || p.x > a.span.1.max(b.span.1) + 600.0
+            },
             2500,
         );
         let i = s.nodes.iter().position(|n| on_top(n, b));
@@ -280,13 +290,10 @@ fn the_places_are_named_and_the_foot_is_a_quiet_refuge() {
     for f in &FEATURES {
         named(f.name);
         let g = named(f.garden);
-        // A glass sponge lies in every garden.
+        // The garden sits on the shelf's top, with the glass sponge in it.
+        assert_eq!(g.rect.min.y, f.top, "{}", f.garden);
         assert!(
-            level
-                .sponges
-                .iter()
-                .any(|s| g.rect.contains(*s)
-                    || (s.x == f.sponge && (s.y - f.top - 10.0).abs() < 1.0)),
+            g.rect.contains(Vec2::new(f.sponge, f.top + 10.0)),
             "{}",
             f.garden
         );

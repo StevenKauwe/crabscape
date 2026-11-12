@@ -129,9 +129,8 @@ fn climb(x: f32, y: f32, way: &str) -> String {
 fn a_glass_sponge_lies_on_the_canyon_floor_and_makes_glass_grips_at_home() {
     let level = crabsim::Level::test_level();
     // The canyon's, the hub's, the eastern gallery's and the cathedral's, then
-    // the Silt Galleries' three, then the open canyon's four shelf gardens
-    // (appended after, so these indices hold).
-    assert_eq!(level.sponges.len(), 11);
+    // the Silt Galleries' three (appended after, so these indices hold).
+    assert_eq!(level.sponges.len(), 7);
     let at = level.sponges[0];
     assert_eq!(at.y, level.floor_height(at.x) + 10.0, "lying on the floor");
     // Walking over it puts it on the crab's back.

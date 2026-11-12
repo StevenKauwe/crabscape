@@ -115,15 +115,9 @@ pub const FEATURES: [Feature; 4] = [
     },
 ];
 
-/// A clam on each shelf top (the open-water finds), and grit under the arches.
-pub fn shelf_clams() -> Vec<Vec2> {
-    FEATURES
-        .iter()
-        .map(|f| Vec2::new(f.sponge + 90.0, f.top + 4.0))
-        .collect()
-}
-
-/// Every gather spot on a shelf top: the sponge and the clam.
+/// Every gather spot on a shelf top: the glass sponge and a clam bed beside
+/// it. These are data for the economy to wire in (the sponge and clam lists
+/// are pinned to "lies on the floor" by `glass.rs`, `food.rs` and `hub.rs`).
 pub fn gather_spots() -> Vec<Vec2> {
     FEATURES
         .iter()
@@ -136,7 +130,7 @@ pub fn gather_spots() -> Vec<Vec2> {
         .collect()
 }
 
-/// Shell grit lying under the arches (the floor below each lintel).
+/// Shell grit lying on the slope under the arches.
 pub const ARCH_GRIT: [f32; 2] = [11800.0, 13200.0];
 
 /// Every rock the region adds.
@@ -161,10 +155,6 @@ pub(super) fn shape(level: &mut Level) {
     level.rocks.extend(rocks());
     let column = column(level);
     level.climbs.push(column);
-    for f in &FEATURES {
-        level.sponges.push(Vec2::new(f.sponge, f.top + 10.0));
-    }
-    level.clams.extend(shelf_clams());
     for x in ARCH_GRIT {
         level.grit.push(Vec2::new(x, level.floor_height(x) + 4.0));
     }
