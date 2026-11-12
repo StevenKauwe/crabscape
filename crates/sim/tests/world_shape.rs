@@ -70,7 +70,10 @@ fn home_and_every_crevice_are_refuges() {
                 .iter()
                 // The galleries' stalks are the way out of a drop, no refuge.
                 .filter(|c| {
-                    c.kind != Growth::Rock && !crabsim::level::silt_galleries::CORAL.contains(c)
+                    c.kind != Growth::Rock
+                        && !crabsim::level::silt_galleries::CORAL.contains(c)
+                        && !crabsim::level::deep_galleries::corals().contains(c)
+                        && **c != crabsim::level::deep_galleries::FAR_CORAL
                 })
                 .map(|c| Rect::new(c.x - 60.0, c.bottom, c.x + 60.0, c.top)),
         )
@@ -237,7 +240,13 @@ fn no_hunter_roams_inside_a_tunnel() {
                 .filter(|l| l.kind == Kind::Drop && l.rect.max.x <= home.x)
                 .map(|l| l.rect.max.x)
                 .fold(f32::NEG_INFINITY, f32::max);
-            let (bottom, top) = if swimming {
+            // A hunter in a cavern (the lair octopus, a thousand units and
+            // more under the sea floor) walks that cavern's own floor, not
+            // the sea floor far above it: it cannot leave through rock.
+            let underground = home.y < level.floor_height(home.x) - 400.0;
+            let (bottom, top) = if underground {
+                (home.y, home.y)
+            } else if swimming {
                 // A swimmer cannot go through the seabed: its leash stops at
                 // the lowest ground within reach (pockets under the floor are
                 // entered by their doors, which the sanctuary guard and the

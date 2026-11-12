@@ -347,12 +347,20 @@ fn jet_spot(e: &Enemy, crab_x: Option<f32>, level: &Level, t: &Tuning) -> f32 {
         Some(_) => -1.0,
         None => -e.facing,
     };
+    // The floor under its own, whether the sea floor or a cavern's (the lair).
+    let ground = |x: f32| level.footing(x, e.pos.y + 4.0);
     let fits = |x: f32| {
-        let y = level.floor_height(x);
+        let y = ground(x);
         let flat = [x - half, x + half]
             .iter()
-            .all(|&s| (level.floor_height(s) - y).abs() <= 20.0);
-        let body = Rect::new(x - half, y + 1.0, x + half, y + h);
+            .all(|&s| (ground(s) - y).abs() <= 20.0);
+        // Room to rise in too: a tunnel's low roof is no place to fight from.
+        let body = Rect::new(
+            x - half,
+            y + 1.0,
+            x + half,
+            y + h.max(t.octopus.webover.headroom),
+        );
         x - half >= level.min_x
             && x + half <= level.max_x
             && (y - e.pos.y).abs() <= i.climb
@@ -374,7 +382,7 @@ fn reappear(e: &mut Enemy, o: &mut Octopus, crabs: &[SimCrab], level: &Level, t:
         .and_then(|id| crabs.iter().find(|c| c.id == id))
         .map(|c| c.mover.pos.x);
     let x = jet_spot(e, crab_x, level, t);
-    e.pos = Vec2::new(x, level.floor_height(x));
+    e.pos = Vec2::new(x, level.footing(x, e.pos.y + 4.0));
     e.home = e.pos;
     e.reach = 0.0;
     let root = root(e, t);
@@ -648,7 +656,7 @@ fn spread(e: &Enemy, o: &mut Octopus, level: &Level, t: &Tuning) {
             continue;
         }
         let x = o.aim + (i as f32 + 0.5 - n / 2.0) * w.width / n;
-        let y = level.floor_height(x).max(e.pos.y - 50.0);
+        let y = level.footing(x, e.pos.y + 4.0).max(e.pos.y - 50.0);
         arm.set(ArmState::Spread);
         arm.tip = Vec2::new(x, y + t.octopus.arms.height / 2.0);
     }

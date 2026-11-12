@@ -58,6 +58,10 @@ pub const PLUG: Rect = Rect::new(920.0, -20.0, 1040.0, 0.0);
 /// stops here.
 const SHELF_ROCK: f32 = 10.0;
 
+/// The plug shaft's resting niche: its floor is the ledge a climber steps onto,
+/// about halfway up the thousand-unit climb (at most 600 from either end).
+pub const PLUG_LEDGE: Rect = Rect::new(1040.0, -540.0, 1200.0, -380.0);
+
 /// The glass sponges, one in each sponge gallery, lying on the silt.
 pub const SPONGES: [Vec2; 3] = [
     Vec2::new(1980.0, UPPER_FLOOR + 10.0),
@@ -125,6 +129,10 @@ pub fn rooms() -> &'static [Room] {
                 Mouth,
                 false,
             ),
+            // A resting ledge about halfway up the plug shaft: a niche in its
+            // east wall, a refuge out of every hunter's reach (the climb is a
+            // thousand units, more than a rested crab's reserve).
+            room("plug ledge", PLUG_LEDGE, Calm, false),
             room(
                 "sponge door 1",
                 Rect::new(1720.0, U0, 1840.0, U0 + 160.0),
@@ -240,7 +248,10 @@ fn subtract(piece: Rect, cut: Rect) -> Vec<Rect> {
     out
 }
 
-fn subtract_all(pieces: Vec<Rect>, cuts: impl Iterator<Item = Rect> + Clone) -> Vec<Rect> {
+pub(super) fn subtract_all(
+    pieces: Vec<Rect>,
+    cuts: impl Iterator<Item = Rect> + Clone,
+) -> Vec<Rect> {
     let mut pieces = pieces;
     for cut in cuts {
         pieces = pieces.into_iter().flat_map(|p| subtract(p, cut)).collect();
@@ -248,10 +259,13 @@ fn subtract_all(pieces: Vec<Rect>, cuts: impl Iterator<Item = Rect> + Clone) -> 
     pieces
 }
 
-fn all_voids() -> impl Iterator<Item = Rect> + Clone {
+/// Every cavity of the galleries and of the deep galleries below them: the
+/// linings of both stop at each other's cavities.
+pub(super) fn all_voids() -> impl Iterator<Item = Rect> + Clone {
     rooms()
         .iter()
         .map(|r| r.rect)
+        .chain(super::deep_galleries::rooms().iter().map(|r| r.rect))
         .collect::<Vec<_>>()
         .into_iter()
 }
@@ -432,7 +446,7 @@ pub(super) fn landmarks(level: &Level) -> Vec<Landmark> {
     };
     let calm = rooms()
         .iter()
-        .filter(|r| r.part == Part::Calm && r.name != "plug shaft");
+        .filter(|r| r.part == Part::Calm && !matches!(r.name, "plug shaft" | "plug ledge"));
     let (mut lo, mut hi) = (Vec2::splat(f32::MAX), Vec2::splat(f32::MIN));
     for r in calm {
         lo = lo.min(r.rect.min);
@@ -476,6 +490,16 @@ pub(super) fn landmarks(level: &Level) -> Vec<Landmark> {
         Kind::Mouth,
     );
     add("silt gallery plug", PLUG, Kind::Plug);
+    add(
+        "plug shaft ledge",
+        Rect::new(
+            PLUG_LEDGE.min.x,
+            PLUG_LEDGE.min.y,
+            PLUG_LEDGE.max.x,
+            PLUG_LEDGE.min.y + 60.0,
+        ),
+        Kind::Refuge,
+    );
     add(
         "drop ledge",
         Rect::new(2480.0, -1700.0, 2580.0, -1640.0),

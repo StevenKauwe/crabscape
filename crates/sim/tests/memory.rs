@@ -301,3 +301,76 @@ fn what_is_in_sight_now_is_marked() {
     let m = memory(&sim);
     assert!(!m.in_sight(m.cell_at(Vec2::new(420.0, 60.0), t).unwrap()));
 }
+
+// --- Caverns --------------------------------------------------------------
+
+/// The map memory used to read every cell under the sea floor as solid, so
+/// the insides of caverns were drawn as rock. The true open water of the
+/// layer map is sampled once into a bit mask per grid.
+#[test]
+fn the_cavern_mask_marks_open_water_under_the_floor_and_nothing_else() {
+    use crabsim::memory::CavernMask;
+    let level = crabsim::Level::test_level();
+    let t = crabsim::Tuning::default().memory;
+    let blank = Memory::new(&level, &t);
+    let mask = CavernMask::new(&level, blank.origin, blank.cols, blank.rows, t.cell);
+    let open = |p: Vec2| {
+        let i = blank.cell_at(p, &t).expect("on the grid");
+        mask.open(
+            &level,
+            (i % u64::from(blank.cols)) as u32,
+            (i / u64::from(blank.cols)) as u32,
+        )
+    };
+    // The upper gallery's water, the Drop's shaft and a deep hall.
+    assert!(open(Vec2::new(2000.0, -900.0)), "the upper gallery");
+    assert!(open(Vec2::new(1200.0, -5000.0)), "the Drop");
+    assert!(open(Vec2::new(2000.0, -4050.0)), "the lanternfish hall");
+    // Its clay floor, solid bedrock, the open sea above the floor (never a
+    // cavern: the floor's height answers there) and a slab in the Drop.
+    assert!(
+        !open(Vec2::new(2000.0, -1060.0)),
+        "the gallery's clay floor"
+    );
+    assert!(
+        !open(Vec2::new(2000.0, -1500.0)),
+        "bedrock between galleries"
+    );
+    assert!(!open(Vec2::new(160.0, 50.0)), "the open sea");
+    assert!(!open(Vec2::new(1200.0, -2220.0)), "a slab of the Drop");
+    let n = mask.count(&level);
+    println!(
+        "{n} cavern cells of {}",
+        blank.cols as u64 * blank.rows as u64
+    );
+    assert!(n > 10_000, "{n}");
+    // Sampled again (a fresh mask), a column is the same bits.
+    let again = CavernMask::new(&level, blank.origin, blank.cols, blank.rows, t.cell);
+    let x = blank.cell_at(Vec2::new(1200.0, 0.0), &t).unwrap() % u64::from(blank.cols);
+    assert_eq!(
+        mask.column_bits(&level, x as u32),
+        again.column_bits(&level, x as u32)
+    );
+}
+
+/// A crab in a gallery sees the gallery's water as water: it is perceived, and
+/// the rock behind a wall is not seen through it.
+#[test]
+fn a_crab_in_a_cavern_sees_its_water_and_not_the_rooms_behind_the_walls() {
+    use crabsim::level::silt_galleries as sg;
+    let level = crabsim::Level::test_level();
+    let at = Vec2::new(2000.0, sg::UPPER_FLOOR);
+    let mut sim = Sim::new(crabsim::Tuning::default(), level);
+    sim.add_crab(ME, at);
+    run(&mut sim, 4.0);
+    let t = sim.tuning.memory.clone();
+    let m = memory(&sim);
+    let seen = |p: Vec2| m.in_sight(m.cell_at(p, &t).unwrap());
+    assert!(seen(at + Vec2::new(120.0, 60.0)), "water in the same room");
+    // The sealed mouth shaft's water, west of the gallery's door and out of
+    // the line of sight through rock, is not in sight.
+    assert!(
+        !seen(Vec2::new(2000.0, -1500.0)),
+        "rock under the floor, out of the lantern"
+    );
+}

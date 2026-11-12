@@ -1580,6 +1580,8 @@ fn move_and_collide(
         m.pos.x = m.pos.x.clamp(lo, hi);
         m.vel.x = 0.0;
     }
+    // All of them, not those across our x: a push out of one rock moves us,
+    // and the next is checked where we were pushed to.
     for r in level.solids() {
         // A rock whose top is within a step of our feet doesn't block: we
         // step up onto it below.
@@ -1613,7 +1615,7 @@ fn move_and_collide(
     let over = |r: &Rect, x: f32| x + hw > r.min.x + EPS && x - hw < r.max.x - EPS;
     if m.vel.y > 0.0 {
         // Bump our shell on the underside of a rock.
-        for r in level.solids() {
+        for r in level.solids_across(m.pos.x - hw - 1.0, m.pos.x + hw + 1.0) {
             if over(&r, m.pos.x) && old_y + h <= r.min.y + EPS && m.pos.y + h > r.min.y {
                 m.pos.y = r.min.y - h;
                 m.vel.y = 0.0;
@@ -1637,7 +1639,7 @@ fn move_and_collide(
         }
     };
     consider(level.footing(m.pos.x, high));
-    for r in level.solids() {
+    for r in level.solids_across(m.pos.x - hw - 1.0, m.pos.x + hw + 1.0) {
         if over(&r, m.pos.x) {
             consider(r.max.y);
         }

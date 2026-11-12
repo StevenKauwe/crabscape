@@ -15,7 +15,7 @@
 //! The map is *derived* from a [`Level`] on demand and never stored in it
 //! (`Level` derives `PartialEq` and serde; see `world-plan.md`).
 
-use super::{Level, silt_galleries};
+use super::{Level, deep_galleries, silt_galleries};
 use crate::underwater::{Cell, GAME_BOTTOM, GAME_CELL};
 use bevy_math::{Rect, Vec2};
 use std::sync::Arc;
@@ -240,12 +240,19 @@ impl Column {
         // bottom of the cavity carved out of one) with solid just below it and
         // water just above.
         const NUDGE: f32 = 0.01;
-        self.spans
+        // Highest first: the first edge that is a surface is the answer, so
+        // most edges are never tested (each test reads the whole column).
+        let mut edges: Vec<f32> = self
+            .spans
             .iter()
             .flat_map(|s| [s.lo, s.hi])
             .filter(|&t| t <= y + NUDGE)
-            .filter(|&t| self.cell(t - NUDGE) != Cell::Water && self.cell(t + NUDGE) == Cell::Water)
-            .max_by(f32::total_cmp)
+            .collect();
+        edges.sort_by(|a, b| b.total_cmp(a));
+        edges.dedup();
+        edges
+            .into_iter()
+            .find(|&t| self.cell(t - NUDGE) != Cell::Water && self.cell(t + NUDGE) == Cell::Water)
     }
 
     /// The highest solid surface in the column (the ground a creature stands on
@@ -359,6 +366,7 @@ impl LayerMap {
         // Authored decoration of new regions that must beat the rocks (a plug
         // of soil in a frame's wall, say).
         shapes.extend(silt_galleries::after_rocks());
+        shapes.extend(deep_galleries::after_rocks());
         Self::from_shapes(shapes, rocks_from)
     }
 
@@ -502,7 +510,9 @@ fn bedrock_and_sediment(level: &Level) -> Vec<Shape> {
 /// New regions' soil and cavities, painted after the strata and before the
 /// rocks. Empty on a level that lacks the regions' bedrock.
 fn overlay(level: &Level) -> Vec<Shape> {
-    silt_galleries::shapes(level)
+    let mut shapes = silt_galleries::shapes(level);
+    shapes.extend(deep_galleries::shapes(level));
+    shapes
 }
 
 #[cfg(test)]
