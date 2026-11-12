@@ -119,6 +119,91 @@ impl Obstruction {
     }
 }
 
+/// The grid cells whose middle is open water under the sea floor: the insides
+/// of caverns (the Silt Galleries, the Drop, the sealed pockets). Everything
+/// else under the floor is rock or soil. Sampled once from the level's layer
+/// map (`Level::layers`), one bit per memory cell, and shared by every crab's
+/// memory of the same level; never per frame.
+#[derive(Debug, Default, PartialEq)]
+pub struct CavernMask {
+    cols: u32,
+    rows: u32,
+    bits: Vec<u64>,
+}
+
+impl CavernMask {
+    /// Sample the layer map over a `cols` x `rows` grid of `cell`-unit cells
+    /// whose lower-left corner is `origin`. Pure: the same level and grid give
+    /// the same mask.
+    pub fn sample(level: &Level, origin: Vec2, cols: u32, rows: u32, cell: f32) -> Self {
+        let map = level.layers_shared();
+        let mut bits = vec![0u64; (cols as usize * rows as usize).div_ceil(64)];
+        for x in 0..cols {
+            let wx = origin.x + (x as f32 + 0.5) * cell;
+            if wx < level.min_x || wx > level.max_x {
+                continue;
+            }
+            let column = map.column(wx);
+            // Cells whose middle is more than half a cell under the sea floor.
+            let floor = level.floor_height(wx) - cell * 0.5;
+            for y in 0..rows {
+                let wy = origin.y + (y as f32 + 0.5) * cell;
+                if wy >= floor {
+                    break;
+                }
+                if column.cell(wy) == crate::underwater::Cell::Water {
+                    let i = y as usize * cols as usize + x as usize;
+                    bits[i / 64] |= 1 << (i % 64);
+                }
+            }
+        }
+        Self { cols, rows, bits }
+    }
+
+    /// Is the cell at (`x`, `y`) open cavern water?
+    pub fn open(&self, x: u32, y: u32) -> bool {
+        if x >= self.cols || y >= self.rows {
+            return false;
+        }
+        let i = y as usize * self.cols as usize + x as usize;
+        self.bits.get(i / 64).is_some_and(|w| w >> (i % 64) & 1 == 1)
+    }
+
+    /// How many cells are open cavern water.
+    pub fn count(&self) -> usize {
+        self.bits.iter().map(|w| w.count_ones() as usize).sum()
+    }
+
+    /// The mask for this level and grid, shared with every memory that asks
+    /// for the same one.
+    fn shared(level: &Level, origin: Vec2, cols: u32, rows: u32, cell: f32) -> Arc<Self> {
+        use std::sync::Mutex;
+        type Entry = (Arc<crate::level::layers::LayerMap>, [u32; 5], Arc<CavernMask>);
+        static CACHE: Mutex<Vec<Entry>> = Mutex::new(Vec::new());
+        let map = level.layers_shared();
+        let key = [
+            origin.x.to_bits(),
+            origin.y.to_bits(),
+            cols,
+            rows,
+            cell.to_bits(),
+        ];
+        let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((_, _, mask)) = cache
+            .iter()
+            .find(|(m, k, _)| Arc::ptr_eq(m, &map) && *k == key)
+        {
+            return Arc::clone(mask);
+        }
+        let mask = Arc::new(Self::sample(level, origin, cols, rows, cell));
+        if cache.len() >= 4 {
+            cache.remove(0);
+        }
+        cache.push((map, key, Arc::clone(&mask)));
+        mask
+    }
+}
+
 /// One crab's memory of the level.
 #[derive(Clone, Serialize)]
 pub struct Memory {
@@ -147,6 +232,9 @@ pub struct Memory {
     live_cells: Vec<u64>,
     #[serde(skip)]
     cache: crate::page_cache::PageCache,
+    /// Cavern water under the sea floor, sampled on first use.
+    #[serde(skip)]
+    caverns: std::sync::OnceLock<Arc<CavernMask>>,
 }
 
 impl<'de> Deserialize<'de> for Memory {
@@ -186,6 +274,7 @@ impl<'de> Deserialize<'de> for Memory {
             obstruction: Obstruction::default(),
             live_cells: state.live_cells,
             cache: Default::default(),
+            caverns: Default::default(),
         })
     }
 }
@@ -277,6 +366,7 @@ impl Memory {
             obstruction: Obstruction::default(),
             live_cells: Vec::new(),
             cache: Default::default(),
+            caverns: Default::default(),
         };
         // Solid: inside a rock (or a dark hidden place, or past the walls),
         // or more than half a cell down into the sea floor.
@@ -387,7 +477,16 @@ impl Memory {
                 .chain(&level.secrets)
                 .any(|r| r.contains(c))
             || crate::level::royal::solids().any(|r| r.contains(c))
-            || c.y < level.floor_height(c.x) - t.cell * 0.5
+            || (c.y < level.floor_height(c.x) - t.cell * 0.5 && !self.cavern_water(i, level, t))
+    }
+
+    /// Is this cell open water inside a cavern (under the sea floor, where
+    /// the floor's height would call it solid)?
+    fn cavern_water(&self, i: u64, level: &Level, t: &MemoryTuning) -> bool {
+        let mask = self.caverns.get_or_init(|| {
+            CavernMask::shared(level, self.origin, self.cols, self.rows, t.cell)
+        });
+        mask.open((i % u64::from(self.cols)) as u32, (i / u64::from(self.cols)) as u32)
     }
 
     /// Capture only changed pages. Clock advancement does not dirty distant pages.
