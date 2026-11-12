@@ -545,6 +545,7 @@ A scripted tunnel from the home burrow's silt shaft pays 206 XP/min (tier 1 gath
 - CI flake: `cell_save::native` on Linux (#482): rerun the failed job.
 
 ## Where things stand
+- **#633:** death wakes the crab at the nearest rest point it has reached (`level/rest.rs`, `rest_points.rs`). A boss-arena death keeps the load (no cast-off), so a fight for a far part never costs the trip's haul. The grouper is beatable (fair bot 67-70%), so a grouper drop could become a want; none asks for one yet. The Silt Galleries glass hookup waits on #634.
 - **#631:** wants that send you out (five far-thing pieces and recipes), digging earns Excavating XP, and tier 5's trip is measured for real (307 s round trip through the narrows lock; XP/min by tier at unlock 180 / 403 / 620 / 805 / 1049). Next: point the glass lamp's want at the Silt Galleries' glass when the world lane's loop lands, and re-measure.
 - **L1 (#622), the loop measured:** `crates/sim/tests/loop_pacing.rs` plays three wants through the beat sheet
   (glass lamp 4.8 min, bone arch 2.1, kelp curtain 2.8 against 20). Pieces are wants now. Guardrail: the gap to 20 is
