@@ -17,20 +17,20 @@
 //!                                                    y -9,000: mounds, three shelf heights
 //! ```
 //!
-//! **The upper caves** are a line of five chambers (floor y -6,700, hunters
-//! never reach them: the deepest hunting box over the slope ends at y -6,060)
-//! joined by 160-tall passages. A refuge stands at most 600 units apart along
-//! it. They are shown to sit at least 250 under the slope above.
-//! **The slope mouth** is a 120-wide neck in the slope floor at x 10,660 to
-//! 10,780, east of the kelp column's foot and the rubble haven (x 10,200 to
-//! 10,430, which stay as they were) and 570 units from the slope's mantis, over
-//! a stairwell like the Drop's. **The warren
-//! shaft** is the line's other mouth: it rises through the pebble warren's
-//! floor, with two niches to rest in. **The sunken reef** is one cavern of
-//! three bays with a rubble mound at each of three shelf heights, reached by a
-//! second stairwell (a lid slab and two more, 500 apart); **the reef passage**
-//! runs west from its stairwell's foot to the whale-fall hall's east end,
-//! 2,000 units below the canyon deep water's floor: region 6's way to region 4.
+//! **The upper caves** are a line of five chambers (floor y -6,700, below the
+//! deepest hunting box over the slope, which ends at y -6,060) joined by
+//! 160-tall passages, each roof at least 250 under the slope. A refuge stands
+//! at most 600 units apart along it. **The slope mouth** is a 120-wide neck in
+//! the slope floor at x 10,660 to 10,780, east of the kelp column's foot and
+//! the rubble haven (x 10,200 to 10,430, which stay as they were) and 570
+//! units from the slope's mantis, over a stairwell like the Drop's. **The
+//! warren shaft** is the line's other mouth: it rises through the pebble
+//! warren's floor, with two niches to rest in. **The sunken reef** is one
+//! cavern of three bays with rubble mounds at three shelf heights, reached by
+//! a second stairwell (a lid slab and two more, 500 apart); **the reef
+//! passage** runs west from its stairwell's foot to the whale-fall hall's east
+//! end, 2,000 units below the canyon deep water's floor: region 6's way to
+//! region 4.
 //!
 //! Sizes are the crab's: tunnels 160 tall, slabs 280 wide, gaps 120. The slope
 //! surface, the coral stands and the grouper's spot are untouched; a cut
@@ -150,8 +150,11 @@ impl Stair {
 /// slope east of the kelp column's foot (floor y -4,362 at its west edge, -4,437
 /// at its east). Its walls end flush with the floor on each side.
 pub const NECK: Rect = Rect::new(10660.0, -4620.0, 10780.0, -4360.0);
-/// Where the neck's west and east walls end: the slope floor at each wall's lower edge (never above it, so the walking route is not stepped).
-const NECK_WALLS: (f32, f32) = (-4362.5, -4450.0);
+/// Where the neck's west and east walls end: a little under the floor beside
+/// each (the slope runs from y -4,350 at the west wall to -4,450 at the east),
+/// because a rock box in a crab's way must stand within its step (14) of its
+/// feet, and the crab's feet follow the sloping floor under its middle.
+const NECK_WALLS: (f32, f32) = (-4375.0, -4460.0);
 /// The slope mouth's stairwell: from the slope floor (y -4,400 at the neck's
 /// middle) down five levels of 460 to the line's floor.
 pub const MOUTH_STAIR: Stair = Stair {
