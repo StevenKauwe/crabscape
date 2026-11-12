@@ -393,8 +393,10 @@ fn move_parallax(
     sim: Res<Sim>,
     camera: Single<&Transform, With<Camera2d>>,
     zoom: Res<Zoom>,
-    mut materials: ResMut<Assets<RidgeMaterial>>,
-    mut far_materials: ResMut<Assets<FarRidgeMaterial>>,
+    (mut materials, mut far_materials): (
+        ResMut<Assets<RidgeMaterial>>,
+        ResMut<Assets<FarRidgeMaterial>>,
+    ),
     mut layers: Query<(&Parallax, &mut Transform), Without<Camera2d>>,
     mut anchor: Local<Option<f32>>,
 ) {
