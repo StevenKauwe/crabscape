@@ -31,6 +31,7 @@ mod plate_d;
 pub mod refuges;
 pub mod rest;
 pub mod royal;
+pub mod shallows;
 pub mod silt_galleries;
 pub mod strata;
 
@@ -496,6 +497,7 @@ impl Level {
         silt_galleries::shape(&mut level);
         deep_galleries::shape(&mut level);
         open_canyon::shape(&mut level);
+        shallows::shape(&mut level);
         // Last, so every place a creature anchors to (landmarks, refuges, the
         // lower canyon, the galleries) exists.
         bestiary::place(&mut level);

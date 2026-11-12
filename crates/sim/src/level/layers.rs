@@ -512,6 +512,7 @@ fn bedrock_and_sediment(level: &Level) -> Vec<Shape> {
 fn overlay(level: &Level) -> Vec<Shape> {
     let mut shapes = silt_galleries::shapes(level);
     shapes.extend(deep_galleries::shapes(level));
+    shapes.extend(super::shallows::shapes(level));
     shapes
 }
 
