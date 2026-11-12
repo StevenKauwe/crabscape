@@ -1314,6 +1314,7 @@ mod web {
                 ""
             }
         );
+        web_sys::console::info_1(&"co-op trace: connecting to the introducer".into());
         let (socket, run) = WebRtcSocket::builder(url)
             .add_reliable_channel()
             .add_unreliable_channel()

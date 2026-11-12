@@ -157,6 +157,8 @@ impl Messenger for WasmMessenger {
         wait_for_ice_gathering_complete(conn.clone()).await;
 
         signal_peer.send(PeerSignal::Offer(conn.local_description().unwrap().sdp()));
+        // CrabScape: the addresses gathered from here on go to the friend as they come.
+        let _forward = forward_candidates(&conn, signal_peer.clone());
 
         let mut received_candidates = vec![];
 
@@ -296,6 +298,8 @@ impl Messenger for WasmMessenger {
 
         let answer = PeerSignal::Answer(conn.local_description().unwrap().sdp());
         signal_peer.send(answer);
+        // CrabScape: the addresses gathered from here on go to the friend as they come.
+        let _forward = forward_candidates(&conn, signal_peer.clone());
 
         complete_handshake(
             signal_peer.clone(),
@@ -486,7 +490,33 @@ fn create_rtc_peer_connection(ice_server_config: &RtcIceServerConfig) -> RtcPeer
     connection
 }
 
+/// CrabScape: a "co-op" line on the console (the co-op test's timeline keeps them).
+pub(crate) fn coop_trace(msg: &str) {
+    let global = js_sys::global();
+    if let Ok(console) = Reflect::get(&global, &JsValue::from_str("console"))
+        && let Ok(info) = Reflect::get(&console, &JsValue::from_str("info"))
+        && let Ok(info) = info.dyn_into::<Function>()
+    {
+        let _ = info.call1(&console, &JsValue::from_str(msg));
+    }
+}
+
 async fn wait_for_ice_gathering_complete(conn: RtcPeerConnection) {
+    let started = js_sys::Date::now();
+    coop_trace("co-op trace: gathering starts");
+    wait_for_ice_gathering_complete_inner(conn.clone()).await;
+    let sdp = conn.local_description().map(|d| d.sdp()).unwrap_or_default();
+    let count = |t: &str| sdp.matches(&format!("typ {t}")).count();
+    coop_trace(&format!(
+        "co-op trace: gathering took {:.0} ms ({} host, {} srflx, {} relay)",
+        js_sys::Date::now() - started,
+        count("host"),
+        count("srflx"),
+        count("relay")
+    ));
+}
+
+async fn wait_for_ice_gathering_complete_inner(conn: RtcPeerConnection) {
     if conn.ice_gathering_state() == RtcIceGatheringState::Complete {
         debug!("Ice gathering already completed");
         return;
@@ -505,17 +535,72 @@ async fn wait_for_ice_gathering_complete(conn: RtcPeerConnection) {
 
     conn.set_onicegatheringstatechange(Some(onstatechange.as_ref().unchecked_ref()));
 
-    // CrabScape fix: wait for the rest of the gathering only so long (see GATHERING_AT_MOST).
+    // CrabScape fix: wait for the rest of the gathering only so long (see GATHERING_AT_MOST),
+    // and not even that once the addresses a friend needs are in (see `enough_gathered`).
     let mut complete = rx.next().fuse();
-    let mut enough = Delay::new(GATHERING_AT_MOST).fuse();
-    select! {
-        _ = complete => debug!("Ice gathering completed"),
-        _ = enough => debug!(
-            "Ice gathering still going after {GATHERING_AT_MOST:?}: going on with the candidates so far"
-        ),
+    let mut at_most = Delay::new(GATHERING_AT_MOST).fuse();
+    let started = js_sys::Date::now();
+    loop {
+        let mut tick = Delay::new(GATHERING_LOOK_EVERY).fuse();
+        select! {
+            _ = complete => {
+                debug!("Ice gathering completed");
+                break;
+            }
+            _ = at_most => {
+                debug!(
+                    "Ice gathering still going after {GATHERING_AT_MOST:?}: going on with the candidates so far"
+                );
+                break;
+            }
+            _ = tick => {
+                let sdp = conn.local_description().map(|d| d.sdp()).unwrap_or_default();
+                if enough_gathered(&sdp, js_sys::Date::now() - started) {
+                    debug!("Ice gathering has what a friend needs: going on, the rest trickles");
+                    break;
+                }
+            }
+        }
     }
 
     conn.set_onicegatheringstatechange(None);
+}
+
+/// CrabScape: how often the gathering wait looks at what it has.
+const GATHERING_LOOK_EVERY: Duration = Duration::from_millis(25);
+
+/// CrabScape: the offer or answer can go once it carries an address from outside this device (a
+/// server-reflexive or relayed one, what a friend behind another router needs), or, failing that,
+/// once it has any address and half a second has passed. Every address gathered after it goes to
+/// the friend on its own as it arrives ([`forward_candidates`]), so going early loses none.
+fn enough_gathered(sdp: &str, waited_ms: f64) -> bool {
+    let outside = sdp.contains("typ srflx") || sdp.contains("typ relay");
+    let any = sdp.contains("typ host") || outside;
+    outside || (any && waited_ms >= 500.0)
+}
+
+/// CrabScape: from the moment the offer or answer is sent, send every further address to the
+/// friend as it arrives (as [`complete_handshake`] does later on), so the addresses gathered
+/// after the early send are never lost. Kept alive by the caller until `complete_handshake`
+/// installs its own handler.
+fn forward_candidates(
+    conn: &RtcPeerConnection,
+    signal_peer: SignalPeer,
+) -> Closure<dyn FnMut(RtcPeerConnectionIceEvent)> {
+    let forward: Box<dyn FnMut(RtcPeerConnectionIceEvent)> =
+        Box::new(move |event: RtcPeerConnectionIceEvent| {
+            let candidate_json = match event.candidate() {
+                Some(candidate) => js_sys::JSON::stringify(&candidate.to_json())
+                    .ok()
+                    .and_then(|s| s.as_string())
+                    .unwrap_or_else(|| "null".to_string()),
+                None => "null".to_string(),
+            };
+            signal_peer.send(PeerSignal::IceCandidate(candidate_json));
+        });
+    let forward = Closure::wrap(forward);
+    conn.set_onicecandidate(Some(forward.as_ref().unchecked_ref()));
+    forward
 }
 
 // CrabScape fix. The offer and the answer each wait for the browser to finish gathering its

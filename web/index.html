@@ -259,6 +259,10 @@
     // after an update) fails with "... is not a function". So the build writes
     // a stamp of its files to pkg/version.txt, always fetched fresh, and both
     // are loaded with it in the address. No stamp (an older build): load as is.
+    // Wake the browser's WebRTC while the game downloads: its first connection
+    // pays a one-off setup cost that would otherwise land in a co-op join,
+    // on a main thread then busy starting the game.
+    try { new RTCPeerConnection().close(); } catch (e) {}
     const stamp = fetch("./pkg/version.txt", { cache: "no-store" })
       .then((r) => (r.ok ? r.text() : ""), () => "")
       .then((v) => (v.trim() ? "?v=" + encodeURIComponent(v.trim()) : ""));
