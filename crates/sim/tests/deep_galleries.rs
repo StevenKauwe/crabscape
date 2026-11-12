@@ -119,7 +119,8 @@ fn every_new_place_is_named() {
         "drop shaft",
         "drop top ledge",
         "lanternfish hall",
-        "nodule hall",
+        "black coral hall",
+        "nodule field",
         "whale-fall hall",
         "whale fall",
         "octopus lair",
@@ -362,7 +363,12 @@ fn no_hunters_reach_touches_the_drop_or_the_halls_and_the_lair_door_is_far_from_
         ("the drop".into(), dg::SHAFT),
         ("the approach".into(), named(&marks, "drop approach").rect),
     ];
-    for name in ["lanternfish hall", "nodule hall", "whale-fall hall"] {
+    for name in [
+        "lanternfish hall",
+        "black coral hall",
+        "whale-fall hall",
+        "nodule field",
+    ] {
         places.push((name.into(), named(&marks, name).rect));
     }
     for (hall, _, at) in dg::NODE_SITES {
@@ -650,7 +656,32 @@ fn every_gather_spot_is_on_a_hall_floor() {
         );
     }
     let kinds: std::collections::BTreeSet<_> = dg::NODE_SITES.iter().map(|s| s.1).collect();
-    assert_eq!(kinds.len(), 3);
+    assert_eq!(kinds.len(), 4);
+}
+
+/// The region table's tier-5 nodules lie in the deep band (below -9,500), in
+/// the last hall off the Drop above the lair; the black coral hall above holds
+/// black coral, not nodules.
+#[test]
+fn the_nodules_lie_in_the_deep_band_off_the_drop() {
+    let nodules: Vec<_> = dg::NODE_SITES
+        .iter()
+        .filter(|s| s.1 == "NoduleField")
+        .collect();
+    assert_eq!(nodules.len(), 3);
+    for (hall, _, at) in nodules {
+        assert_eq!(*hall, "nodule field");
+        assert!(at.y < -9500.0, "a nodule at {at:?} is above the deep band");
+    }
+    let field = dg::hall_rect("nodule field");
+    let lair = dg::hall_rect("octopus lair");
+    assert!(field.min.y > lair.max.y, "the field lies above the lair");
+    assert!(
+        dg::NODE_SITES
+            .iter()
+            .filter(|s| s.0 == "black coral hall")
+            .all(|s| s.1 == "BlackCoral")
+    );
 }
 
 /// Hurt, the lair's octopus inks and jets, and fights on from another spot

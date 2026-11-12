@@ -12,8 +12,9 @@
 //!        slab 2  (rock, gap east)     |
 //!        ...                          |
 //!        slab 5  -> lanternfish hall  |   y -4,200  (water-filled hall, a shoal)
-//!        slab 9  -> nodule hall       |   y -6,200  (iron-red nodules)
+//!        slab 9  -> black coral hall  |   y -6,200  (black coral)
 //!        slab 13 -> whale-fall hall   |   y -8,200  (a drowned whale-fall)
+//!        slab 17 -> nodule field      |   y -10,200 (iron-red nodules, deep band)
 //!        slab 18                      |
 //!        foot  -> lair door -> [octopus lair] -> [lair passage east] (closed)
 //!                                                      |
@@ -124,7 +125,7 @@ pub fn corals() -> &'static [Climb] {
 }
 
 /// The levels whose east wall opens on a hall (their slabs reach the wall).
-const HALL_LEVELS: [i32; 3] = [5, 9, 13];
+const HALL_LEVELS: [i32; 4] = [5, 9, 13, 17];
 
 /// The octopus's den: the lair's far end, facing west, the way in.
 pub const OCTOPUS_DEN: Vec2 = Vec2::new(3400.0, FOOT + 4.0);
@@ -211,10 +212,16 @@ pub fn rooms() -> &'static [Room] {
             room("drop shaft", SHAFT, Shaft),
             door(HALL_LEVELS[0], "lanternfish door"),
             hall(HALL_LEVELS[0], "lanternfish hall", 3320.0, 300.0),
-            door(HALL_LEVELS[1], "nodule door"),
-            hall(HALL_LEVELS[1], "nodule hall", 3520.0, 300.0),
+            door(HALL_LEVELS[1], "black coral door"),
+            hall(HALL_LEVELS[1], "black coral hall", 3520.0, 300.0),
             door(HALL_LEVELS[2], "whale door"),
             hall(HALL_LEVELS[2], "whale-fall hall", 5800.0, 600.0),
+            // The last hall before the lair: deep enough (below -9,500) for
+            // the iron-red nodules, with the whole Drop to climb back. A short
+            // chamber: east of x 1,880 the lair's octopus could reach it
+            // through the lair's roof.
+            door(HALL_LEVELS[3], "nodule door"),
+            hall(HALL_LEVELS[3], "nodule field", 1880.0, 300.0),
             door(SLABS + 1, "lair door"),
             room(
                 "octopus lair",
@@ -413,9 +420,10 @@ pub(super) fn shape(level: &mut Level) {
 
 /// Where the nodes lie in the halls, for the economy's table (the systems
 /// lead places them; `place_of` there only knows strata pockets and open
-/// water): `(hall, node kind, position)`. Iron-red nodules and pebbles are the
-/// second crafting tier; the lanternfish shoal is a fish fall.
-pub const NODE_SITES: [(&str, &str, Vec2); 9] = [
+/// water): `(hall, node kind, position)`. The black coral hall (-6,200) is in
+/// the midnight band; the iron-red nodules lie in the nodule field (-10,200),
+/// the deep band, where tier 5 belongs; the lanternfish shoal is a fish fall.
+pub const NODE_SITES: [(&str, &str, Vec2); 12] = [
     (
         "lanternfish hall",
         "FishFall",
@@ -432,18 +440,18 @@ pub const NODE_SITES: [(&str, &str, Vec2); 9] = [
         Vec2::new(2700.0, level_of(5) + 6.0),
     ),
     (
-        "nodule hall",
-        "NoduleField",
+        "black coral hall",
+        "BlackCoral",
         Vec2::new(2200.0, level_of(9) + 6.0),
     ),
     (
-        "nodule hall",
-        "NoduleField",
+        "black coral hall",
+        "BlackCoral",
         Vec2::new(2500.0, level_of(9) + 6.0),
     ),
     (
-        "nodule hall",
-        "NoduleField",
+        "black coral hall",
+        "BlackCoral",
         Vec2::new(2800.0, level_of(9) + 6.0),
     ),
     (
@@ -460,6 +468,21 @@ pub const NODE_SITES: [(&str, &str, Vec2); 9] = [
         "whale-fall hall",
         "WhaleFallBones",
         Vec2::new(4000.0, level_of(13) + 6.0),
+    ),
+    (
+        "nodule field",
+        "NoduleField",
+        Vec2::new(1620.0, level_of(17) + 6.0),
+    ),
+    (
+        "nodule field",
+        "NoduleField",
+        Vec2::new(1700.0, level_of(17) + 6.0),
+    ),
+    (
+        "nodule field",
+        "NoduleField",
+        Vec2::new(1780.0, level_of(17) + 6.0),
     ),
 ];
 
@@ -486,7 +509,12 @@ pub(super) fn landmarks(level: &Level) -> Vec<Landmark> {
     };
     add("drop approach", room_named("drop approach"), Kind::Frame);
     add("drop shaft", SHAFT, Kind::Frame);
-    for name in ["lanternfish hall", "nodule hall", "whale-fall hall"] {
+    for name in [
+        "lanternfish hall",
+        "black coral hall",
+        "whale-fall hall",
+        "nodule field",
+    ] {
         add(name, room_named(name), Kind::Frame);
     }
     // The skeleton lies along the whale-fall hall's floor.
