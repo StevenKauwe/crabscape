@@ -79,7 +79,7 @@ Five tiers, one per depth band (`level/bands.rs`). A node's tier sets everything
 | Tier | Band (y) | Places on today's map | Level req | Tool tier | XP per gather | Gather s (base) | Charges | Respawn s | Nodes per kind |
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | Shallows (> -260) | home side pockets x 222–242 and 432–492; far ledge x 1,850–2,470 | 1 | 0 (bare claw) | 10 | 2.5 | 5 | 45 | 4 |
-| 2 | Basin and mudbanks (-260 to -700) | home burrow gallery (clam beds and clay banks: a tunnel under the shallows, y about -526, x 268–468); far basin hub x 4,500–4,940 for the other three skills (the first basin, x 2,800–3,300, holds none: a moray and a hermit crab) | 15 | 1 shell | 110 | 3.0 | 5 | 60 | 3 |
+| 2 | Basin and mudbanks (-260 to -700) | far basin hub x 4,500–4,940 for all five skills (the home burrow gallery holds none: lead's call, see Where things stand) (the first basin, x 2,800–3,300, holds none: a moray and a hermit crab) | 15 | 1 shell | 110 | 3.0 | 5 | 60 | 3 |
 | 3 | Canyon walls / twilight (-700 to -3,400) | doorstep x 5,443–5,790 (none on the shelf); far rim x 7,905–8,015; the bone hall's floor (fish falls and tooth beds, y about -2,534, x 3,880–4,130: the chamber prize) | 30 | 2 quill | 160 | 3.5 | 4 | 90 | 3 |
 | 4 | Canyon floor / midnight (-3,400 to -9,500) | canyon floor far end x 7,130–7,610 (y -6,000); the seep garden (seep mussels and the sulfur mat, y about -10,514, x 19,430–19,605) | 45 | 3 glass | 260 | 4.0 | 4 | 150 | 3 |
 | 5 | Deep (< -9,500) | lower canyon vent field east end (`level::lower_canyon::VENTS`, x 19,730–20,450, west of the crust vault's door) | 60 | 4 bone | 750 | 4.5 | 4 | 240 | 3 |
@@ -367,7 +367,7 @@ What is enforced, and by which test (`economy_every_way_pays.rs`):
   landmark (`Level::landmarks()`) and lies on the floor of that place; a level that lacks the place drops its nodes.
   The first basin (a moray in its crevice and a hermit crab leave no calm span) holds no node. Tier 1 is the home side's
   two pockets and the far ledge (x 1,850 to 2,470, clear of the snapper at 2,060 and the moray at 2,650). Tier 2:
-  the **home burrow's clay gallery** (a tunnel, the fear register "safe") holds the three clam beds and three clay banks
+  the **home burrow's clay gallery** (a tunnel, the fear register "safe") holds NO nodes (lead's call after P8: 23.5 s of dig from the door, tier 2 there paid 938 XP/min against the hub's 403; the clam beds and clay banks moved to the hub, x 4,527 to 4,802) — it was to hold the three clam beds and three clay banks
   (Prying and Excavating, x 268 to 468, 40 apart; the world's own two gallery clams lie at 330 and 440); the other three
   skills stay in the far basin hub (x 4,500 to 4,940, 55 apart). Tier 3: the doorstep (5,443 to 5,790) and the rim short
   of the octopus (7,905 to 8,015) keep the scallops, glass gardens and twilight glow; **the bone hall's floor** (x 3,880

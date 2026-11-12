@@ -329,7 +329,6 @@ fn the_older_skills_sound_the_same_cue() {
 fn home_of(kind: NodeKind) -> Option<&'static str> {
     use NodeKind as K;
     match kind {
-        K::ClamBed | K::ClayBank => Some("home burrow"),
         K::FishFall | K::ToothBed => Some("bone hall"),
         K::SeepMusselBed | K::SulfurMatSite => Some("seep garden"),
         k if k.def().tier == 5 => Some("vent field"),
@@ -375,9 +374,10 @@ fn nodes_lie_in_their_places_on_a_floor_and_never_in_a_mouth() {
             );
         }
     }
-    // 3 + 3 clam beds and clay banks, 3 + 3 fish falls and tooth beds,
-    // 3 + 3 seep mussels and sulfur mats, and the vent field's 17.
-    assert_eq!(counts.get("home burrow"), Some(&6));
+    // 3 + 3 fish falls and tooth beds, 3 + 3 seep mussels and sulfur mats,
+    // and the vent field's 17. The home burrow holds none (its clams are the
+    // first dig's payoff; tier 2 there would pay twice the hub).
+    assert_eq!(counts.get("home burrow"), None);
     assert_eq!(counts.get("bone hall"), Some(&6));
     assert_eq!(counts.get("seep garden"), Some(&6));
     assert_eq!(counts.get("vent field"), Some(&17));
@@ -390,6 +390,6 @@ fn a_level_without_a_pocket_drops_its_nodes_and_keeps_the_rest() {
     let mut bare = level.clone();
     bare.rocks.clear();
     let left = nodes(&bare);
-    assert_eq!(left.len(), all - 18, "the three pockets' 18 nodes are gone");
-    assert!(left.iter().all(|n| home_of(n.kind) != Some("home burrow")));
+    assert_eq!(left.len(), all - 12, "the two pockets' 12 nodes are gone");
+    assert!(left.iter().all(|n| home_of(n.kind) != Some("bone hall")));
 }

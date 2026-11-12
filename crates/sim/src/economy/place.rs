@@ -77,7 +77,6 @@ const fn at(place: &'static str, kind: NodeKind, x: f32) -> NodeSpot {
     }
 }
 
-const BURROW: &str = "home burrow";
 const HALL: &str = "bone hall";
 const GARDEN: &str = "seep garden";
 const VENTS: &str = "vent field";
@@ -114,17 +113,17 @@ pub const SPOTS: &[NodeSpot] = &[
     s(K::MusselClump, 2410.0),
     s(K::KelpStand, 2445.0),
     // Tier 2.
-    // The home burrow's clay gallery (a tunnel under the shallows, its
-    // mouths the silt shafts at x 172 and 588): the clam beds and clay
-    // banks, 40 apart. The two clams of the world's own gallery find lie at
-    // 330 and 440.
-    at(BURROW, K::ClamBed, 268.0),
-    at(BURROW, K::ClayBank, 308.0),
-    at(BURROW, K::ClamBed, 348.0),
-    at(BURROW, K::ClayBank, 388.0),
-    at(BURROW, K::ClamBed, 428.0),
-    at(BURROW, K::ClayBank, 468.0),
-    // The far basin hub for the other three skills; the first basin is held
+    // The home burrow's clay gallery holds no nodes: it is 23.5 s of dig from
+    // the door and safe, so tier 2 there would pay twice the hub (938 XP a
+    // minute); its two clams (the world's own gallery find) are the first
+    // dig's payoff. Lead's call; see `skills-and-resources.md`.
+    s(K::ClamBed, 4527.5),
+    s(K::ClayBank, 4582.5),
+    s(K::ClamBed, 4637.5),
+    s(K::ClayBank, 4692.5),
+    s(K::ClamBed, 4747.5),
+    s(K::ClayBank, 4802.5),
+    // The far basin hub for all five skills; the first basin is held
     // by a moray and a hermit crab, so no node lies there (danger guards the
     // way, never the harvest).
     s(K::SeaPenField, 4500.0),

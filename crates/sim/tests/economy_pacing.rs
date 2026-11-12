@@ -327,9 +327,6 @@ const WOVEN_PACK: u32 = 4;
 /// Pry, scoop and cutter tips of nodules: tool tier 5.
 const NODULE_TOOL: u8 = 5;
 
-/// The home burrow's dug round trip, from the world lane's own test.
-const BURROW_ROUND_TRIP: f64 = 23.5;
-
 /// Seconds of one round trip to tier `tier` (1 to 5): the measured out and
 /// back, plus tucking in and out.
 fn trip_secs(tier: u8) -> f64 {
@@ -441,20 +438,6 @@ fn experience_per_minute_rises_with_tier_and_beats_power_gathering() {
         );
         at_sixty.push(xp);
     }
-    // The home burrow's gallery holds the clam beds: a dig down one silt
-    // shaft, across, and up the other, 23.5 s (`plate_d.rs`,
-    // `home_burrow_round_trip_is_cheap`), which the route solver cannot play
-    // (it walks and swims, it does not dig). Printed, not asserted: it is
-    // the tier 2 row if the crab farms the gallery instead of the hub.
-    let tuck = f64::from(Tuning::default().home_in_time + Tuning::default().home_out_time);
-    let def = TIER_KINDS[1].def();
-    let slots = f64::from(SHELL + bag_for(2));
-    let secs = BURROW_ROUND_TRIP + tuck + slots * gather_secs(2, def.level, 1);
-    println!(
-        "home burrow clam beds, tier 2 (a dig of {BURROW_ROUND_TRIP} s round trip): {:.0} xp/min at the unlock level (the hub row above: {:.0})",
-        slots * f64::from(def.xp) * 60.0 / secs,
-        at_unlock[1]
-    );
     let power_new = power_gather(1, 0, foot_nodes());
     let power_sixty = power_gather(60, NODULE_TOOL, foot_nodes());
     println!(
