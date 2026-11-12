@@ -972,3 +972,24 @@ fn the_plug_shafts_ledge_is_somewhere_a_climber_can_stand_and_leave_again() {
         crab(&sim).pos
     );
 }
+
+/// The Drop's top ledge is a region entrance and the lair's door a boss
+/// door, both standing on their own floors (not snapped up to the sea floor).
+#[test]
+fn the_drop_and_the_lair_have_rest_points_on_their_own_floors() {
+    use crabsim::level::rest::RestKind;
+    let level = Level::test_level();
+    let points = level.rest_points();
+    let find = |name: &str| {
+        points
+            .iter()
+            .find(|p| p.name == name)
+            .unwrap_or_else(|| panic!("no rest point {name}"))
+    };
+    let top = find("drop top ledge");
+    assert_eq!(top.kind, RestKind::Entrance);
+    assert!((top.at.y - -1700.0).abs() < 2.0, "{:?}", top.at);
+    let lair = find("octopus lair door");
+    assert!(matches!(lair.kind, RestKind::BossDoor { .. }));
+    assert!((lair.at.y - -11200.0).abs() < 2.0, "{:?}", lair.at);
+}

@@ -65,6 +65,22 @@ pub const MARKERS: &[Marker] = &[
         at: [17540.0, f32::INFINITY],
         kind: MarkerKind::Entrance,
     },
+    // The Drop's top ledge, at the Deep Galleries' door (`deep_galleries`):
+    // the way down into region 4.
+    Marker {
+        name: "drop top ledge",
+        at: [1500.0, -1650.0],
+        kind: MarkerKind::Entrance,
+    },
+    // The octopus lair's door at the Drop's foot. (The far rim's octopus keeps
+    // its own derived door; this is the lair's second octopus.)
+    Marker {
+        name: "octopus lair door",
+        at: [1340.0, -11150.0],
+        kind: MarkerKind::BossDoor {
+            arena: [1520.0, -11200.0, 3600.0, -10900.0],
+        },
+    },
 ];
 
 /// A crab reaches a rest point by passing within this many units of it.

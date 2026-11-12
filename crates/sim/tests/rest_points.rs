@@ -87,10 +87,12 @@ fn markers_snap_to_the_ground_and_every_rest_point_is_clear_of_rock() {
         .filter(|p| matches!(p.kind, RestKind::BossDoor { .. }))
         .map(|p| p.name.as_str())
         .collect();
+    // The two derived from where the animals live, and the Deep Galleries'
+    // lair (an authored marker, region 4).
     assert_eq!(
         doors,
-        ["octopus den", "goliath grouper"],
-        "exactly two boss doors"
+        ["octopus lair door", "octopus den", "goliath grouper"],
+        "exactly three boss doors"
     );
     let mut seen = Vec::new();
     for p in &points {
