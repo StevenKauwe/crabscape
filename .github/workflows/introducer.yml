@@ -1,4 +1,4 @@
-# The co-op introducer (tools/introducer) redeploys itself to Fly.io when it changes on main, or on demand:
+# The co-op introducer and static-only CrabBridge page redeploy together to Fly.io when it changes on main, or on demand:
 #   gh workflow run introducer.yml
 #
 # Needs the FLY_API_TOKEN secret: a deploy token for this one app only, made once with
@@ -11,7 +11,7 @@ name: introducer
 on:
   push:
     branches: [main]
-    paths: ["tools/introducer/**", ".github/workflows/introducer.yml"]
+    paths: ["tools/introducer/**", "tools/crabbridge/frontend/**", "tools/crabbridge/web/**", "tools/crabbridge/transport/auth/**", "tools/crabbridge/transport/Cargo.lock", "tools/crabbridge/transport/Cargo.toml", "tools/crabbridge/transport/build.sh", "tools/build-crabbridge.sh", "tools/build-introducer-context.sh", "tools/test-introducer-context.sh", ".github/workflows/introducer.yml"]
   workflow_dispatch:
 
 permissions:
@@ -24,11 +24,37 @@ concurrency:
 jobs:
   deploy:
     name: deploy the introducer to Fly.io
-    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Rust toolchain
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: |
+            tools/introducer
+            tools/crabbridge/frontend
+            tools/crabbridge/transport
+          key: introducer-frontend
+      - name: Package the allowlisted public frontend
+        run: |
+          version=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/[^0-9.]/, ""); print; exit }' tools/crabbridge/transport/Cargo.lock)
+          test -n "$version"
+          cargo install wasm-bindgen-cli --version "$version" --locked
+          bash tools/build-crabbridge.sh
+      - name: Verify shared service and private-free image context
+        run: |
+          cargo fmt --manifest-path tools/introducer/Cargo.toml --check
+          cargo clippy --manifest-path tools/introducer/Cargo.toml --all-targets --features crabbridge-frontend --locked -- -D warnings
+          cargo test --manifest-path tools/introducer/Cargo.toml --locked
+          cargo test --manifest-path tools/introducer/Cargo.toml --features crabbridge-frontend --locked
+          cargo test --manifest-path tools/crabbridge/frontend/Cargo.toml --locked
+          bash tools/test-introducer-context.sh
+          bash tools/build-introducer-context.sh "$RUNNER_TEMP/crabbridge-introducer-context"
       - uses: superfly/flyctl-actions/setup-flyctl@fc53c09e1bc3be6f54706524e3b82c4f462f77be # 1.5
       # Fly builds the image on its own machines. Exactly one machine: two would each hold half the rooms.
-      - run: flyctl deploy tools/introducer --remote-only --ha=false
+      - run: flyctl deploy "$RUNNER_TEMP/crabbridge-introducer-context" --config "$RUNNER_TEMP/crabbridge-introducer-context/fly.toml" --remote-only --ha=false
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
