@@ -977,7 +977,7 @@ impl Sim {
 
     /// A crab pinned (or let go of) a goal at `tick`: a running recording
     /// notes it.
-    pub(crate) fn note_pin(&mut self, tick: u64, pin: Option<&'static crate::economy::EconRecipe>) {
+    pub(crate) fn note_pin(&mut self, tick: u64, pin: Option<&'static str>) {
         if let Some(rec) = &mut self.recorder {
             rec.note_pin(tick, pin);
         }

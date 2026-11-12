@@ -199,6 +199,14 @@ impl Sim {
         }
         crab.stash.take(piece.needs());
         crab.econ.crafts_done += 1;
+        if crab
+            .econ
+            .pinned
+            .as_ref()
+            .is_some_and(|p| p.word == piece.word())
+        {
+            crab.econ.pinned = None;
+        }
         self.earn(id, piece.skill(), piece.xp() as f32);
         self.sound(crate::world::cues::Cue::Crafted { crab: id });
     }

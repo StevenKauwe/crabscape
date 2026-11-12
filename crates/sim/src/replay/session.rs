@@ -22,7 +22,8 @@ pub enum CellSessionAction {
     Salvage(crate::salvage::SalvageAction),
     Canyon(crate::canyon_drift::CanyonAction),
     Royal(crate::royal::Action),
-    /// Pin a row of the economy recipe list (its index) as the goal, or
+    /// Pin a row of the economy recipe list (its index; past the end, a
+    /// home piece's index in `PIECES`) as the goal, or
     /// unpin (`None`).
     Pin(Option<u16>),
     /// Build a home piece (its index in `PIECES`).
@@ -35,8 +36,13 @@ impl CellSessionAction {
     pub(crate) fn apply_home_wants(&self, sim: &mut Sim, id: PlayerId) {
         match self {
             CellSessionAction::Pin(Some(i)) => {
-                if let Some(r) = crate::economy::ECON_RECIPES.get(usize::from(*i)) {
+                // Recipes first; indexes past them are the home pieces.
+                let i = usize::from(*i);
+                let n = crate::economy::ECON_RECIPES.len();
+                if let Some(r) = crate::economy::ECON_RECIPES.get(i) {
                     sim.pin_want(id, r.word);
+                } else if let Some(d) = crate::economy::PIECES.get(i - n) {
+                    sim.pin_want(id, d.word);
                 }
             }
             CellSessionAction::Pin(None) => sim.unpin(id),

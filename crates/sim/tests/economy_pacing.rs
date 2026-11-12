@@ -223,10 +223,10 @@ const FULL_KIT: Kit = Kit {
 /// `cargo test --release -p crabsim --test economy_pacing -- --ignored --nocapture measure_routes`
 /// (about 15 minutes) and paste the printed `TRIPS` line.
 const TRIPS: [(f64, f64, f64); 5] = [
-    (0.0, 0.0, 4.83),
-    (24.17, 69.93, 27.22),
-    (96.42, 66.89, 110.33),
-    (110.67, 75.73, 113.72),
+    (0.0, 0.0, 9.49),
+    (22.97, 56.69, 26.04),
+    (31.50, 63.77, 34.88),
+    (46.39, 75.93, 46.66),
     (0.0, 0.0, 0.0),
 ];
 
@@ -236,7 +236,20 @@ const TRIPS: [(f64, f64, f64); 5] = [
 #[test]
 #[ignore = "about 15 minutes of route solving; prints TRIPS"]
 fn measure_routes() {
-    let placed = nodes(&Level::test_level());
+    let level = Level::test_level();
+    // The solver walks, jumps and swims; it does not dig. A node inside a
+    // sealed pocket (the burrow's gallery, the bone hall, the seep garden) is
+    // dug to: its trip is the dig, not a solved route, so it is left out of
+    // TRIPS and listed here instead.
+    let (dug, placed): (Vec<_>, Vec<_>) = nodes(&level)
+        .into_iter()
+        .partition(|n| level.pocket_at(n.pos).is_some());
+    println!(
+        "dug to, not solved: {:?}",
+        dug.iter()
+            .map(|n| (n.kind, n.pos.x as i32))
+            .collect::<Vec<_>>()
+    );
     let kit = FULL_KIT;
     let s = route::survey(kit);
     let out_time = |p: Vec2| {

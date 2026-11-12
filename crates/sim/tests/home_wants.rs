@@ -77,13 +77,13 @@ fn wants_list_exactly_the_recipes_short_by_one_kind() {
     let wants = sim.wants(P0);
     let cord = wants
         .iter()
-        .find(|w| w.recipe.word == "kelp-cord")
+        .find(|w| w.word == "kelp-cord")
         .expect("kelp cord is a want");
     assert_eq!(cord.missing, vec![(Item::Kelp, 2)]);
     assert!(!cord.soon);
     for w in &wants {
-        assert_eq!(w.missing.len(), 1, "{}: {:?}", w.recipe.word, w.missing);
-        assert!(!w.sources.is_empty() || w.recipe.needs.iter().all(|n| n.0.tier() == 0));
+        assert_eq!(w.missing.len(), 1, "{}: {:?}", w.word, w.missing);
+        assert!(!w.sources.is_empty() || w.needs.iter().all(|n| n.0.tier() == 0));
     }
     // Everything short by two kinds is left out.
     let two_kinds = ECON_RECIPES
@@ -92,7 +92,7 @@ fn wants_list_exactly_the_recipes_short_by_one_kind() {
         .collect::<Vec<_>>();
     for r in two_kinds {
         assert!(
-            wants.iter().all(|w| w.recipe.word != r.word),
+            wants.iter().all(|w| w.word != r.word),
             "{} is two kinds short",
             r.word
         );
@@ -102,12 +102,12 @@ fn wants_list_exactly_the_recipes_short_by_one_kind() {
     let cord = sim
         .wants(P0)
         .into_iter()
-        .find(|w| w.recipe.word == "kelp-cord")
+        .find(|w| w.word == "kelp-cord")
         .unwrap();
     assert_eq!(cord.missing, vec![(Item::Kelp, 1)]);
     // Two on the bank: nothing missing, so it is not a want but a craft.
     give(&mut sim, P0, &[(Item::Kelp, 2)]);
-    assert!(sim.wants(P0).iter().all(|w| w.recipe.word != "kelp-cord"));
+    assert!(sim.wants(P0).iter().all(|w| w.word != "kelp-cord"));
 }
 
 #[test]
@@ -121,11 +121,11 @@ fn the_shell_counts_toward_a_want() {
     let cord = sim
         .wants(P0)
         .into_iter()
-        .find(|w| w.recipe.word == "kelp-cord")
+        .find(|w| w.word == "kelp-cord")
         .unwrap();
     assert_eq!(cord.missing, vec![(Item::Kelp, 1)]);
     give(&mut sim, P0, &[(Item::Kelp, 1)]);
-    assert!(sim.wants(P0).iter().all(|w| w.recipe.word != "kelp-cord"));
+    assert!(sim.wants(P0).iter().all(|w| w.word != "kelp-cord"));
 }
 
 #[test]
@@ -143,7 +143,7 @@ fn recipes_a_few_levels_away_are_soon_and_later_ones_are_hidden() {
     let mut sim = Sim::with_one_crab(Vec2::new(180.0, 0.0));
     let all_but_one: Vec<_> = r.needs[1..].to_vec();
     give(&mut sim, P0, &all_but_one);
-    let listed = |sim: &Sim| sim.wants(P0).into_iter().find(|w| w.recipe.word == r.word);
+    let listed = |sim: &Sim| sim.wants(P0).into_iter().find(|w| w.word == r.word);
     set_level(&mut sim, P0, r.skill, r.level - 2);
     assert!(listed(&sim).expect("soon").soon);
     set_level(&mut sim, P0, r.skill, r.level);
@@ -164,7 +164,7 @@ fn wants_come_fewest_missing_then_highest_level_first() {
         (
             w.soon,
             w.missing.iter().map(|m| m.1).sum::<u32>(),
-            std::cmp::Reverse(w.recipe.level),
+            std::cmp::Reverse(w.level),
         )
     };
     for pair in wants.windows(2) {
@@ -178,7 +178,7 @@ fn sources_come_from_the_data_and_places_only_from_memory() {
     let cord = |sim: &Sim| {
         sim.wants(P0)
             .into_iter()
-            .find(|w| w.recipe.word == "kelp-cord")
+            .find(|w| w.word == "kelp-cord")
             .unwrap()
     };
     // Never seen a kelp stand: the source is named, with no place.
@@ -299,6 +299,77 @@ fn a_level_that_makes_a_recipe_a_want_names_the_new_task() {
     assert!(lines.iter().any(|l| l.starts_with("You can make")));
 }
 
+// ---- Home pieces are wants ----
+
+#[test]
+fn a_home_piece_one_kind_short_is_a_want_and_a_built_one_is_not() {
+    let mut sim = Sim::with_one_crab(Vec2::new(180.0, 0.0));
+    set_level(&mut sim, P0, Skill::Building, 8);
+    give(&mut sim, P0, &[(Item::KelpCord, 1)]);
+    let lamp = sim
+        .wants(P0)
+        .into_iter()
+        .find(|w| w.word == "glass-lamp")
+        .expect("the glass lamp is a want");
+    assert_eq!(lamp.piece, Some(Piece::GlassLamp));
+    assert_eq!(lamp.missing, vec![(Item::Glass, 4)]);
+    assert!(lamp.sources.iter().any(|s| matches!(
+        s,
+        Source::Node {
+            node: NodeKind::GlassSpongeGarden,
+            ..
+        }
+    )));
+    assert!(!lamp.soon);
+    // Short by two kinds: not a want.
+    give(&mut sim, P0, &[]);
+    assert!(sim.wants(P0).iter().all(|w| w.word != "glass-lamp"));
+    // A piece a few levels away is soon.
+    set_level(&mut sim, P0, Skill::Building, 6);
+    give(&mut sim, P0, &[(Item::KelpCord, 1)]);
+    assert!(
+        sim.wants(P0)
+            .iter()
+            .any(|w| w.word == "glass-lamp" && w.soon)
+    );
+}
+
+#[test]
+fn a_piece_is_pinned_ready_and_unpinned_when_built() {
+    let mut sim = solo_at_home();
+    set_level(&mut sim, P0, Skill::Building, 8);
+    give(&mut sim, P0, &[(Item::KelpCord, 1)]);
+    assert!(sim.pin_want(P0, "glass-lamp"));
+    let status = sim.pinned_status(P0).unwrap();
+    assert_eq!(status.want.missing, vec![(Item::Glass, 4)]);
+    assert!(!status.have_all);
+    // Away from home with the last load on the shell: one ready word.
+    {
+        let c = sim.crab_mut(P0).unwrap();
+        c.mover.pos = Vec2::new(1500.0, 0.0);
+        c.mover.shelter = crabsim::home::Shelter::Out;
+        c.mover.clinging.extend([Carry::Item(Item::Glass); 4]);
+    }
+    let mut said = 0;
+    for _ in 0..60 {
+        sim.tick();
+        said += u32::from(sim.crab(P0).unwrap().events.goal_ready);
+    }
+    assert!(sim.pinned_status(P0).unwrap().have_all);
+    assert_eq!(said, 1);
+    // Home, unloaded, built: the pin lets go by itself.
+    let mut sim2 = solo_at_home();
+    set_level(&mut sim2, P0, Skill::Building, 8);
+    give(&mut sim2, P0, &[(Item::KelpCord, 1), (Item::Glass, 4)]);
+    assert!(sim2.pin_want(P0, "glass-lamp"));
+    assert_eq!(sim2.build_piece(P0, Piece::GlassLamp), Ok(()));
+    assert!(sim2.pinned_status(P0).is_none(), "auto-unpinned");
+    assert!(sim2.crab(P0).unwrap().econ.pinned.is_none());
+    // Built: no longer a want, and cannot be pinned.
+    assert!(sim2.wants(P0).iter().all(|w| w.word != "glass-lamp"));
+    assert!(!sim2.pin_want(P0, "glass-lamp"));
+}
+
 // ---- The pinned goal ----
 
 #[test]
@@ -403,6 +474,8 @@ fn a_replay_reproduces_pins_and_pieces() {
     idle(&mut live, 5);
     live.unpin(P0);
     idle(&mut live, 5);
+    assert!(live.pin_want(P0, "kelp-curtain"));
+    idle(&mut live, 5);
     assert_eq!(live.build_piece(P0, Piece::KelpCurtain), Ok(()));
     idle(&mut live, 30);
     let text = live.recording().unwrap().to_text();
@@ -410,16 +483,18 @@ fn a_replay_reproduces_pins_and_pieces() {
         "pin=kelp-cord",
         "pin=braided-cord",
         "pin=none",
+        "pin=kelp-curtain",
         "craft=kelp-curtain",
     ] {
         assert!(text.contains(word), "{word} in {text}");
     }
     let replay = crabsim::Replay::parse(&text).unwrap();
-    assert_eq!(replay.pins.len(), 3);
+    assert_eq!(replay.pins.len(), 4);
     let mut again = Sim::with_one_crab(replay.start);
     crabsim::play(&mut again, &replay, replay.end.unwrap(), |_| {});
     assert_eq!(again.progress(P0), live.progress(P0));
     assert!(again.home_pieces().contains(&Piece::KelpCurtain));
+    assert!(again.pinned_status(P0).is_none(), "built, so let go");
     assert_eq!(replay.hash, Some(again.state_hash()), "{text}");
 }
 
@@ -686,7 +761,7 @@ fn pieces_survive_a_save_and_a_reload_of_the_host() {
     give(
         &mut sim,
         P0,
-        &[(Item::Glass, 4), (Item::KelpCord, 1), (Item::Kelp, 6)],
+        &[(Item::Glass, 16), (Item::KelpCord, 2), (Item::Kelp, 6)],
     );
     assert_eq!(sim.build_piece(P0, Piece::GlassLamp), Ok(()));
     let saved = sim.progress(P0).unwrap();
