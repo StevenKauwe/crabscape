@@ -65,13 +65,29 @@ reserve segments, gold experience); arrows are the walks.
 | The pinned goal (diamond, "Goal: kelp cord, 1/2 kelp") | Under the cargo; gold when all in hand | Away from home, when pinned |
 | Experience drops and the skill being trained | The reward line, top centre (a portrait phone: under the corner buttons) | A few seconds after earning |
 | A level gained, a goal in hand | The same line, as a card that pops in, holds and fades | When it happens; one at a time |
-| Corner buttons (Invite, Settings, Home, Skills) | Top-right, unchanged places | Always |
+| Corner buttons (Mic, Invite, Skills, Home, Settings) | One row of icons, top-right (`src/corner.rs`) | Always (Home fades when it can't go; Mic in a room) |
 | Every skill, its level, its unlocks | The Skills panel (K) | On demand |
 | Recipes, wants, home pieces | The workbench, at home | Tucked in at home |
-| Keys | The "? Keys" card, bottom-left | On demand |
+| Keys | The "? Keys" card, bottom-left: two columns of keycaps | On demand |
 | Short notes about the crab ("Ate it", "Too soft") | Floating over the crab | When they happen |
 
-## Next steps (not done here)
-- The workbench has nine tabs; folding them into three (Goals, Craft, Home) would make home faster.
-- Corner buttons as one compact row of icons, freeing the top-right on phones.
-- The keys card restyled into two columns with key caps.
+## Follow-up (2026-11-12)
+
+- **Pixel density.** The HUD is laid out in logical pixels: physical size over the scale factor. Under Chrome's
+  device emulation the canvas's `devicePixelContentBoxSize` comes back in CSS pixels, so a 390-wide phone at 3x was
+  390 physical at scale 3 and the HUD was drawn for a 130-wide screen, three times too big. `src/screen_fit.rs`
+  checks the page box (`#game`) every frame and, when the physical size is not CSS size x scale, sets it to that.
+  An honest browser is left alone. `hud_scale` (CI job "HUD size at 1x, 2x and 3x pixel density") opens a phone at
+  each density, upright and turned, checks `data-window` against `innerWidth` / `innerHeight` and clicks Settings.
+- **Workbench: three tabs.** Goals (task board, next unlocks), Craft (the first recipes, then cooking, shellcraft,
+  weaving and mending), Home (pieces, culture beds, building and culturing). Each lists the recipes the crab has the
+  level for, by level, then one locked recipe per skill. Repairs show only when something needs mending. What is
+  open is the sim's rule (skill level against the recipe's, and `can_make_econ`'s nothing-to-mend), so the systems
+  lane's unlock ladder and task-board changes show without UI changes.
+- **Corner row.** Settings, Home, Skills, Invite and Mic (right to left; the Mic, only in a room, last so the row has
+  no gap) are 40 px icon squares, 8 apart, in one row. The icons are
+  painted at startup from a few shapes (5 x 64 px; nothing downloaded). A press counts 3.5 px round a button, under
+  half the gap, so it never hits two. Invite has the amber ring; Mic shows its state by colour.
+- **Keys card.** Two columns of keycaps (arrows drawn as arrows, from the font subset), about 630 x 260 instead of
+  390 x 300.
+

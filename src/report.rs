@@ -1043,7 +1043,7 @@ mod tests {
         // And it's not a key the game already uses (the keys card lists them).
         let card: Vec<&str> = crate::keys::KEYS
             .iter()
-            .flat_map(|(k, _)| k.split_whitespace())
+            .flat_map(|(k, _)| k.iter().copied())
             .collect();
         assert!(card.contains(&"R"));
         assert_eq!(card.iter().filter(|k| **k == "R").count(), 1);

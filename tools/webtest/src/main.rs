@@ -1069,8 +1069,8 @@ impl Test<'_> {
         self.press("Backslash", "\\")?;
         let ok = self.wait_for(&feel_is("tank off"), 5.0)?;
         self.check(ok, "backslash switches the juice off");
-        // The FEEL button: under Settings and Home (mirrors button_rect() in src/feel.rs), tapped.
-        let top = if w < 600.0 { 58.0 } else { 10.0 } + 2.0 * (34.0 + 8.0);
+        // The FEEL button: under the corner row's right end (mirrors under() in src/corner.rs), tapped.
+        let top = corner_top(w) + CORNER_SIDE + CORNER_GAP;
         let (fx, fy) = (w - 10.0 - 52.0, top + 17.0);
         self.tap(fx, fy, 11, true)?;
         let ok = self.wait_for(&feel_is("brawler off"), 5.0)?;
@@ -1444,13 +1444,25 @@ impl Test<'_> {
     }
 }
 
+/// The corner row's top (mirrors top() in src/corner.rs), and its buttons' side and gap.
+fn corner_top(w: f64) -> f64 {
+    if w < 600.0 { 58.0 } else { 10.0 }
+}
+const CORNER_SIDE: f64 = 40.0;
+const CORNER_GAP: f64 = 8.0;
+
+/// The middle of the corner row's button `n` places from the right (Settings 0, Home 1, Skills 2, Invite 3,
+/// Mic 4), in CSS pixels. Mirrors rect() in src/corner.rs.
+fn corner_button(w: f64, n: f64) -> (f64, f64) {
+    let right = w - 10.0 - n * (CORNER_SIDE + CORNER_GAP);
+    (right - CORNER_SIDE / 2.0, corner_top(w) + CORNER_SIDE / 2.0)
+}
+
 /// The settings panel's top edge and left edge, in CSS pixels, for a window `w` wide. Mirrors button_rect() and
 /// layout_for() in src/settings.rs and status_top() in src/coop.rs.
 fn panel_frame(w: f64) -> (f64, f64) {
-    let narrow = w < 600.0;
-    let top = if narrow { 58.0 } else { 10.0 };
-    // The co-op status line: under the button's row, or on a narrow screen the row below it.
-    let status = top + 34.0 + if narrow { 42.0 } else { 0.0 } + 4.0;
+    // The co-op status line: under the corner row.
+    let status = corner_top(w) + CORNER_SIDE + 4.0;
     (status + 20.0, w - 10.0 - 280.0)
 }
 
@@ -1459,17 +1471,14 @@ fn page_top(w: f64) -> f64 {
     panel_frame(w).0 + 10.0 + 36.0 + 10.0
 }
 
-/// The Settings button's middle, in CSS pixels.
+/// The Settings button's middle, in CSS pixels: the corner row's right end.
 fn settings_button(w: f64) -> (f64, f64) {
-    let top = if w < 600.0 { 58.0 } else { 10.0 };
-    (w - 10.0 - 52.0, top + 17.0)
+    corner_button(w, 0.0)
 }
 
-/// The middle of the Home button, in CSS pixels: under Settings, the same size (mirrors button_rect() in
-/// src/go_home.rs).
+/// The middle of the Home button, in CSS pixels: left of Settings in the corner row.
 fn home_button(w: f64) -> (f64, f64) {
-    let (x, y) = settings_button(w);
-    (x, y + 34.0 + 8.0)
+    corner_button(w, 1.0)
 }
 
 /// The middle of a settings tab ("game", "graphics", "audio" or "coop"), in CSS pixels: the tabs share the

@@ -127,21 +127,9 @@ impl MicTrouble {
     }
 }
 
-/// Mic button size, beside the invite button.
-const MIC_WIDTH: f32 = 64.0;
-const GAP: f32 = 8.0;
-
-/// The Mic button: left of the invite button, or on a narrow screen (where
-/// the buttons sit lower, level with the health bars) a row lower, under the
-/// invite button's right end, below the bars.
+/// The Mic button: the far (left) end of the corner row, past Invite.
 pub(crate) fn mic_rect(window: Vec2) -> Rect {
-    let invite = crate::coop::invite_rect(window);
-    if crate::settings::narrow(window) {
-        let row = crate::settings::below(window, 1.0);
-        return Rect::new(invite.max.x - MIC_WIDTH, row.min.y, invite.max.x, row.max.y);
-    }
-    let right = invite.min.x - GAP;
-    Rect::new(right - MIC_WIDTH, invite.min.y, right, invite.max.y)
+    crate::corner::rect(window, crate::corner::Slot::Mic)
 }
 
 /// How loud a friend's voice has been lately, for the browser tests ("hearing N").
@@ -714,38 +702,21 @@ mod web {
 
     use super::mic_rect as button_rect;
 
-    fn spawn_button(mut commands: Commands, window: Single<&Window>) {
-        let size = window.size();
-        let r = button_rect(size);
+    fn spawn_button(
+        mut commands: Commands,
+        window: Single<&Window>,
+        icons: Res<crate::corner::Icons>,
+    ) {
         commands
             .spawn((
-                crate::input::PointerUi,
+                crate::corner::button(window.size(), crate::corner::Slot::Mic),
                 MicButton,
-                Node {
-                    position_type: PositionType::Absolute,
-                    top: px(r.min.y),
-                    right: px(size.x - r.max.x),
-                    width: px(r.width()),
-                    height: px(r.height()),
-                    justify_content: JustifyContent::Center,
-                    align_items: AlignItems::Center,
-                    border: UiRect::all(px(1.5)),
-                    border_radius: BorderRadius::all(px(r.height() / 2.0)),
-                    ..default()
-                },
-                BorderColor::all(crate::ui_theme::RIM_FAINT),
-                BackgroundColor(crate::ui_theme::BUTTON),
                 Visibility::Hidden,
             ))
             .with_children(|b| {
                 b.spawn((
                     MicLabel,
-                    Text::new("Mic off"),
-                    TextFont {
-                        font_size: FontSize::Px(13.0),
-                        ..default()
-                    },
-                    TextColor(crate::ui_theme::TEXT),
+                    crate::corner::icon(icons.mic.clone(), crate::ui_theme::MUTED),
                 ));
                 // A little pencil leaning on the button's top-right edge: a
                 // pale wooden body with a dark lead tip.
@@ -785,7 +756,7 @@ mod web {
         if !crate::coop::in_room() {
             return;
         }
-        let rect = button_rect(window.size()).inflate(6.0);
+        let rect = button_rect(window.size()).inflate(crate::corner::REACH);
         let clicked = mouse.just_pressed(MouseButton::Left)
             && window.cursor_position().is_some_and(|p| rect.contains(p));
         let tapped = touches
@@ -834,7 +805,7 @@ mod web {
         time: Res<Time<Real>>,
         mut button: Single<&mut Visibility, (With<MicButton>, Without<Pencil>)>,
         mut pencil: Single<&mut Visibility, (With<Pencil>, Without<MicButton>)>,
-        mut label: Single<(&mut Text, &mut TextColor), With<MicLabel>>,
+        mut label: Single<&mut ImageNode, With<MicLabel>>,
     ) {
         let room = crate::coop::in_room();
         button.set_if_neq(if room {
@@ -850,15 +821,16 @@ mod web {
         } else {
             Visibility::Hidden
         });
+        // The icon says it by colour: green on, white asking, coral for
+        // trouble, dim off.
         let (words, colour) = with(|v| match (&v.mic, v.asking, v.refused) {
-            (Some(_), _, _) => ("Mic on", Color::srgba(0.7, 1.0, 0.8, 1.0)),
+            (Some(_), _, _) => ("Mic on", Color::srgba(0.6, 1.0, 0.75, 1.0)),
             (None, true, _) => ("Mic...", crate::ui_theme::TEXT),
-            (None, false, Some(trouble)) => (trouble.short(), Color::srgba(1.0, 0.6, 0.5, 0.8)),
-            (None, false, None) => ("Mic off", crate::ui_theme::TEXT),
+            (None, false, Some(trouble)) => (trouble.short(), crate::ui_theme::CORAL),
+            (None, false, None) => ("Mic off", crate::ui_theme::MUTED),
         });
-        if label.0.0 != words {
-            label.0.0 = words.into();
-            label.1.0 = colour;
+        if label.color != colour {
+            label.color = colour;
         }
         // For the browser tests: the mic, lines, and friends heard right now.
         let state = with(|v| {
@@ -913,15 +885,7 @@ mod web {
 
     /// Keep the button in place as the window changes (or the phone turns).
     fn place(window: Single<&Window>, mut node: Single<&mut Node, With<MicButton>>) {
-        let size = window.size();
-        let r = button_rect(size);
-        let (top, right) = (px(r.min.y), px(size.x - r.max.x));
-        if node.top != top {
-            node.top = top;
-        }
-        if node.right != right {
-            node.right = right;
-        }
+        crate::corner::place(&mut node, window.size(), crate::corner::Slot::Mic);
     }
 }
 

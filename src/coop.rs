@@ -61,27 +61,15 @@ const CODE_MAX: usize = 16;
 /// The longest build name in a room name (the introducer takes 80 in all).
 const BUILD_MAX: usize = 40;
 
-/// The invite button's width, and its gap from the settings button.
-const INVITE_WIDTH: f32 = 124.0;
-const GAP: f32 = 8.0;
-
-/// The invite button's box: left of the settings button, on the same row.
+/// The invite button's box: in the corner row, left of Skills.
 pub(crate) fn invite_rect(window: Vec2) -> Rect {
-    let settings = crate::settings::button_rect(window);
-    let right = settings.min.x - GAP;
-    Rect::new(right - INVITE_WIDTH, settings.min.y, right, settings.max.y)
+    crate::corner::rect(window, crate::corner::Slot::Invite)
 }
 
-/// Where the co-op status line starts: under the invite button, or on a
-/// narrow screen under the row below it (where the mic button sits, clear of
-/// the health bars). The settings panel opens below it.
+/// Where the co-op status line starts: under the corner row. The settings
+/// panel opens below it.
 pub(crate) fn status_top(window: Vec2) -> f32 {
-    let rows = if crate::settings::narrow(window) {
-        1.0
-    } else {
-        0.0
-    };
-    crate::settings::below(window, rows).max.y + 4.0
+    crate::corner::below(window)
 }
 
 /// This device's crab.
@@ -1343,39 +1331,24 @@ mod web {
 
     pub(crate) use super::invite_rect as button_rect;
 
-    fn spawn_button(mut commands: Commands, window: Single<&Window>) {
-        let r = button_rect(window.size());
-        let right = px(window.size().x - r.max.x);
+    fn spawn_button(
+        mut commands: Commands,
+        window: Single<&Window>,
+        icons: Res<crate::corner::Icons>,
+    ) {
+        // The line sits under the row's right end.
+        let right = px(window.size().x - crate::corner::row(window.size()).max.x);
         commands
             .spawn((
-                crate::input::PointerUi,
+                crate::corner::button(window.size(), crate::corner::Slot::Invite),
                 InviteButton,
-                Node {
-                    position_type: PositionType::Absolute,
-                    top: px(r.min.y),
-                    right,
-                    width: px(r.width()),
-                    height: px(r.height()),
-                    justify_content: JustifyContent::Center,
-                    align_items: AlignItems::Center,
-                    border: UiRect::all(px(1.5)),
-                    border_radius: BorderRadius::all(px(r.height() / 2.0)),
-                    ..default()
-                },
-                BorderColor::all(crate::ui_theme::RIM_FAINT),
-                BackgroundColor(crate::ui_theme::BUTTON),
             ))
-            .with_children(|b| {
-                b.spawn((
-                    InviteLabel,
-                    Text::new("Invite a friend"),
-                    TextFont {
-                        font_size: FontSize::Px(13.0),
-                        ..default()
-                    },
-                    TextColor(crate::ui_theme::TEXT),
-                ));
-            });
+            // The way in to playing together: ringed like the jump button.
+            .insert(BorderColor::all(crate::ui_theme::AMBER))
+            .with_child((
+                InviteLabel,
+                crate::corner::icon(icons.invite.clone(), crate::ui_theme::TEXT),
+            ));
         commands.spawn((
             StatusLine,
             Node {
@@ -1405,7 +1378,7 @@ mod web {
         mut coop: ResMut<Coop>,
     ) {
         coop.flash = (coop.flash - time.delta_secs()).max(0.0);
-        let rect = button_rect(window.size()).inflate(6.0);
+        let rect = button_rect(window.size()).inflate(crate::corner::REACH);
         let clicked = mouse.just_pressed(MouseButton::Left)
             && window.cursor_position().is_some_and(|p| rect.contains(p));
         let tapped = touches
@@ -2230,8 +2203,8 @@ mod web {
         coop: Res<Coop>,
         sim: Res<Sim>,
         mut world: Local<&'static str>,
-        mut label: Single<&mut Text, (With<InviteLabel>, Without<StatusLine>)>,
-        mut line: Single<&mut Text, (With<StatusLine>, Without<InviteLabel>)>,
+        mut label: Single<&mut ImageNode, With<InviteLabel>>,
+        mut line: Single<&mut Text, With<StatusLine>>,
     ) {
         // Whose world this browser plays in, for the browser tests: a friend waiting for a host who isn't there
         // plays its own ("solo"), never half of someone else's.
@@ -2253,13 +2226,15 @@ mod web {
                 let _ = canvas.set_attribute("data-world", now);
             }
         }
-        let words = if coop.flash > 0.0 {
-            "Link ready!"
+        // Gold for a moment as the link goes out (to the share sheet or
+        // the clipboard).
+        let colour = if coop.flash > 0.0 {
+            crate::ui_theme::GOLD
         } else {
-            "Invite a friend"
+            crate::ui_theme::TEXT
         };
-        if label.0 != words {
-            label.0 = words.into();
+        if label.color != colour {
+            label.color = colour;
         }
         if line.0 != coop.status {
             line.0.clone_from(&coop.status);
@@ -2279,11 +2254,8 @@ mod web {
         mut button: Single<&mut Node, (With<InviteButton>, Without<StatusLine>)>,
         mut line: Single<&mut Node, (With<StatusLine>, Without<InviteButton>)>,
     ) {
-        let r = button_rect(window.size());
-        let (top, below) = (px(r.min.y), px(status_top(window.size())));
-        if button.top != top {
-            button.top = top;
-        }
+        crate::corner::place(&mut button, window.size(), crate::corner::Slot::Invite);
+        let below = px(status_top(window.size()));
         if line.top != below {
             line.top = below;
         }

@@ -20,7 +20,6 @@ use crabsim::Skill;
 use crabsim::economy::unlocks;
 use crabsim::skills::MAX_LEVEL;
 
-use crate::feel::FeelLab;
 use crate::player::{GameSet, LocalPlayer, PlayerId};
 
 use crate::ui_theme::{
@@ -95,10 +94,9 @@ pub fn listed(skill: Skill, xp: f32) -> bool {
     skill != Skill::DataDriven || xp > 0.0
 }
 
-/// The button's box: under the Home button, or under the feel lab's two
-/// buttons where they are.
-fn button_rect(window: Vec2, lab: bool) -> Rect {
-    crate::settings::below(window, if lab { 4.0 } else { 2.0 })
+/// The button's box: in the corner row, left of Home.
+fn button_rect(window: Vec2) -> Rect {
+    crate::corner::rect(window, crate::corner::Slot::Skills)
 }
 
 /// The grid card's height: title, five rows of three.
@@ -159,29 +157,18 @@ fn text(size: f32, colour: Color) -> impl Bundle {
     )
 }
 
-fn spawn(mut commands: Commands, window: Single<&Window>, lab: Res<FeelLab>, fonts: Res<UiFonts>) {
-    let r = button_rect(window.size(), lab.available);
-    let size = window.size();
+fn spawn(
+    mut commands: Commands,
+    window: Single<&Window>,
+    fonts: Res<UiFonts>,
+    icons: Res<crate::corner::Icons>,
+) {
     commands
         .spawn((
-            crate::input::PointerUi,
+            crate::corner::button(window.size(), crate::corner::Slot::Skills),
             OpenButton,
-            Node {
-                position_type: PositionType::Absolute,
-                top: px(r.min.y),
-                right: px(size.x - r.max.x),
-                width: px(r.width()),
-                height: px(r.height()),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                border: UiRect::all(px(1.5)),
-                border_radius: BorderRadius::all(px(r.height() / 2.0)),
-                ..default()
-            },
-            BorderColor::all(crate::ui_theme::RIM_FAINT),
-            BackgroundColor(crate::ui_theme::BUTTON),
         ))
-        .with_child(theme::words("Skills", theme::BODY, theme::TEXT));
+        .with_child(crate::corner::icon(icons.skills.clone(), theme::TEXT));
 
     commands
         .spawn((
@@ -359,7 +346,6 @@ fn interact(
     chat: Res<crate::codes::CodeBox>,
     court: Option<Res<crate::king_ddd::Court>>,
     inventory: Res<crate::shell_inventory::Open>,
-    lab: Res<FeelLab>,
     card: Single<(&ComputedNode, &UiGlobalTransform), With<Card>>,
     cells: Query<(&Cell, &ComputedNode, &UiGlobalTransform, &Node)>,
     back: Single<(&ComputedNode, &UiGlobalTransform), With<Back>>,
@@ -388,8 +374,8 @@ fn interact(
                 .flatten()
         });
     let on_button = tap.is_some_and(|p| {
-        button_rect(window.size(), lab.available)
-            .inflate(1.0)
+        button_rect(window.size())
+            .inflate(crate::corner::REACH)
             .contains(p)
     });
     let tap = tap.map(|p| p * scale);
@@ -427,13 +413,11 @@ fn interact(
 fn layout(
     open: Res<Open>,
     window: Single<&Window>,
-    lab: Res<FeelLab>,
-    settings: Res<crate::settings::panel::Open>,
     mut card: Single<&mut Node, (With<Card>, Without<GridBox>, Without<GuideBox>)>,
     mut grid: Single<&mut Node, (With<GridBox>, Without<Card>, Without<GuideBox>)>,
     mut guide: Single<&mut Node, (With<GuideBox>, Without<Card>, Without<GridBox>)>,
     mut button: Single<
-        (&mut Node, &mut Visibility),
+        (&mut Node, &mut BackgroundColor),
         (
             With<OpenButton>,
             Without<Card>,
@@ -472,19 +456,14 @@ fn layout(
     if guide.display != u {
         guide.display = u;
     }
-    // The button keeps its corner as the window turns, and steps aside while
-    // the settings panel is over it.
-    let r = button_rect(size, lab.available);
-    let (top, right) = (px(r.min.y), px(size.x - r.max.x));
-    if button.0.top != top || button.0.right != right {
-        button.0.top = top;
-        button.0.right = right;
-    }
-    button.1.set_if_neq(if settings.is_open() {
-        Visibility::Hidden
+    // The button keeps its place in the row as the window turns, lit while
+    // the card is open.
+    crate::corner::place(&mut button.0, size, crate::corner::Slot::Skills);
+    button.1.set_if_neq(BackgroundColor(if open.open {
+        theme::BUTTON_ON
     } else {
-        Visibility::Inherited
-    });
+        theme::BUTTON
+    }));
 }
 
 /// The grid's levels and bars.

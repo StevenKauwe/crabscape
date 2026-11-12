@@ -86,6 +86,7 @@ mod chimney;
 mod cling;
 mod codes;
 mod coop;
+mod corner;
 mod creature_art;
 mod creatures;
 mod crevices;
@@ -132,6 +133,7 @@ mod report;
 mod reset;
 mod salvage;
 mod save;
+mod screen_fit;
 mod scribe;
 mod secrets;
 mod settings;
@@ -206,7 +208,11 @@ fn run_app() {
             }),
     )
     // The HUD's font and look, before anything spawns words.
-    .add_plugins(ui_theme::UiThemePlugin)
+    .add_plugins((
+        ui_theme::UiThemePlugin,
+        screen_fit::ScreenFitPlugin,
+        corner::CornerPlugin,
+    ))
     .init_resource::<tuning::ViewTuning>()
     // The game's core, then the world's things and the HUD. (Bevy takes
     // at most 15 plugins in one group.)

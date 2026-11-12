@@ -369,6 +369,7 @@ jobs:
             target/art/cooptest
             target/art/dragon
             target/art/king
+            target/art/hud_scale
             tools/introducer/target/release/introducer
           if-no-files-found: error
           retention-days: 3
@@ -502,6 +503,35 @@ jobs:
           path: target/webtest/king/
           retention-days: 7
 
+  hud-scale:
+    name: HUD size at 1x, 2x and 3x pixel density
+    # A phone at each density (every recent iPhone is 3x), upright and turned: the game lays its HUD out in the
+    # page's CSS pixels and a click on Settings lands on it (src/screen_fit.rs). On its own runner: no co-op timing.
+    needs: [web, browser-tools]
+    if: ${{ !cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: crabscape-web-${{ github.sha }}
+          path: web
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: browser-tools-${{ github.sha }}
+      - name: The HUD's size at each density
+        run: |
+          chmod +x target/art/hud_scale
+          target/art/hud_scale web target/webtest/hud-scale
+      - name: Keep the screenshots
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: hud-scale-${{ github.sha }}
+          path: target/webtest/hud-scale/
+          retention-days: 7
+
   feel-strips:
     name: frame strips of a smash (to look at; never fails)
     # A smash in a few feel presets, as frame strips in the `webtest-feel` download. Information only: never fails
@@ -540,14 +570,14 @@ jobs:
     # The required check's name (branch protection asks for exactly this one), as a gate over the fanned-out browser
     # jobs: it passes only when the web build, the tools, both WebKit phones, King and every co-op part passed, or were
     # skipped (a change that can't affect the game). A failed or cancelled one fails it.
-    needs: [web, browser-tools, webkit, coop, king]
+    needs: [web, browser-tools, webkit, coop, king, hud-scale]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Every browser job passed or was skipped
         env:
-          RESULTS: web=${{ needs.web.result }} tools=${{ needs.browser-tools.result }} webkit=${{ needs.webkit.result }} coop=${{ needs.coop.result }} king=${{ needs.king.result }}
+          RESULTS: web=${{ needs.web.result }} tools=${{ needs.browser-tools.result }} webkit=${{ needs.webkit.result }} coop=${{ needs.coop.result }} king=${{ needs.king.result }} hud=${{ needs.hud-scale.result }}
         run: |
           echo "$RESULTS"
           case " $RESULTS " in

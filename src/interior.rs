@@ -81,64 +81,41 @@ pub struct Inside {
 #[derive(Resource, Default)]
 struct Pick(usize);
 
-/// The workbench's tabs, left to right.
+/// The workbench's tabs, left to right: what to aim for, what to make,
+/// and the home. Three, so each is a thumb's width on a phone and a new
+/// player is never asked which of nine skills a thing belongs to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 enum Tab {
-    /// The task board: what is one thing away, and what opens next.
+    /// The task board (what is one thing away) and each skill's next unlock.
     #[default]
-    Wants,
-    /// The home's pieces, built together.
+    Goals,
+    /// Everything made at the bench or a station: the first recipes, then
+    /// cooking, shellcraft, weaving and mending, by level.
+    Craft,
+    /// The home's pieces (built together), its culture beds, and the
+    /// building and culturing recipes.
     Home,
-    Make,
-    Cook,
-    Shellcraft,
-    Weave,
-    Build,
-    Culture,
-    Repair,
 }
 
-const TABS: [Tab; 9] = [
-    Tab::Wants,
-    Tab::Home,
-    Tab::Make,
-    Tab::Cook,
-    Tab::Shellcraft,
-    Tab::Weave,
-    Tab::Build,
-    Tab::Culture,
-    Tab::Repair,
-];
+const TABS: [Tab; 3] = [Tab::Goals, Tab::Craft, Tab::Home];
 
 impl Tab {
-    /// The tab's word (short, so nine fit across a phone).
     fn label(self) -> &'static str {
         match self {
-            Tab::Wants => "Wants",
+            Tab::Goals => "Goals",
+            Tab::Craft => "Craft",
             Tab::Home => "Home",
-            Tab::Make => "Make",
-            Tab::Cook => "Cook",
-            Tab::Shellcraft => "Shell",
-            Tab::Weave => "Weave",
-            Tab::Build => "Build",
-            Tab::Culture => "Beds",
-            Tab::Repair => "Mend",
         }
     }
 
-    /// Which tab an economy recipe is listed in: repairs together, the rest
-    /// by the skill that makes them.
+    /// Which tab an economy recipe is listed in: what grows the home
+    /// (stations, rooms, bed planting) under Home, the rest under Craft.
     fn of(r: &EconRecipe) -> Tab {
-        if matches!(r.makes, Output::Repair(_)) {
-            return Tab::Repair;
-        }
         match r.skill {
-            Skill::Cooking => Tab::Cook,
-            Skill::Shellcraft => Tab::Shellcraft,
-            Skill::Weaving => Tab::Weave,
-            Skill::Building => Tab::Build,
-            Skill::Culturing => Tab::Culture,
-            _ => Tab::Make,
+            Skill::Building | Skill::Culturing if !matches!(r.makes, Output::Repair(_)) => {
+                Tab::Home
+            }
+            _ => Tab::Craft,
         }
     }
 }
@@ -176,17 +153,20 @@ enum Row {
 }
 
 /// The rows of a tab for this crab, in the order shown.
+///
+/// A tab's economy recipes are the ones this crab has the level for, by
+/// level (so a row stays where it is while it is being made), then the
+/// next locked one of each skill as a taste of what is coming: a hundred
+/// recipes would otherwise be twenty-five pages, most of them greyed out.
+/// The two dozen repairs show only while there is something for them to
+/// mend.
+/// Whether a recipe is open is the sim's own rule (the crab's level in its
+/// skill against the recipe's, as `can_make_econ` checks), so a change to
+/// the unlock ladder shows here as it is.
 fn rows_for(tab: Tab, sim: &Sim, id: crabsim::PlayerId, crab: &SimCrab) -> Vec<Row> {
-    let mut econ: Vec<usize> = ECON_RECIPES
-        .iter()
-        .enumerate()
-        .filter(|(_, r)| Tab::of(r) == tab)
-        .map(|(i, _)| i)
-        .collect();
-    econ.sort_by_key(|&i| (ECON_RECIPES[i].level, i));
     let mut rows = Vec::new();
     match tab {
-        Tab::Wants => {
+        Tab::Goals => {
             let wants = sim.wants(id);
             if wants.is_empty() {
                 rows.push(Row::NothingNear);
@@ -197,10 +177,11 @@ fn rows_for(tab: Tab, sim: &Sim, id: crabsim::PlayerId, crab: &SimCrab) -> Vec<R
                     .into_iter()
                     .map(|(skill, level, _)| Row::Unlock(skill, level)),
             );
+            return rows;
         }
-        Tab::Home => rows.extend(PIECES.iter().map(|d| Row::Piece(d.piece))),
-        Tab::Make => rows.extend((0..RECIPES.len()).map(Row::Basic)),
-        Tab::Culture => {
+        Tab::Craft => rows.extend((0..RECIPES.len()).map(Row::Basic)),
+        Tab::Home => {
+            rows.extend(PIECES.iter().map(|d| Row::Piece(d.piece)));
             if crab.econ.culture_beds == 0 {
                 rows.push(Row::NoBeds);
             } else {
@@ -208,10 +189,46 @@ fn rows_for(tab: Tab, sim: &Sim, id: crabsim::PlayerId, crab: &SimCrab) -> Vec<R
                 rows.extend([Row::Harvest, Row::Feed]);
             }
         }
-        _ => {}
     }
-    rows.extend(econ.into_iter().map(Row::Econ));
+    let locked = |i: usize| {
+        let r = &ECON_RECIPES[i];
+        crab.level(r.skill, &sim.tuning) < r.level
+    };
+    let idle = |i: usize| {
+        matches!(
+            sim.can_make_econ(id, &ECON_RECIPES[i]),
+            Err(CantMakeEcon::NothingToMend)
+        )
+    };
+    rows.extend(open_then_next(tab, locked, idle).into_iter().map(Row::Econ));
     rows
+}
+
+/// A tab's economy recipes (indices into [`ECON_RECIPES`]): the open ones
+/// by level, then the lowest locked one of each skill, by level; none that
+/// are `idle` (a repair with nothing to mend).
+fn open_then_next(
+    tab: Tab,
+    locked: impl Fn(usize) -> bool,
+    idle: impl Fn(usize) -> bool,
+) -> Vec<usize> {
+    let mut mine: Vec<usize> = ECON_RECIPES
+        .iter()
+        .enumerate()
+        .filter(|&(i, r)| Tab::of(r) == tab && !idle(i))
+        .map(|(i, _)| i)
+        .collect();
+    mine.sort_by_key(|&i| (ECON_RECIPES[i].level, i));
+    let (mut open, shut): (Vec<usize>, Vec<usize>) = mine.into_iter().partition(|&i| !locked(i));
+    let mut seen = Vec::new();
+    for i in shut {
+        let skill = ECON_RECIPES[i].skill;
+        if !seen.contains(&skill) {
+            seen.push(skill);
+            open.push(i);
+        }
+    }
+    open
 }
 
 /// How many pages a list of `n` rows takes (at least one).
@@ -1036,14 +1053,15 @@ fn lay_out_menu(
                     b.spawn(text(word, 14.0, INK));
                 });
             }
+            // The count is on the words, which the menu rewrites (it was on
+            // their box, so "1/1" never changed).
             p.spawn((
-                PageCount,
                 Node {
                     justify_content: JustifyContent::Center,
                     align_items: AlignItems::Center,
                     ..at(l.count, o)
                 },
-                children![text("1/1", 11.5, DIM)],
+                children![(PageCount, text("1/1", 11.5, DIM))],
             ));
             for (tab, r) in TABS.into_iter().zip(&l.tabs) {
                 p.spawn((
@@ -1059,7 +1077,7 @@ fn lay_out_menu(
                     BackgroundColor(crate::ui_theme::BUTTON),
                 ))
                 .with_children(|b| {
-                    b.spawn((TabText, text(tab.label(), crate::ui_theme::CAPTION, INK)));
+                    b.spawn((TabText, text(tab.label(), crate::ui_theme::BODY, INK)));
                 });
             }
             for (slot, (row, make)) in l.rows.iter().enumerate() {
@@ -2047,29 +2065,71 @@ mod tests {
     fn every_recipe_sits_in_a_tab_and_each_tab_has_rows() {
         let sim = Sim::with_one_crab(Vec2::new(95.0, 0.0));
         let crab = sim.crab(crabsim::PlayerId(0)).unwrap();
-        let mut econ_rows = 0;
         for tab in TABS {
             let rows = rows_for(tab, &sim, crabsim::PlayerId(0), crab);
             assert!(!rows.is_empty(), "{tab:?} has rows");
-            econ_rows += rows.iter().filter(|r| matches!(r, Row::Econ(_))).count();
         }
-        assert_eq!(econ_rows, ECON_RECIPES.len());
-        assert_eq!(
-            rows_for(Tab::Make, &sim, crabsim::PlayerId(0), crab).len(),
-            RECIPES.len()
+        // With everything open, every recipe is listed once, in one tab.
+        let mut all: Vec<usize> = TABS
+            .into_iter()
+            .flat_map(|t| open_then_next(t, |_| false, |_| false))
+            .collect();
+        all.sort_unstable();
+        assert_eq!(all, (0..ECON_RECIPES.len()).collect::<Vec<_>>());
+        // The first recipes lead Craft; Home leads with its pieces, then beds.
+        let craft = rows_for(Tab::Craft, &sim, crabsim::PlayerId(0), crab);
+        assert!(
+            craft[..RECIPES.len()]
+                .iter()
+                .all(|r| matches!(r, Row::Basic(_)))
         );
-        assert_eq!(
-            rows_for(Tab::Culture, &sim, crabsim::PlayerId(0), crab)[0],
-            Row::NoBeds
-        );
+        let home = rows_for(Tab::Home, &sim, crabsim::PlayerId(0), crab);
+        assert_eq!(home[PIECES.len()], Row::NoBeds);
     }
 
     #[test]
-    fn the_wants_tab_lists_a_want_with_where_and_pins_it() {
+    fn a_tab_shows_what_is_open_then_one_taste_of_each_skill() {
+        // Nothing open: one row per skill, its lowest recipe.
+        for tab in [Tab::Craft, Tab::Home] {
+            let rows = open_then_next(tab, |_| true, |_| false);
+            let mut skills: Vec<_> = rows.iter().map(|&i| ECON_RECIPES[i].skill).collect();
+            let n = skills.len();
+            skills.dedup();
+            assert_eq!(skills.len(), n, "one per skill in {tab:?}");
+            for &i in &rows {
+                let r = &ECON_RECIPES[i];
+                assert!(
+                    ECON_RECIPES
+                        .iter()
+                        .filter(|o| o.skill == r.skill && Tab::of(o) == tab)
+                        .all(|o| o.level >= r.level),
+                    "{} is the lowest of its skill",
+                    r.name
+                );
+            }
+        }
+        // A new crab with nothing worn sees a few pages, not the hundred-odd.
+        let repair = |i: usize| matches!(ECON_RECIPES[i].makes, Output::Repair(_));
+        let fresh = open_then_next(Tab::Craft, |i| ECON_RECIPES[i].level > 1, repair);
+        assert!(
+            pages(RECIPES.len() + fresh.len()) <= 5,
+            "{} rows",
+            fresh.len()
+        );
+        // Open rows come by level, before the locked tastes.
+        let open = open_then_next(Tab::Craft, |i| ECON_RECIPES[i].level > 5, |_| false);
+        let levels: Vec<u32> = open.iter().map(|&i| ECON_RECIPES[i].level).collect();
+        let split = levels.iter().position(|&l| l > 5).unwrap_or(levels.len());
+        assert!(levels[..split].is_sorted());
+        assert!(levels[split..].iter().all(|&l| l > 5));
+    }
+
+    #[test]
+    fn the_goals_tab_lists_a_want_with_where_and_pins_it() {
         let mut sim = Sim::with_one_crab(Vec2::new(95.0, 0.0));
         let id = crabsim::PlayerId(0);
         let crab = sim.crab(id).unwrap();
-        let rows = rows_for(Tab::Wants, &sim, id, crab);
+        let rows = rows_for(Tab::Goals, &sim, id, crab);
         assert!(rows.contains(&Row::Want("kelp-cord")), "{rows:?}");
         let v = row_view(&sim, id, crab, Row::Want("kelp-cord"));
         assert_eq!(v.name, "Kelp cord");
@@ -2090,12 +2150,12 @@ mod tests {
     }
 
     #[test]
-    fn the_home_tab_lists_all_eight_pieces_greyed_until_they_can_be_built() {
+    fn the_home_tab_leads_with_all_eight_pieces_greyed_until_they_can_be_built() {
         let sim = Sim::with_one_crab(Vec2::new(95.0, 0.0));
         let id = crabsim::PlayerId(0);
         let crab = sim.crab(id).unwrap();
         let rows = rows_for(Tab::Home, &sim, id, crab);
-        assert_eq!(rows.len(), 8);
+        assert!(rows[..8].iter().all(|r| matches!(r, Row::Piece(_))));
         let Row::Piece(first) = rows[0] else {
             panic!("a piece row")
         };
