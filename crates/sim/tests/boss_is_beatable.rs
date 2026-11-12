@@ -589,9 +589,16 @@ fn win_share(skill: Skill, fights: u64) -> (f32, Vec<(End, Log)>) {
         .ok()
         .and_then(|n| n.parse().ok())
         .unwrap_or(1);
-    // Fights are independent: spread them over the machine's cores.
+    let runs = run_fights(skill, first, fights);
+    let won = runs.iter().filter(|(e, _)| *e == End::Won).count();
+    (won as f32 / fights as f32, runs)
+}
+
+/// Fights are independent: spread them over the machine's cores.
+#[cfg(not(target_family = "wasm"))]
+fn run_fights(skill: Skill, first: u64, fights: u64) -> Vec<(End, Log)> {
     let cores = std::thread::available_parallelism().map_or(4, |n| n.get()) as u64;
-    let runs: Vec<_> = std::thread::scope(|scope| {
+    std::thread::scope(|scope| {
         let workers: Vec<_> = (0..cores)
             .map(|w| {
                 scope.spawn(move || {
@@ -608,15 +615,21 @@ fn win_share(skill: Skill, fights: u64) -> (f32, Vec<(End, Log)>) {
             .collect();
         all.sort_by_key(|(s, _)| *s);
         all.into_iter().map(|(_, r)| r).collect()
-    });
-    let won = runs.iter().filter(|(e, _)| *e == End::Won).count();
-    (won as f32 / fights as f32, runs)
+    })
+}
+
+/// wasm32-wasip1 has no threads: the same fights, one after another.
+#[cfg(target_family = "wasm")]
+fn run_fights(skill: Skill, first: u64, fights: u64) -> Vec<(End, Log)> {
+    (0..fights).map(|s| fight(skill, s + first, 240)).collect()
 }
 
 /// Fights per check: enough that a 70% boss lands in the band nearly always.
 const FIGHTS: u64 = 60;
 
 #[test]
+// The parity job checks the sim, not the bot's win rates.
+#[cfg_attr(target_family = "wasm", ignore = "statistical; native only")]
 fn boss_is_beatable() {
     let (human, runs) = win_share(HUMAN, FIGHTS);
     let stalled = runs.iter().filter(|(e, _)| *e == End::Stalled).count();
