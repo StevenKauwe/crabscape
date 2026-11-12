@@ -80,9 +80,9 @@ Five tiers, one per depth band (`level/bands.rs`). A node's tier sets everything
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | Shallows (> -260) | home side pockets x 222–242 and 432–492; far ledge x 1,850–2,470 | 1 | 0 (bare claw) | 10 | 2.5 | 5 | 45 | 4 |
 | 2 | Basin and mudbanks (-260 to -700) | far basin hub x 4,500–4,940 for all five skills (the home burrow gallery holds none: lead's call, see Where things stand) (the first basin, x 2,800–3,300, holds none: a moray and a hermit crab) | 15 | 1 shell | 110 | 3.0 | 5 | 60 | 3 |
-| 3 | Canyon walls / twilight (-700 to -3,400) | doorstep x 5,443–5,790 (none on the shelf); far rim x 7,905–8,015; the bone hall's floor (fish falls and tooth beds, y about -2,534, x 3,880–4,130: the chamber prize) | 30 | 2 quill | 160 | 3.5 | 4 | 90 | 3 |
-| 4 | Canyon floor / midnight (-3,400 to -9,500) | canyon floor far end x 7,130–7,610 (y -6,000); the seep garden (seep mussels and the sulfur mat, y about -10,514, x 19,430–19,605) | 45 | 3 glass | 260 | 4.0 | 4 | 150 | 3 |
-| 5 | Deep (< -9,500) | lower canyon vent field east end (`level::lower_canyon::VENTS`, x 19,730–20,450, west of the crust vault's door) | 60 | 4 bone | 750 | 4.5 | 4 | 240 | 3 |
+| 3 | Canyon walls / twilight (-700 to -3,400) | doorstep x 5,443–5,790 (none on the shelf); far rim x 7,905–8,015; the glass gardens in the Silt Galleries' sponge galleries (x 2,060–2,620, floor -1,040: #638); the bone hall's floor (fish falls and tooth beds, y about -2,534, x 3,880–4,130: the chamber prize); the Deep Galleries' lanternfish hall (fish falls, y -4,200, x 2,100–2,700); region 5's shelf tops (glass gardens and scallop beds: tower shelf x 9,350, first arch 11,980, second arch 13,230) | 30 | 2 quill | 160 | 3.5 | 4 | 90 | 3 |
+| 4 | Canyon floor / midnight (-3,400 to -9,500) | canyon floor far end x 7,130–7,610 (y -6,000); the Deep Galleries' black coral hall (y -6,200) and whale-fall hall (whale-fall bones, y -8,200), x 2,200–4,000; the seep garden (seep mussels and the sulfur mat, y about -10,514, x 19,430–19,605) | 45 | 3 glass | 260 | 4.0 | 4 | 150 | 3 |
+| 5 | Deep (< -9,500) | lower canyon vent field east end (`level::lower_canyon::VENTS`, x 19,730–20,450, west of the crust vault's door); the Deep Galleries' nodule field (nodules, x 1,620–1,780, y -10,200) | 60 | 4 bone | 750 | 4.5 | 4 | 240 | 3 |
 
 Placement rule: a tier-k node lies in band k or deeper (by depth alone: a pocket does not change it, so tier 4 cannot lie in the
 bone hall at about -2,500, and the hall holds tier 3), and its **route time from home** (route solver, the kit the world
@@ -370,7 +370,7 @@ What is enforced, and by which test (`economy_every_way_pays.rs`):
   the **home burrow's clay gallery** (a tunnel, the fear register "safe") holds NO nodes (lead's call after P8: 23.5 s of dig from the door, tier 2 there paid 938 XP/min against the hub's 403; the clam beds and clay banks moved to the hub, x 4,527 to 4,802) — it was to hold the three clam beds and three clay banks
   (Prying and Excavating, x 268 to 468, 40 apart; the world's own two gallery clams lie at 330 and 440); the other three
   skills stay in the far basin hub (x 4,500 to 4,940, 55 apart). Tier 3: the doorstep (5,443 to 5,790) and the rim short
-  of the octopus (7,905 to 8,015) keep the scallops, glass gardens and twilight glow; **the bone hall's floor** (x 3,880
+  of the octopus (7,905 to 8,015) keep the scallops and twilight glow, and the glass gardens grow in the Silt Galleries' first two sponge galleries (x 2,060, 2,420 and 2,620, floor -1,040: #638; the third gallery is in a hermit crab's reach of the plateau above); **the bone hall's floor** (x 3,880
   to 4,130, 50 apart, in sight of the door at 3,800 and the seep shaft) holds the fish falls and tooth beds as the
   chamber's prize. Tier 4: the canyon floor's far end (black coral, whale-fall bones, grenadier carcasses; the lobster
   holds the near end) and **the seep garden** (seep mussels and the sulfur mat, x 19,430 to 19,605, east of the door
@@ -545,7 +545,9 @@ A scripted tunnel from the home burrow's silt shaft pays 206 XP/min (tier 1 gath
 - CI flake: `cell_save::native` on Linux (#482): rerun the failed job.
 
 ## Where things stand
-- **#633:** death wakes the crab at the nearest rest point it has reached (`level/rest.rs`, `rest_points.rs`). A boss-arena death keeps the load (no cast-off), so a fight for a far part never costs the trip's haul. The grouper is beatable (fair bot 67-70%), so a grouper drop could become a want; none asks for one yet. The Silt Galleries glass hookup waits on #634.
+- **#638 (also):** the Deep Galleries' nine node sites are wired in. The black coral hall holds black coral, and the nodule field (-10,200, deep band) holds tier-5 nodules. Region 5's shelf tops are wired in as well: glass and scallops (tier 3), plus a sea-pen field and a clam bed on the kelp ledge (tier 2). Wants name the place nearest home.
+- **#638:** the lamp's glass grows in the Silt Galleries' sponge galleries. The loop measures 2.63 min (22 s out, 12 s home), down from 5.62, so the galleries are a near loop and the world lane owns the gap. The Deep Galleries' `NODE_SITES` (#637) get wired in once #637 lands.
+- **#633:** death wakes the crab at the nearest rest point it has reached (`level/rest.rs`, `rest_points.rs`). A boss-arena death keeps the load (no cast-off), so a fight for a far part never costs the trip's haul. The grouper is beatable (fair bot 67-70%), so a grouper drop could become a want; none asks for one yet. The Silt Galleries glass hookup is #638.
 - **#631:** wants that send you out (five far-thing pieces and recipes), digging earns Excavating XP, and tier 5's trip is measured for real (307 s round trip through the narrows lock; XP/min by tier at unlock 180 / 403 / 620 / 805 / 1049). Next: point the glass lamp's want at the Silt Galleries' glass when the world lane's loop lands, and re-measure.
 - **L1 (#622), the loop measured:** `crates/sim/tests/loop_pacing.rs` plays three wants through the beat sheet
   (glass lamp 4.8 min, bone arch 2.1, kelp curtain 2.8 against 20). Pieces are wants now. Guardrail: the gap to 20 is

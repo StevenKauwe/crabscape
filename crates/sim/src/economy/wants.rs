@@ -33,9 +33,9 @@ pub const NEXT_UNLOCKS: usize = 3;
 pub enum Source {
     /// A gathering node of this kind. `remembered_at` is the nearest one
     /// the crab has seen (None: it has never seen one); `band` is the depth
-    /// band this kind grows in; `place` names the landmark every node of
-    /// the kind lies in (the bone hall, the seep garden), or None for the
-    /// open map.
+    /// band this kind grows in; `place` names the landmark the kind grows
+    /// in (the bone hall, the seep garden; the one nearest home when there
+    /// are several), or None when any of it lies on the open map.
     Node {
         node: NodeKind,
         remembered_at: Option<Vec2>,
@@ -161,12 +161,21 @@ pub fn sources_of(sim: &Sim, crab: Option<&SimCrab>, item: Item) -> Vec<Source> 
     out
 }
 
-/// The landmark every spot of this kind lies in, by name (`None`: some lie
-/// on the open map, or it has none).
+/// The landmark this kind grows in, by name: the one nearest home when it
+/// grows in several (the lamp's glass: the Silt Galleries before region 5's
+/// shelves). `None`: some lie on the open map, or it has none.
 fn node_place(kind: NodeKind) -> Option<&'static str> {
-    let mut spots = super::place::SPOTS.iter().filter(|s| s.kind == kind);
-    let first = spots.next()?.place?;
-    spots.all(|s| s.place == Some(first)).then_some(first)
+    let spots: Vec<_> = super::place::SPOTS
+        .iter()
+        .filter(|s| s.kind == kind)
+        .collect();
+    if spots.is_empty() || spots.iter().any(|s| s.place.is_none()) {
+        return None;
+    }
+    spots
+        .iter()
+        .min_by(|a, b| a.x.abs().total_cmp(&b.x.abs()))
+        .and_then(|s| s.place)
 }
 
 /// The nearest node of `kind` the crab remembers seeing.

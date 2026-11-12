@@ -65,7 +65,7 @@ const TOO_LONG: f64 = 1.5;
 /// What the scripted crab goes for.
 #[derive(Clone, Copy, PartialEq)]
 enum How {
-    /// Cut glass at the farthest tier 3 garden (the far rim's, across the canyon).
+    /// Cut glass at the Silt Galleries' farthest garden (the second sponge gallery, under the trench).
     Glass,
     /// Beat the mantis shrimp of the lowest x (the basin's) for its club.
     Club,
@@ -121,7 +121,9 @@ const WANTS: [Want; 4] = [
             crusher: true,
             dactyls: true,
         },
-        floor_min: 3.0,
+        // The Silt Galleries lie under the trench by home (#638): a near
+        // loop now, 2.6 min.
+        floor_min: 1.5,
     },
     Want {
         name: "bone arch (fight, mantis club)",
@@ -204,13 +206,13 @@ struct Route {
 /// Measured by `measure_routes` (release, a few minutes). Order: `WANTS`.
 const ROUTES: [Route; 4] = [
     Route {
-        open: 14.48,
-        land: 110.16,
-        target: 111.42,
-        back: 100.02,
+        open: 21.81,
+        land: 21.81,
+        target: 21.81,
+        back: 11.82,
         dry: 0.00,
-        target_x: 8015.0,
-        home_x: 1228.0,
+        target_x: 2620.0,
+        home_x: 896.0,
     },
     Route {
         open: 17.08,
@@ -248,9 +250,17 @@ const ROUTES: [Route; 4] = [
 fn target_of(level: &Level, how: How) -> (Vec2, Vec2) {
     match how {
         How::Glass => {
+            // The lamp's want points at the Silt Galleries (the farthest of
+            // their gardens); region 5's shelf gardens are a far second source.
+            let galleries = level
+                .landmarks()
+                .into_iter()
+                .find(|l| l.name == "upper gallery")
+                .expect("the Silt Galleries");
             let n = nodes(level)
                 .into_iter()
                 .filter(|n| n.kind == NodeKind::GlassSpongeGarden)
+                .filter(|n| galleries.rect.contains(n.pos))
                 .max_by(|a, b| a.pos.x.total_cmp(&b.pos.x))
                 .expect("a glass sponge garden");
             (n.pos, n.pos)

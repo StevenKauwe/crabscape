@@ -80,6 +80,13 @@ const fn at(place: &'static str, kind: NodeKind, x: f32) -> NodeSpot {
 const HALL: &str = "bone hall";
 const GARDEN: &str = "seep garden";
 const VENTS: &str = "vent field";
+/// The Silt Galleries' upper gallery (its three sponge galleries; `level::silt_galleries`).
+const GALLERIES: &str = "upper gallery";
+/// The Deep Galleries' three halls (`level::deep_galleries`).
+const LANTERN_HALL: &str = "lanternfish hall";
+const CORAL_HALL: &str = "black coral hall";
+const NODULE_FIELD: &str = "nodule field";
+const WHALE_HALL: &str = "whale-fall hall";
 
 /// Every spot, by tier. Nodes of one kind are spread over the tier's places,
 /// at least 30 units apart (the hub's and the pockets' are closer).
@@ -136,16 +143,20 @@ pub const SPOTS: &[NodeSpot] = &[
     s(K::WormMud, 4885.0),
     s(K::PitGlowSite, 4940.0),
     // Tier 3.
-    // The canyon's doorstep and the far rim: scallops, glass gardens and
-    // twilight glow.
+    // The canyon's doorstep and the far rim: scallops and twilight glow.
+    // The glass gardens grow in the Silt Galleries' first two sponge
+    // galleries (#638), beside their own glass sponges: the lamp's want sends
+    // the crab under the trench, not across the canyon. The third gallery
+    // holds none: it lies within a hermit crab's reach of the plateau above.
+    // (Same indices as the doorstep and rim gardens they replace.)
     s(K::ScallopBed, 5575.0),
-    s(K::GlassSpongeGarden, 5443.0),
+    at(GALLERIES, K::GlassSpongeGarden, 2060.0),
     s(K::TwilightGlow, 5617.0),
     s(K::ScallopBed, 5675.0),
-    s(K::GlassSpongeGarden, 5733.0),
+    at(GALLERIES, K::GlassSpongeGarden, 2620.0),
     s(K::TwilightGlow, 7905.0),
     s(K::ScallopBed, 7960.0),
-    s(K::GlassSpongeGarden, 8015.0),
+    at(GALLERIES, K::GlassSpongeGarden, 2420.0),
     s(K::TwilightGlow, 5790.0),
     // The bone hall's floor: a whale-fall's carcass and teeth, in sight of
     // the door at 3,800 and the seep shaft at 4,110 (the egg and the tooth
@@ -195,6 +206,39 @@ pub const SPOTS: &[NodeSpot] = &[
     at(VENTS, K::NoduleField, 20360.0),
     at(VENTS, K::ScalyFootSnails, 20405.0),
     at(VENTS, K::VentMatSite, 20450.0),
+    // The Deep Galleries under the Drop (`level::deep_galleries::NODE_SITES`,
+    // the world lane's sites; appended, so earlier indices keep their
+    // meaning). The lanternfish hall (floor -4,200) holds fish falls (tier 3)
+    // and the whale-fall hall (-8,200) whale-fall bones (tier 4), as authored.
+    // The black coral hall (-6,200) holds black coral (tier 4: black corals
+    // do grow this deep, not verified), and the nodule field (-10,200, the
+    // deep band) the tier 5 nodules.
+    at(LANTERN_HALL, K::FishFall, 2100.0),
+    at(LANTERN_HALL, K::FishFall, 2400.0),
+    at(LANTERN_HALL, K::FishFall, 2700.0),
+    at(CORAL_HALL, K::BlackCoral, 2200.0),
+    at(CORAL_HALL, K::BlackCoral, 2500.0),
+    at(CORAL_HALL, K::BlackCoral, 2800.0),
+    at(WHALE_HALL, K::WhaleFallBones, 3400.0),
+    at(WHALE_HALL, K::WhaleFallBones, 3700.0),
+    at(WHALE_HALL, K::WhaleFallBones, 4000.0),
+    // Region 5's shelf tops (`level::open_canyon::gather_spots`, the world
+    // lane's: a glass sponge and, 90 east, a bed beside it), out past the
+    // far rim, east of the canyon. The three deeper tops (the twilight band)
+    // hold glass gardens and glass scallop beds (tier 3); the kelp ledge, at
+    // -700, is still the basin band, so it holds a sea-pen field and a clam
+    // bed (tier 2).
+    at("sponge garden kelp ledge", K::SeaPenField, 11000.0),
+    at("sponge garden kelp ledge", K::ClamBed, 11090.0),
+    at("sponge garden tower shelf", K::GlassSpongeGarden, 9350.0),
+    at("sponge garden tower shelf", K::ScallopBed, 9440.0),
+    at("sponge garden first arch", K::GlassSpongeGarden, 11980.0),
+    at("sponge garden first arch", K::ScallopBed, 12070.0),
+    at("sponge garden second arch", K::GlassSpongeGarden, 13230.0),
+    at("sponge garden second arch", K::ScallopBed, 13320.0),
+    at(NODULE_FIELD, K::NoduleField, 1620.0),
+    at(NODULE_FIELD, K::NoduleField, 1700.0),
+    at(NODULE_FIELD, K::NoduleField, 1780.0),
 ];
 
 /// Where a spot lies on this level, or `None` when its named place is not
@@ -223,6 +267,14 @@ fn place_of(
             })
             .map(|v| v.min.y)
             .min_by(f32::total_cmp)?;
+        return Some(Vec2::new(x, floor + s.dy));
+    }
+    // A cave in the layer map (the Silt Galleries): the ground under the
+    // room's roof at `x`, if it lies inside the room.
+    if matches!(mark.kind, LandmarkKind::Tunnel | LandmarkKind::Frame)
+        && let Some(floor) = level.ground_below(Vec2::new(x, mark.rect.max.y - 1.0))
+        && floor >= mark.rect.min.y - 1.0
+    {
         return Some(Vec2::new(x, floor + s.dy));
     }
     // Open water (the vent field): its seabed. A pocket whose bedrock this
