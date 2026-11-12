@@ -39,9 +39,9 @@ Each lead keeps their own lines here. `[x]` means it is in the game; the rest sa
 - [x] A pinned goal, rules: `pin_want`, `pinned_status`, one-shot `goal_ready` away from home, saved and replayed; a small gold-when-ready goal line on the HUD while out, and a note when it is ready (#617)
 - [x] Home pieces in the shared home, rules: eight pieces, host-authoritative, saved in the host's world; a Home tab builds them (also in co-op sessions) and each is drawn on the shared home (#617)
 - [ ] Nodes on the new Plate D map (#572, after #610)
-- [x] Prize beat sized (#622): a shell holds 4 things, so a prize beat is one shell load and a big want is several trips. The lamp now needs 16 glass (four loads; the last one is the loop) and a glass cut takes 12 s (was 3.5 s; 30 s was tried and is too long a hold for a phone), so a load of 4 is 0.9 min at one garden: the prize beat stays short because the shell holds 4 (a bigger bag or a deeper, slower harvest would fill it) (kelp curtain, low attention: 22 kelp + 2 cords, 1.6 min). Gardens keep 4 charges and 90 s respawn; XP per minute still rises by tier
+- [x] Guardrail (owner, via the coordinator, 2026-11-11): the 20 minutes come from the world (distance, route choice, the crossing, the way home), never from padding with costs, slower gathering or repeat trips down the same route. A piece costs about one good trip (a shell load), plus at most an optional second run. The lamp is 4 glass + 1 cord, the curtain 6 kelp + 2 cords, the bone arch 2 whale bone + 3 clay + 1 mantis club; a glass cut is the tier's 3.5 s (#622 tried 16 glass and a 30 s, then 12 s, cut and undid them)
 - [x] Home pieces are wants (#622): `wants` lists a piece one kind short (not built yet), `pin_want` / `pinned_status` / `goal_ready` take piece words, and building it lets the pin go; the Wants tab shows them
-- [x] Fight wants (#622): a kill still drops 1 item; the bone arch now needs 2 mantis clubs, so it is two wins (a project over two trips, the bank keeps the first club). The reachable mantis is 1,025 units (7 s) from the door: that is the world lane's line below
+- [x] Fight wants (#622): one kill, one drop; the bone arch needs one mantis club. The reachable mantis is 1,025 units (7 s) from the door: that is the world lane's line below
 - [ ] Re-measure the loop on the new map: `cargo test --release -p crabsim --test loop_pacing -- --ignored --nocapture measure_routes` (about 25 min), paste `ROUTES`
 
 **Loop world** (map, regions, landmarks: the world lane)
@@ -51,25 +51,25 @@ Each lead keeps their own lines here. `[x]` means it is in the game; the rest sa
 - [ ] Way home too short: 67 s from the doorstep (no tired-leg wait), and no hunter between you and home
 - [ ] Nothing but the lamp's garden at the doorstep: nothing to find on the way (the 12 to 15 minute "strange, beautiful moment" has no place yet)
 
-## Measured loop (2026-11-11, prize beats re-sized in #622)
+## Measured loop (2026-11-11, today's map, one-trip piece costs)
 `crates/sim/tests/loop_pacing.rs` plays one loop per want, headless, and prints this table with `--nocapture`.
 Real ticks for the gathers, the fight, the kelp, the cooking and the building; the route solver (cached in `ROUTES`)
 for the way out, crossing and way home, cut at the landmarks by kind; fixed UI time assumed: 60 s at home, 45 s to build,
 15 s per craft. Windows are this file's beat sheet; a beat is OK between half and one and a half of its window.
 
-Glass lamp (gather, tier 3): Harvesting 30, Building 8, glass cutter tier 2, 12 glass and 2 cords banked from earlier trips (the lamp needs 16 glass); kit 6 eggs + scissors + glass + crusher + dactyls.
+Glass lamp (gather, tier 3): Harvesting 30, Building 8, glass cutter tier 2, 1 cord banked (the lamp needs 4 glass: one shell load); kit 6 eggs + scissors + glass + crusher + dactyls.
 
 | Beat | Window | Minutes | Verdict | Reason |
 |---|---|---|---|---|
 | Home | 0-2 | 1.00 | OK | 60 s assumed UI + 0.2 s of commands; the board pins the lamp |
 | Way out | 2-6 | 0.24 | too short | 14 s to the first open water, 2,706 units from the door |
 | Crossing | 6-12 | 1.31 | too short | 79 s from the basin to the doorstep shelter, 2,642 units on; 3 s more to the node |
-| Prize | 12-15 | 0.86 | too short | the last shell load, 4 glass at 12 s each from 1 garden (4 charges) |
+| Prize | 12-15 | 0.29 | too short | 4 glass at 3.5 s from 1 garden; calm and quick by design: the beat's length belongs to the getting there |
 | Way home | 15-19 | 1.19 | too short | 67 s of route + 4 s walking in; no tired-leg seconds |
 | Build | 19-20 | 0.78 | OK | 45 s assumed UI + 2 s |
-| Total | 20 | 5.38 | | |
+| Total | 20 | 4.81 | | |
 
-Bone arch (fight, mantis club): Building 35, whale bone, clay and the first of its 2 mantis clubs already in the bank, Fighting 1; kit 1 egg.
+Bone arch (fight, mantis club): Building 35, whale bone and clay already in the bank (the arch needs one mantis club), Fighting 1; kit 1 egg.
 
 | Beat | Window | Minutes | Verdict | Reason |
 |---|---|---|---|---|
@@ -81,17 +81,16 @@ Bone arch (fight, mantis club): Building 35, whale bone, clay and the first of i
 | Build | 19-20 | 0.78 | OK | 45 s assumed UI + 2 s |
 | Total | 20 | 2.05 | | |
 
-Kelp curtain (the low-attention loop): Building 3, 22 kelp plus 2 cords (26 kelp in all) from the pockets beside the door, no tools.
+Kelp curtain (the low-attention loop): Building 3, 6 kelp plus 2 cords (10 kelp in all) from the pockets beside the door, no tools.
 
 | Beat | Window | Minutes | Verdict | Reason |
 |---|---|---|---|---|
 | Home | 0-2 | 1.00 | OK | 60 s assumed UI; the board pins the curtain |
 | Way out | 2-6 | 0.00 | n/a | the kelp is beside the door |
 | Crossing | 6-12 | 0.00 | n/a | none |
-| Prize | 12-15 | 1.63 | OK | 26 kelp at 2.5 s over 3 stands, 33 s of walking and tucking in |
+| Prize | 12-15 | 0.49 | too short | 10 kelp at 2.5 s over 2 stands, 4 s of walking and tucking in (the low-attention loop is meant to be short and repeatable) |
 | Way home | 15-19 | 0.00 | n/a | in the prize beat |
 | Build | 19-20 | 1.28 | OK | 75 s assumed UI (two cords) + 2 s |
-| Total | 20 | 3.91 | | |
+| Total | 20 | 2.78 | | |
 
-What it says: the loop is 2 to 7 minutes today, not 20, and the gathering prizes now sit in their window (a shell holds 4 things, so a prize is one load and a big want is several trips). The route is a few clean lines with nothing on them. The
-numbers to move are in the checklist lines above, one per lane.
+What it says: the loop is 2 to 5 minutes today, not 20, and the gap is the world's: the familiar way out, the crossing and the way home are each a fraction of their windows, and the route is a few clean lines with nothing on them. The fix is the new map and caverns (the Loop world lines), not costs or slower harvests (the guardrail above). Re-measure after #610 and the cavern map land.

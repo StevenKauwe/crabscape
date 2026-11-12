@@ -512,8 +512,10 @@ Pieces built into the home change it for everyone in that home's world. Eight, e
 
 ## Where things stand
 - **L1 (#622), the loop measured:** `crates/sim/tests/loop_pacing.rs` plays three wants through the beat sheet
-  (glass lamp 5.4 min, bone arch 2.1, kelp curtain 3.9 against 20). L2 sized the prizes: a glass cut is 12 s, the lamp
-  16 glass, the curtain 22 kelp, the arch 2 mantis clubs; pieces are wants now. The table and the checklist lines are in
+  (glass lamp 4.8 min, bone arch 2.1, kelp curtain 2.8 against 20). Pieces are wants now. Guardrail: the gap to 20 is
+  the world's (distance, route choice, crossing, way home), never padded with costs, slow cuts or repeat trips; piece costs
+  stay at about one good trip (lamp 4 glass + 1 cord, curtain 6 kelp + 2 cords, arch one mantis club). The table and
+  the checklist lines are in
   `core-loop.md` ("Measured loop").
 - **H1 (#617), sim side:** pick a want, the pinned goal and eight shared home pieces are in `crates/sim`
   (`economy/wants.rs`, `economy/home.rs`, tests in `home_wants.rs`); the board, the HUD line and drawing the pieces are

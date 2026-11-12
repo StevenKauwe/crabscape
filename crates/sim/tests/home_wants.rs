@@ -305,14 +305,14 @@ fn a_level_that_makes_a_recipe_a_want_names_the_new_task() {
 fn a_home_piece_one_kind_short_is_a_want_and_a_built_one_is_not() {
     let mut sim = Sim::with_one_crab(Vec2::new(180.0, 0.0));
     set_level(&mut sim, P0, Skill::Building, 8);
-    give(&mut sim, P0, &[(Item::KelpCord, 2)]);
+    give(&mut sim, P0, &[(Item::KelpCord, 1)]);
     let lamp = sim
         .wants(P0)
         .into_iter()
         .find(|w| w.word == "glass-lamp")
         .expect("the glass lamp is a want");
     assert_eq!(lamp.piece, Some(Piece::GlassLamp));
-    assert_eq!(lamp.missing, vec![(Item::Glass, 16)]);
+    assert_eq!(lamp.missing, vec![(Item::Glass, 4)]);
     assert!(lamp.sources.iter().any(|s| matches!(
         s,
         Source::Node {
@@ -322,11 +322,11 @@ fn a_home_piece_one_kind_short_is_a_want_and_a_built_one_is_not() {
     )));
     assert!(!lamp.soon);
     // Short by two kinds: not a want.
-    give(&mut sim, P0, &[(Item::KelpCord, 1)]);
+    give(&mut sim, P0, &[]);
     assert!(sim.wants(P0).iter().all(|w| w.word != "glass-lamp"));
     // A piece a few levels away is soon.
     set_level(&mut sim, P0, Skill::Building, 6);
-    give(&mut sim, P0, &[(Item::KelpCord, 2)]);
+    give(&mut sim, P0, &[(Item::KelpCord, 1)]);
     assert!(
         sim.wants(P0)
             .iter()
@@ -338,7 +338,7 @@ fn a_home_piece_one_kind_short_is_a_want_and_a_built_one_is_not() {
 fn a_piece_is_pinned_ready_and_unpinned_when_built() {
     let mut sim = solo_at_home();
     set_level(&mut sim, P0, Skill::Building, 8);
-    give(&mut sim, P0, &[(Item::KelpCord, 2), (Item::Glass, 12)]);
+    give(&mut sim, P0, &[(Item::KelpCord, 1)]);
     assert!(sim.pin_want(P0, "glass-lamp"));
     let status = sim.pinned_status(P0).unwrap();
     assert_eq!(status.want.missing, vec![(Item::Glass, 4)]);
@@ -360,7 +360,7 @@ fn a_piece_is_pinned_ready_and_unpinned_when_built() {
     // Home, unloaded, built: the pin lets go by itself.
     let mut sim2 = solo_at_home();
     set_level(&mut sim2, P0, Skill::Building, 8);
-    give(&mut sim2, P0, &[(Item::KelpCord, 2), (Item::Glass, 16)]);
+    give(&mut sim2, P0, &[(Item::KelpCord, 1), (Item::Glass, 4)]);
     assert!(sim2.pin_want(P0, "glass-lamp"));
     assert_eq!(sim2.build_piece(P0, Piece::GlassLamp), Ok(()));
     assert!(sim2.pinned_status(P0).is_none(), "auto-unpinned");
@@ -460,7 +460,7 @@ fn a_remote_crab_cannot_be_pinned() {
 fn a_replay_reproduces_pins_and_pieces() {
     let mut live = Sim::with_one_crab(Vec2::new(180.0, 0.0));
     let mut saved = live.progress(P0).unwrap();
-    saved.stash = Stash::of(&[(Item::Kelp, 24), (Item::KelpCord, 2)]);
+    saved.stash = Stash::of(&[(Item::Kelp, 8), (Item::KelpCord, 2)]);
     saved.econ.skills.set(Skill::Building, xp::TABLE[3]);
     live.restore_progress(P0, &saved);
     live.start_recording();
@@ -529,7 +529,7 @@ fn piece_rows_are_well_formed() {
 #[test]
 fn building_a_piece_solo_pays_from_the_bank_and_earns_experience() {
     let mut sim = solo_at_home();
-    let bank = [(Item::Kelp, 23), (Item::KelpCord, 2)];
+    let bank = [(Item::Kelp, 7), (Item::KelpCord, 2)];
     give(&mut sim, P0, &bank);
     // Level 1: too low.
     assert_eq!(
@@ -538,7 +538,7 @@ fn building_a_piece_solo_pays_from_the_bank_and_earns_experience() {
     );
     set_level(&mut sim, P0, Skill::Building, 3);
     let before = building_xp(&sim, P0);
-    give(&mut sim, P0, &[(Item::Kelp, 21), (Item::KelpCord, 2)]);
+    give(&mut sim, P0, &[(Item::Kelp, 5), (Item::KelpCord, 2)]);
     assert_eq!(
         sim.can_build_piece(P0, Piece::KelpCurtain),
         Err(CantMakeEcon::Missing(Item::Kelp, 1))
@@ -556,14 +556,14 @@ fn building_a_piece_solo_pays_from_the_bank_and_earns_experience() {
         sim.build_piece(P0, Piece::KelpCurtain),
         Err(CantMakeEcon::Made)
     );
-    assert_eq!(sim.crab(P0).unwrap().stash.count(Item::Kelp), 23);
+    assert_eq!(sim.crab(P0).unwrap().stash.count(Item::Kelp), 7);
 }
 
 #[test]
 fn a_piece_is_built_only_tucked_in_at_home() {
     let mut sim = Sim::with_one_crab(Vec2::new(180.0, 0.0));
     set_level(&mut sim, P0, Skill::Building, 3);
-    give(&mut sim, P0, &[(Item::Kelp, 22), (Item::KelpCord, 2)]);
+    give(&mut sim, P0, &[(Item::Kelp, 6), (Item::KelpCord, 2)]);
     assert_eq!(
         sim.build_piece(P0, Piece::KelpCurtain),
         Err(CantMakeEcon::NotAtHome)
@@ -658,7 +658,7 @@ impl Game {
     }
 }
 
-const CURTAIN: [(Item, u32); 2] = [(Item::Kelp, 22), (Item::KelpCord, 2)];
+const CURTAIN: [(Item, u32); 2] = [(Item::Kelp, 6), (Item::KelpCord, 2)];
 
 #[test]
 fn a_host_build_shows_on_the_guest() {
@@ -686,7 +686,7 @@ fn a_guest_builds_through_the_host_and_pays_only_when_it_is_confirmed() {
     let before = building_xp(&g.guest, GUEST);
     assert_eq!(g.guest.build_piece(GUEST, Piece::KelpCurtain), Ok(()));
     // Asked, not paid; asking twice is not allowed.
-    assert_eq!(g.guest.crab(GUEST).unwrap().stash.count(Item::Kelp), 22);
+    assert_eq!(g.guest.crab(GUEST).unwrap().stash.count(Item::Kelp), 6);
     assert!(g.guest.home_pieces().is_empty());
     assert_eq!(
         g.guest.can_build_piece(GUEST, Piece::KelpCurtain),

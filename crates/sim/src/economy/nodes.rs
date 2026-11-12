@@ -76,11 +76,6 @@ const RESPAWN: [f32; 5] = [45.0, 60.0, 90.0, 150.0, 240.0];
 /// Culturing wild sites pay less than gathering.
 const CULTURE_XP: [u32; 5] = [8, 88, 160, 208, 600];
 
-/// Base seconds to cut one glass sponge (see the garden's row): the
-/// glass-sponge lamp's prize is a slow, calm harvest, but still a hold a
-/// thumb can manage on a phone (lead's call: 30 s was too long a hold).
-const GLASS_CUT_SECS: f32 = 12.0;
-
 const fn gather(
     kind: NodeKind,
     skill: Skill,
@@ -181,21 +176,15 @@ pub const NODES: &[NodeDef] = &[
         "Sea-pen field",
         "cut sea-pen quills",
     ),
-    // Glass spicules are cut slowly and steadily (a hold of GLASS_CUT_SECS,
-    // not the tier's 3.5 s): a shell load of 4 is a two minute prize at the
-    // garden (`docs/design/core-loop.md`, "Measured loop").
-    NodeDef {
-        base_secs: GLASS_CUT_SECS,
-        ..gather(
-            K::GlassSpongeGarden,
-            Harvesting,
-            3,
-            Some(Cutter),
-            Item::Glass,
-            "Glass sponge garden",
-            "cut glass sponge",
-        )
-    },
+    gather(
+        K::GlassSpongeGarden,
+        Harvesting,
+        3,
+        Some(Cutter),
+        Item::Glass,
+        "Glass sponge garden",
+        "cut glass sponge",
+    ),
     gather(
         K::BlackCoral,
         Harvesting,
