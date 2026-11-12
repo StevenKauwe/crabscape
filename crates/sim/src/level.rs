@@ -24,9 +24,13 @@ mod exploration;
 mod hub;
 pub mod landmarks;
 mod lower_canyon;
+mod plate_d;
 pub mod refuges;
 pub mod royal;
 pub mod strata;
+
+/// The canyon's floor (the sea-pen floor): the lower canyon is the deepest step.
+pub(crate) const CANYON_FLOOR: f32 = -6000.0;
 
 /// Where the crab starts (its feet), if there is no save.
 pub const SPAWN: Vec2 = Vec2::new(160.0, 0.0);
@@ -313,19 +317,9 @@ impl Level {
                 Vec2::new(2800.0, 860.0),
                 // Behind its crest, a sheer drop into a deep basin...
                 Vec2::new(2801.0, -700.0),
-                // ...and in its floor, the pit: 8000 down (12.8 m at creature
-                // scale), 1000 across.
-                Vec2::new(3300.0, -700.0),
-                Vec2::new(3301.0, -8700.0),
-                Vec2::new(4300.0, -8700.0),
-                // The pit's right wall, up to a passage (its floor), then a
-                // short tunnel to the foot of a shaft (wide enough for the
-                // biggest crab to climb its coral)...
-                Vec2::new(4301.0, -4380.0),
-                Vec2::new(4489.0, -4380.0),
-                // ...that rises to the far part of the basin, past the pit,
-                // rising again at its far end...
-                Vec2::new(4490.0, -700.0),
+                // ...whose floor runs flat to the hub (the old pit is filled:
+                // its finds lie in the burrows under the floor now), rising
+                // at its far end...
                 Vec2::new(5200.0, -700.0),
                 Vec2::new(5340.0, -560.0),
                 Vec2::new(5370.0, -560.0),
@@ -340,11 +334,12 @@ impl Level {
                 // a rest crevice)...
                 Vec2::new(5901.0, -3400.0),
                 Vec2::new(6150.0, -3400.0),
-                // ...and a far longer one to the canyon's floor, where the
-                // lights are.
-                Vec2::new(6151.0, -9400.0),
-                Vec2::new(7900.0, -9400.0),
-                // Its far wall, up to the far rim and an octopus's den.
+                // ...and a longer one to the canyon's floor, where the
+                // lights are (the lower canyon is the deepest step now).
+                Vec2::new(6151.0, CANYON_FLOOR),
+                Vec2::new(7900.0, CANYON_FLOOR),
+                // Its far wall, up to the far rim and an octopus's den (the
+                // east steps down 2,000 further: `plate_d::drop_east`).
                 Vec2::new(7901.0, -1900.0),
                 Vec2::new(8800.0, -1900.0),
             ],
@@ -374,22 +369,8 @@ impl Level {
                 Rect::new(2810.0, -110.0, 2890.0, -80.0),
                 Rect::new(2950.0, 200.0, 3050.0, 230.0),
                 Rect::new(2810.0, 510.0, 2890.0, 540.0),
-                // The lip: a narrow ledge jutting out over the pit.
-                Rect::new(3300.0, -720.0, 3400.0, -700.0),
-                // Halfway down the pit, a shelf of rock: coral grows below
-                // it, kelp from its top. A place to stand and rest.
-                Rect::new(3300.0, -3330.0, 3440.0, -3300.0),
-                // Halfway down the pit's right wall, an alcove: a floor and a
-                // roof of rock with a hollow between (hidden: see `secrets`).
-                Rect::new(4060.0, -5230.0, 4300.0, -5200.0),
-                Rect::new(4060.0, -5080.0, 4300.0, -5040.0),
-                // Under the ghost net, through the passage floor's sediment:
-                // frame rock, so digging never sneaks under the net (the
-                // scissor claw's gate). It sits in the floor, a strip of
-                // bare rock under the net's foot.
-                Rect::new(4300.0, -4520.0, 4340.0, -4380.0),
-                // Above the passage: the rest of the pit's right wall, the
-                // tunnel's roof and the shaft's left side, in one.
+                // The hub's ridge: the old pit wall's footing, kept as bedrock
+                // under the floor (`hub.rs` raises it above the floor).
                 Rect::new(4300.0, -4230.0, 4370.0, -700.0),
                 // Past the pit: a pillar.
                 Rect::new(5080.0, -700.0, 5160.0, -300.0),
@@ -405,8 +386,8 @@ impl Level {
                 // the wall's face stands out over the floor, with a hollow
                 // cut back into it (hidden: see `secrets`), and the fifth
                 // egg drifts inside. Below the cave and above it, the face.
-                Rect::new(7700.0, -9400.0, 7901.0, -5200.0),
-                Rect::new(7700.0, -5030.0, 7901.0, -1900.0),
+                Rect::new(7700.0, CANYON_FLOOR, 7901.0, -5200.0),
+                Rect::new(7700.0, -5030.0, 7901.0, -3900.0),
                 // The rock over the octopus's den, at the end of the far rim.
                 Rect::new(8350.0, -1620.0, 8800.0, 3000.0),
             ],
@@ -418,8 +399,8 @@ impl Level {
                 Vec2::new(460.0, 330.0),
                 Vec2::new(1005.0, 680.0),
                 Vec2::new(2145.0, 810.0),
-                // In the hidden alcove in the pit.
-                Vec2::new(4150.0, -5150.0),
+                // The bone hall's prize, under the basin floor.
+                lower_canyon::BONE_PRIZE,
                 // On the canyon's far shelf: only riding the flood up the
                 // canyon and pushing off it at the right height gets there.
                 Vec2::new(7810.0, -5170.0),
@@ -439,25 +420,6 @@ impl Level {
                     bottom: 0.0,
                     top: WATER_SURFACE_Y - 20.0,
                     kind: Growth::Kelp,
-                },
-                Climb {
-                    x: 3500.0,
-                    bottom: -8700.0,
-                    top: -3300.0, // up to the shelf; the kelp takes over there
-                    kind: Growth::Coral,
-                },
-                Climb {
-                    x: 3500.0,
-                    bottom: -3300.0,
-                    top: -650.0,
-                    kind: Growth::Kelp,
-                },
-                // Up the shaft beyond the ghost net, to the far basin.
-                Climb {
-                    x: 4420.0,
-                    bottom: -4380.0,
-                    top: -650.0,
-                    kind: Growth::Coral,
                 },
                 // Up the crack, back out onto the far basin.
                 Climb {
@@ -481,7 +443,7 @@ impl Level {
                 // up to the notch.
                 Climb {
                     x: 6175.0,
-                    bottom: -9400.0,
+                    bottom: CANYON_FLOOR,
                     top: -3420.0,
                     kind: Growth::Rock,
                 },
@@ -516,10 +478,6 @@ impl Level {
                     door: Rect::new(2801.0, -701.0, 2880.0, -660.0),
                     den: Vec2::new(2840.0, -700.0),
                 },
-                Crevice {
-                    door: Rect::new(3301.0, -8701.0, 3390.0, -8660.0),
-                    den: Vec2::new(3340.0, -8700.0),
-                },
                 // At the back of the canyon's shelf, against the wall below
                 // the doorstep (the coral stands clear of it).
                 Crevice {
@@ -532,16 +490,17 @@ impl Level {
             // wall's canyon face.
             // And sealed inside the lump of brittle rock in the far basin.
             cultures: vec![
-                Vec2::new(3950.0, -8690.0),
+                // The pit's culture, on the basin floor by the ridge.
+                Vec2::new(4240.0, -690.0),
                 Vec2::new(5590.0, 570.0),
                 Vec2::new(5042.0, -690.0),
             ],
             // A dead glass sponge's skeleton on the canyon's floor, among the
             // sea pens, near its far wall.
-            sponges: vec![Vec2::new(7620.0, -9390.0)],
-            // In the alcove: a shed tooth bigger than the crab.
-            clues: vec![Vec2::new(4250.0, -5185.0)],
-            teeth: vec![Vec2::new(4250.0, -5185.0)],
+            sponges: vec![Vec2::new(7620.0, CANYON_FLOOR + 10.0)],
+            // Beside the bone hall's prize: a shed tooth bigger than the crab.
+            clues: vec![lower_canyon::BONE_TOOTH],
+            teeth: vec![lower_canyon::BONE_TOOTH],
             // Clams, half-buried: two in the shallows near home (between
             // the snapping shrimp) and one in the basin floor below the
             // cliff; harder ones on the flats past the trench, by the moray,
@@ -551,10 +510,11 @@ impl Level {
                 Vec2::new(480.0, 4.0),
                 Vec2::new(3150.0, -696.0),
                 Vec2::new(2450.0, 24.0),
-                Vec2::new(3720.0, -8696.0),
+                // The pit's clam, on the basin floor.
+                Vec2::new(3500.0, -696.0),
                 // In the canyon: two on its floor, one on the far rim.
-                Vec2::new(6650.0, -9396.0),
-                Vec2::new(7450.0, -9396.0),
+                Vec2::new(6650.0, CANYON_FLOOR + 4.0),
+                Vec2::new(7450.0, CANYON_FLOOR + 4.0),
                 Vec2::new(8120.0, -1896.0),
             ],
             // Shell grit, more of it deeper: one heap in the shallows (by
@@ -567,16 +527,16 @@ impl Level {
                 Vec2::new(2200.0, 74.0),
                 Vec2::new(3010.0, -696.0),
                 Vec2::new(4900.0, -696.0),
-                Vec2::new(3640.0, -8696.0),
-                Vec2::new(4150.0, -8696.0),
+                Vec2::new(3460.0, -696.0),
+                Vec2::new(3620.0, -696.0),
                 // The canyon: one on the shelf, two on its floor.
                 Vec2::new(6100.0, -3396.0),
-                Vec2::new(6900.0, -9396.0),
-                Vec2::new(7600.0, -9396.0),
+                Vec2::new(6900.0, CANYON_FLOOR + 4.0),
+                Vec2::new(7600.0, CANYON_FLOOR + 4.0),
             ],
-            // Across the passage's mouth, high on the pit's right wall: only
-            // a jump and four strokes from the alcove's roof reach it.
-            nets: vec![Net::new(Rect::new(4300.0, -4380.0, 4316.0, -4230.0))],
+            // The only net left in the base level is the ridge's window
+            // (`hub.rs` adds it): the scissor claw's gate to the hub.
+            nets: vec![],
             // On the far basin's floor past the ghost net, at the foot of the
             // pillar, a lump of brittle rock (old coral rubble crusted together) with glowing bacteria
             // sealed in a hollow inside: only a heavy crusher's full charge
@@ -586,7 +546,6 @@ impl Level {
                 cracked: false,
             }],
             secrets: vec![
-                Rect::new(4060.0, -5200.0, 4300.0, -5080.0),
                 // The far wall's cave.
                 Rect::new(7700.0, -5200.0, 7901.0, -5030.0),
             ],
@@ -601,7 +560,9 @@ impl Level {
             foes: vec![
                 (Kind::Snapper, Vec2::new(340.0, 0.0)),
                 (Kind::Snapper, Vec2::new(590.0, 0.0)),
-                (Kind::Mantis, Vec2::new(1120.0, 110.0)),
+                // Buried beside the mantis mouth's door in the basin floor
+                // (the pocket chain under it; it never enters).
+                (Kind::Mantis, Vec2::new(3880.0, -700.0)),
                 (Kind::Moray, Vec2::new(1760.0, -260.0)),
                 (Kind::Snapper, Vec2::new(2060.0, 110.0)),
                 (Kind::Moray, Vec2::new(2650.0, 20.0)),
@@ -609,18 +570,18 @@ impl Level {
             ],
             // The tide runs up and down the canyon's middle, from its floor
             // to well above the doorstep, with still water along each wall.
-            currents: vec![Rect::new(6450.0, -9400.0, 7350.0, -700.0)],
+            currents: vec![Rect::new(6450.0, CANYON_FLOOR, 7350.0, -700.0)],
             // Against the near wall, from the floor to a little above the
             // shelf: hop into it and it carries the crab up beside the
             // shelf, onto which it steps (and the coral climbs on up).
-            upwelling: vec![Rect::new(6152.0, -9400.0, 6400.0, -3150.0)],
+            upwelling: vec![Rect::new(6152.0, CANYON_FLOOR, 6400.0, -3150.0)],
             tide: 0.0,
             crack: Vec2::new(5440.0, -560.0),
-            lights: Vec2::new(7000.0, -9400.0),
+            lights: Vec2::new(7000.0, CANYON_FLOOR),
             // Under the rock at the end of the far rim, back to the wall.
             den: Rect::new(8350.0, -1900.0, 8800.0, -1620.0),
             // Still water by the far wall, deep in the canyon.
-            drifting: vec![Vec2::new(7520.0, -6500.0), Vec2::new(7510.0, -7400.0)],
+            drifting: vec![Vec2::new(7520.0, -5380.0), Vec2::new(7510.0, -5390.0)],
             min_x: 0.0,
             max_x: 8800.0,
         };
@@ -628,7 +589,9 @@ impl Level {
         coral_rise::shape(&mut level);
         hub::shape(&mut level);
         refuges::shape(&mut level);
+        plate_d::drop_east(&mut level);
         lower_canyon::shape(&mut level);
+        plate_d::place_finds(&mut level);
         // Last, so every place a creature anchors to (landmarks, refuges, the
         // lower canyon) exists.
         bestiary::place(&mut level);
@@ -681,10 +644,10 @@ impl Level {
         }
     }
 
-    /// The pit in the basin: (left edge x, right edge x, bottom y). Its lip
-    /// is at y = -700.
+    /// The pit's old footprint in the basin: (left edge x, right edge x,
+    /// bottom y). It is filled to the basin floor (y = -700) now.
     pub fn pit(&self) -> (f32, f32, f32) {
-        (3300.0, 4300.0, -8700.0)
+        (3300.0, 4300.0, -700.0)
     }
 
     /// Height of the sea floor's surface at `x`.
@@ -749,7 +712,7 @@ mod tests {
         assert_eq!(level.floor_height(300.0), 0.0); // flat start
         assert!((level.floor_height(670.0) - 55.0).abs() < 0.01); // half-way up the slope
         assert_eq!(level.floor_height(1450.0), -260.0); // bottom of the trench
-        assert_eq!(level.floor_height(17150.0), -2800.0); // half-way up the cavern bank
+        assert_eq!(level.floor_height(17150.0), -4800.0); // half-way up the cavern bank
         assert_eq!(level.floor_height(level.max_x + 100.0), -10000.0); // beyond the outer bank
     }
 

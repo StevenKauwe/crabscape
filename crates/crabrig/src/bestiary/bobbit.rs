@@ -7,7 +7,8 @@
 //! then ride on the head), and a mound of sand over the burrow. Drawn at rest as a head lifted a little out of
 //! the sand; every part's pivot is the joint the game moves and turns it about.
 
-use crate::geom::{P, ell, through};
+use crate::bestiary::{detail_line, owner};
+use crate::geom::{P, ell, lerp, through};
 use crate::item::{Item, Kind};
 use crate::palette::{self, Mat};
 
@@ -55,7 +56,7 @@ fn segment(name: &str, cx: f64, cy: f64, mat: &str, band: &str, items: &mut Vec<
             "bobbitSheen",
         )
         .no_ink()
-        .op(0.7),
+        .op(0.5),
     );
     for (n, dx) in [-6.0, 5.0].into_iter().enumerate() {
         items.push(line(
@@ -73,12 +74,10 @@ fn segment(name: &str, cx: f64, cy: f64, mat: &str, band: &str, items: &mut Vec<
 pub fn build() -> Vec<Item> {
     let mut items = Vec::new();
     // Body: laid out to the burrow side of the head at rest, back segment first.
+    // One violet-bronze colour all along (bobbit worms are generally described as iridescent purplish-brown; not
+    // verified, tones a game choice), with a sea-green sheen for the iridescence.
     for (n, name) in SEGMENTS.iter().enumerate() {
-        let (mat, band) = if n % 2 == 0 {
-            ("bobbitTeal", "bobbitTealBand")
-        } else {
-            ("bobbitRose", "bobbitRoseBand")
-        };
+        let (mat, band) = ("bobbitBody", "bobbitBand");
         segment(
             name,
             -20.0 - 22.0 * (3 - n) as f64,
@@ -120,7 +119,7 @@ pub fn build() -> Vec<Item> {
     items.push(line(
         "head-palp",
         vec![[5.0, -9.0], [9.0, -8.0], [11.0, -9.5]],
-        "bobbitRoseBand",
+        "bobbitBand",
         1.0,
     ));
     // Jaws: dark, hooked blades with a serrated inner edge, hinged on the front of the head.
@@ -169,11 +168,24 @@ pub fn build() -> Vec<Item> {
                     [root[0] + lean * len * 0.5, root[1] - len * 0.5],
                     [root[0] + lean * len, root[1] - len],
                 ],
-                "bobbitRoseBand",
-                1.3,
+                "bobbitAntenna",
+                1.5,
             )
             .pv(*root),
         );
+        // Dark rings along each antenna (they are banded in life).
+        let tip = [root[0] + lean * len, root[1] - len];
+        for k in 0..3 {
+            let t = 0.3 + 0.22 * f64::from(k);
+            let at = [lerp(root[0], tip[0], t), lerp(root[1], tip[1], t)];
+            items.push(detail_line(
+                &format!("ant-{n}"),
+                &format!("ring-{k}"),
+                vec![[at[0], at[1] - 0.4], [at[0] + lean * 0.8, at[1] - 1.2]],
+                "bobbitBand",
+                1.0,
+            ));
+        }
     }
     // The mound of sand over the burrow, last so it covers where the body goes in.
     items.push(
@@ -202,6 +214,9 @@ pub fn build() -> Vec<Item> {
 }
 
 pub fn parent_of(id: &str) -> String {
+    if let Some(part) = owner(id) {
+        return part;
+    }
     match id {
         "jaw-top" | "jaw-bottom" => return "head".into(),
         "head" | "mound" | "seg-a" | "seg-b" | "seg-c" | "seg-d" => return "root".into(),
@@ -227,13 +242,12 @@ pub fn parent_of(id: &str) -> String {
 pub fn parts_svg() -> String {
     let mut pal = palette::normal();
     let tri = |a: &str, b: &str, c: &str| Mat::Tri([a.into(), b.into(), c.into()]);
-    pal.insert("bobbitTeal", tri("#8FD3C6", "#4F8DA8", "#2D3F73"));
-    pal.insert("bobbitRose", tri("#E4A98B", "#B0647A", "#5E2F55"));
-    pal.insert("bobbitHead", tri("#EBB89A", "#C0788A", "#6A3560"));
+    pal.insert("bobbitBody", tri("#D49A8E", "#8A5268", "#341A30"));
+    pal.insert("bobbitHead", tri("#E8B0A0", "#A0607A", "#4A2240"));
     pal.insert("bobbitJaw", tri("#7A3B2E", "#4A2018", "#25100C"));
-    pal.insert("bobbitSheen", Mat::One("#E8F6EE".into()));
-    pal.insert("bobbitTealBand", Mat::One("#2D3F73".into()));
-    pal.insert("bobbitRoseBand", Mat::One("#7A3A66".into()));
+    pal.insert("bobbitSheen", Mat::One("#A8F0D8".into()));
+    pal.insert("bobbitBand", Mat::One("#2A1226".into()));
+    pal.insert("bobbitAntenna", Mat::One("#F2E2EA".into()));
     pal.insert("bobbitSand", tri("#E2D2A4", "#C4AE7C", "#8E7B55"));
     crate::parts::write_with(
         build(),

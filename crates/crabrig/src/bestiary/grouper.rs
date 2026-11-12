@@ -18,13 +18,14 @@ fn tri(a: &str, b: &str, c: &str) -> Mat {
 fn palette() -> palette::Palette {
     let mut pal = palette::normal();
     // A real adult is olive-brown to grey and mottled; the colours are a game choice (not verified).
-    pal.insert("grouperBody", tri("#BDAA7A", "#8E7D54", "#4D4230"));
-    pal.insert("grouperHead", tri("#C6B486", "#9A8860", "#574B35"));
-    pal.insert("grouperFin", tri("#9C8A5C", "#6F6040", "#3D3422"));
-    pal.insert("grouperBelly", tri("#E0D3AC", "#C3B386", "#8B7C58"));
+    pal.insert("grouperBody", tri("#D8C080", "#9E8650", "#4A3A22"));
+    pal.insert("grouperHead", tri("#E0CA8E", "#A88E58", "#544428"));
+    pal.insert("grouperFin", tri("#B4A060", "#7A6838", "#3A3018"));
+    pal.insert("grouperBelly", tri("#F2E4B8", "#D6C290", "#94805A"));
+    pal.insert("grouperDot", tri("#3A2E1E", "#2A2016", "#1A140C"));
     pal.insert("grouperMouth", tri("#B04A44", "#7C2B2C", "#3E1416"));
     pal.insert("grouperGill", tri("#C2584E", "#8A302D", "#431416"));
-    pal.insert("grouperSpot", Mat::One("#4B402B".into()));
+    pal.insert("grouperSpot", Mat::One("#4A3A22".into()));
     pal.insert("grouperEye", tri("#E8CE74", "#C79E3A", "#7C5A1C"));
     pal
 }
@@ -231,31 +232,78 @@ pub fn build() -> Vec<Item> {
             1.4,
         ),
     ];
-    // Mottling: dark blotches along the back and flank.
-    for (n, (x, y, rx, ry)) in [
-        (-250.0, -300.0, 42.0, 24.0),
-        (-120.0, -330.0, 52.0, 28.0),
-        (40.0, -342.0, 58.0, 30.0),
-        (190.0, -330.0, 40.0, 24.0),
-        (-170.0, -210.0, 46.0, 26.0),
-        (-30.0, -240.0, 54.0, 26.0),
-        (110.0, -250.0, 44.0, 24.0),
-        (420.0, -300.0, 36.0, 20.0),
+    // Mottling: irregular darker saddles down the flank, and small black dots on the head and fins (as goliath
+    // groupers are generally described; not verified against an opened source).
+    // Under the pale belly, so it stays clean.
+    let at = items
+        .iter()
+        .position(|i| i.id == "body-belly")
+        .expect("the belly");
+    let mut seed = 5u32;
+    let mut next = || {
+        seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+        f64::from((seed >> 8) & 0xFFFF) / 65_535.0
+    };
+    let mut marks = vec![];
+    for (n, (x, y, rx, ry, turn)) in [
+        (-262.0, -224.0, 30.0, 78.0, 14.0),
+        (-150.0, -236.0, 40.0, 106.0, 10.0),
+        (-26.0, -250.0, 46.0, 112.0, 6.0),
+        (104.0, -246.0, 42.0, 116.0, -4.0),
+        (226.0, -250.0, 34.0, 104.0, -10.0),
     ]
     .into_iter()
     .enumerate()
     {
-        items.push(
+        // a ragged blotch, not a neat ellipse
+        let ring: Vec<P> = ell(x, y, rx, ry, 11, turn)
+            .into_iter()
+            .map(|p| {
+                let k = 0.72 + 0.5 * next();
+                [x + (p[0] - x) * k, y + (p[1] - y) * k]
+            })
+            .collect();
+        marks.push(
             Item::new(
                 Kind::Shape,
-                format!("body-spot-{n}"),
-                Some(&format!("body-spot-{n}")),
-                ell(x, y, rx, ry, 14, 0.1 * n as f64),
+                format!("body-saddle-{n}"),
+                Some(&format!("body-saddle-{n}")),
+                through(&ring, 3, true),
                 "grouperSpot",
             )
             .no_ink()
-            .op(0.55),
+            .op(0.34),
         );
+    }
+    for (n, (x, y)) in [
+        (440.0, -300.0),
+        (472.0, -322.0),
+        (455.0, -250.0),
+        (540.0, -284.0),
+        (562.0, -232.0),
+        (474.0, -212.0),
+        (420.0, -240.0),
+        (522.0, -222.0),
+        (592.0, -214.0),
+        (438.0, -184.0),
+        (568.0, -262.0),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        marks.push(
+            Item::new(
+                Kind::Shape,
+                format!("body-dot-{n}"),
+                Some(&format!("body-dot-{n}")),
+                ell(x, y, 4.5 + 1.5 * next(), 4.0 + next(), 8, 0.0),
+                "grouperDot",
+            )
+            .no_ink(),
+        );
+    }
+    for (k, it) in marks.into_iter().enumerate() {
+        items.insert(at + k, it);
     }
     for (part, base, tip, count) in [
         ("tail", [-380.0, -214.0], [-615.0, -214.0], 4),
@@ -267,14 +315,14 @@ pub fn build() -> Vec<Item> {
             let spread = (k - 0.5) * 120.0;
             let (a, b) = match part {
                 "dorsal" => (
-                    [base[0] + k * 480.0, base[1] + 10.0],
-                    [tip[0] + k * 360.0, tip[1] - 2.0 * (k - 0.5).abs() * 20.0],
+                    [base[0] + k * 460.0, base[1] + 10.0],
+                    [tip[0] + 20.0 + k * 330.0, tip[1] + 14.0],
                 ),
                 "pectoral" => (
-                    [base[0], base[1] + spread * 0.3],
-                    [tip[0], tip[1] + spread * 0.9],
+                    [base[0] - 10.0, base[1] + spread * 0.3],
+                    [tip[0] + 22.0, tip[1] + spread * 0.7],
                 ),
-                _ => ([base[0], base[1]], [tip[0], tip[1] + spread * 1.6]),
+                _ => ([base[0], base[1]], [tip[0] + 26.0, tip[1] + spread * 1.15]),
             };
             items.push(line(
                 &format!("{part}-ray-{n}"),
@@ -282,6 +330,44 @@ pub fn build() -> Vec<Item> {
                 "grouperSpot",
                 0.7,
             ));
+        }
+    }
+    for (part, spots) in [
+        (
+            "tail",
+            &[
+                [-520.0, -260.0],
+                [-560.0, -200.0],
+                [-500.0, -170.0],
+                [-470.0, -230.0],
+            ][..],
+        ),
+        (
+            "pectoral",
+            &[[200.0, -170.0], [230.0, -120.0], [180.0, -110.0]][..],
+        ),
+        (
+            "dorsal",
+            &[[-120.0, -372.0], [40.0, -385.0], [160.0, -380.0]][..],
+        ),
+    ] {
+        let at = items
+            .iter()
+            .rposition(|i| i.id.starts_with(part))
+            .expect("a fin")
+            + 1;
+        for (n, c) in spots.iter().enumerate() {
+            items.insert(
+                at + n,
+                Item::new(
+                    Kind::Shape,
+                    format!("{part}-dot-{n}"),
+                    Some(&format!("{part}-dot-{n}")),
+                    ell(c[0], c[1], 5.0, 4.5, 8, 0.0),
+                    "grouperDot",
+                )
+                .no_ink(),
+            );
         }
     }
     items

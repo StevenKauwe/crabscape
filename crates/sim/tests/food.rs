@@ -72,9 +72,18 @@ fn the_level_has_clams_near_home_and_in_harder_places() {
     let past_trench = clams.iter().any(|c| c.x > trench_right && c.x < 2800.0);
     assert!(near_home >= 2, "{clams:?}");
     assert!(in_pit && past_trench, "{clams:?}");
-    // Each lies half-buried on the floor.
+    // Each lies half-buried on the floor, but for the beds under the ground
+    // (the home burrow's gallery and its first-dig clam), which lie below it
+    // under their siphon holes.
     for c in clams {
         let floor = sim.level.floor_height(c.x);
+        if c.y < floor - 10.0 {
+            assert!(
+                c.x < 700.0 || sim.level.landmarks().iter().any(|l| l.rect.contains(*c)),
+                "{c:?} buried outside home and every place"
+            );
+            continue;
+        }
         assert!((c.y - floor).abs() < 10.0, "{c:?} on the floor at {floor}");
     }
     assert_eq!(sim.shared.clams, vec![0; clams.len()]);

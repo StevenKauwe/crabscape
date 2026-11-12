@@ -53,6 +53,7 @@
 //! | `code=hulk`     | the player typed a code (`crabsim::codes`)               |
 //! | `moult=climbing` | the player moulted, growing that skill's feat (`crabsim::moult`) |
 //! | `craft=lantern` | the player made something at the workbench (`crabsim::craft`) |
+//! | `pin=kelp-cord` | the player pinned a recipe as its goal (`pin=none`: let it go) |
 //! | `home`          | the player went straight home (the Home button, `crabsim::home`) |
 //!
 //! Walking and holding jump or dodge last until changed. Presses (`jump`,
@@ -141,6 +142,9 @@ pub struct Replay {
     pub moults: Vec<(u64, Skill)>,
     /// What player 0 made at its workbench, in tick order.
     pub crafts: Vec<(u64, Craft)>,
+    /// What player 0 pinned as its goal (a recipe), or let go (`None`), in
+    /// tick order.
+    pub pins: Vec<(u64, Option<&'static crate::economy::EconRecipe>)>,
     /// When player 0 went straight home (the Home button), in tick order.
     pub homes: Vec<u64>,
     /// What player 0's crab had already grown, taken and stored when the
@@ -181,6 +185,7 @@ impl Default for Replay {
             codes: Vec::new(),
             moults: Vec::new(),
             crafts: Vec::new(),
+            pins: Vec::new(),
             homes: Vec::new(),
             progress: None,
         }
@@ -393,6 +398,17 @@ impl Replay {
                 let recipe = Craft::parse(w).ok_or_else(|| err(format!("no recipe `{w}`")))?;
                 replay.crafts.push((tick, recipe));
             }
+            for w in words.iter().filter_map(|w| w.strip_prefix("pin=")) {
+                let pin = if w == "none" {
+                    None
+                } else {
+                    Some(
+                        crate::economy::EconRecipe::parse(w)
+                            .ok_or_else(|| err(format!("no recipe `{w}` to pin")))?,
+                    )
+                };
+                replay.pins.push((tick, pin));
+            }
             for w in words.iter().filter_map(|w| w.strip_prefix("salvage=")) {
                 let action = serde_json::from_str(w)
                     .map_err(|e| err(format!("invalid salvage action: {e}")))?;
@@ -419,8 +435,8 @@ impl Replay {
             words.retain(|w| {
                 *w != "home"
                     && ![
-                        "spawn=", "feel=", "code=", "moult=", "craft=", "salvage=", "canyon=",
-                        "shell=", "royal=",
+                        "spawn=", "feel=", "code=", "moult=", "craft=", "pin=", "salvage=",
+                        "canyon=", "shell=", "royal=",
                     ]
                     .iter()
                     .any(|p| w.starts_with(p))
@@ -533,6 +549,9 @@ impl Replay {
         }
         for (tick, recipe) in &self.crafts {
             out += &format!("@{tick} craft={}\n", recipe.word());
+        }
+        for (tick, pin) in &self.pins {
+            out += &format!("@{tick} pin={}\n", pin.map_or("none", |r| r.word));
         }
         for (tick, action) in &self.shell_actions {
             let json = serde_json::to_string(action).expect("shell action serialises");
@@ -788,6 +807,14 @@ impl Replay {
         for (_, skill) in self.moults.iter().filter(|(t, _)| *t == tick) {
             sim.moult(crate::PlayerId(0), *skill);
         }
+        for (_, pin) in self.pins.iter().filter(|(t, _)| *t == tick) {
+            match pin {
+                Some(r) => {
+                    sim.pin_want(crate::PlayerId(0), r.word);
+                }
+                None => sim.unpin(crate::PlayerId(0)),
+            }
+        }
         for (_, recipe) in self.crafts.iter().filter(|(t, _)| *t == tick) {
             // It could be made when recorded, so it can now.
             recipe.perform(sim, crate::PlayerId(0));
@@ -1015,6 +1042,11 @@ impl Recorder {
     /// Something was made at the workbench at `tick`.
     pub fn note_craft(&mut self, tick: u64, craft: Craft) {
         self.replay.crafts.push((tick - self.first_tick, craft));
+    }
+
+    /// Player 0 pinned a recipe as its goal (`None`: let it go) at `tick`.
+    pub fn note_pin(&mut self, tick: u64, pin: Option<&'static crate::economy::EconRecipe>) {
+        self.replay.pins.push((tick - self.first_tick, pin));
     }
 
     pub fn note_shell_action(&mut self, tick: u64, action: crate::world::ShellAction) {

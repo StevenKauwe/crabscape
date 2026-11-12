@@ -275,6 +275,13 @@ pub fn spots(level: &Level) -> Vec<Vec2> {
         .map(|l| l.rect)
         .collect();
     let moving: Vec<_> = level.currents.iter().chain(&level.upwelling).collect();
+    // Danger guards the way, never the harvest (vision.md): its whole reach
+    // stays clear of every gathering node.
+    let harvests: Vec<Vec2> = crate::economy::place::nodes(level)
+        .into_iter()
+        .map(|n| n.pos)
+        .collect();
+    const HARVEST_CLEAR: f32 = 660.0;
     let (lo, hi) = (
         water.rect.min.x + BODY.0,
         water.rect.max.x - BODY.0 - CLAW_REACH,
@@ -289,6 +296,7 @@ pub fn spots(level: &Level) -> Vec<Vec2> {
         let span =
             bevy_math::Rect::new(x - LEASH - BODY.0, floor, x + LEASH + BODY.0, floor + 200.0);
         flat && refuges.iter().all(|r| distance_to(p, *r) >= 400.0)
+            && harvests.iter().all(|h| h.distance(p) >= HARVEST_CLEAR)
             && sealed.iter().all(|r| span.intersect(*r).is_empty())
             && (!still
                 || moving

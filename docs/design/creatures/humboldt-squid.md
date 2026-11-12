@@ -5,8 +5,9 @@ rig `crates/crabrig/src/bestiary/squid.rs`; puppet `src/creatures/squid.rs`.
 
 ## Biology that matters
 - **Size:** common length 80 cm, maximum total length 400 cm [SLB]; one physiology paper gives up to 2.5 m and 50 kg
-  (search snippet only: not verified). Game adult: **1 m mantle = 625 units** (a realistic large adult, not the
-  record). The hurtbox is the mantle and head, 625 x 110.
+  (search snippet only: not verified). Game adult: **80 cm total length, fin to arm tips** (500 units; the
+  common length, tentacles extra), mantle and head 74 cm; hurtbox 492 x 87 over the mantle and head. Size audit:
+  it was drawn 102 cm (SeaLifeBase's 80 cm is a total length, not a mantle length).
 - **Where:** pelagic, eastern Pacific from the Gulf of Alaska to Chile; 0-2000 m; rises to 0-200 m at night and goes
   down to 800-1,000 m or deeper by day [SLB]. Part-time resident of the oxygen minimum zone, with metabolic
   suppression and a high-affinity oxygen carrier (search snippet of a physiology paper: not verified). The game

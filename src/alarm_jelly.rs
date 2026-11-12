@@ -28,11 +28,14 @@ struct Flash {
     id: u32,
     point: u8,
 }
+/// World units per unit of its art file, the rig drawn at true size (`src/sizes.rs` checks it).
+pub(crate) const ART_SCALE: f32 = 0.5;
+
 fn load(mut commands: Commands, assets: Res<AssetServer>) {
     commands.insert_resource(Art(CreatureArt::load_scaled(
         include_str!("../assets/creatures/alarm-jelly-parts.json"),
         "creatures/alarm-jelly-atlas.png",
-        0.5,
+        ART_SCALE,
         &assets,
     )));
 }

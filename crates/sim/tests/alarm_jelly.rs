@@ -185,11 +185,11 @@ fn lower_return_stays_below_the_optional_tentacle_for_both_sizes() {
 #[test]
 fn guarded_bell_approach_draws_the_actual_hunter_off_the_lower_route() {
     for moults in [0, 100] {
-        let mut s = Sim::with_one_crab(Vec2::new(15080.0, -2850.0));
+        let mut s = Sim::with_one_crab(Vec2::new(15080.0, -4850.0));
         s.crab_mut(P).unwrap().mover.moults = moults;
         s.crab_mut(P).unwrap().mover.upgrades = 4;
         s.enable_underwater_cells();
-        s.spawn_enemy(Kind::AlarmJelly, Vec2::new(15180.0, -2830.0));
+        s.spawn_enemy(Kind::AlarmJelly, Vec2::new(15180.0, -4830.0));
         s.spawn_enemy(
             Kind::Moray,
             Vec2::new(15220.0, s.level.floor_height(15220.0)),

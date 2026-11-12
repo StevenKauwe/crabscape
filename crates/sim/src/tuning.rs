@@ -346,6 +346,8 @@ pub struct Tuning {
     /// The common octopus, a boss in its den: hidden as part of the rock, it
     /// pounces, then probes with its arm tips (`creatures/common-octopus.md`).
     pub octopus: OctopusTuning,
+    /// The bluntnose sixgill, the open-water hunter (`crate::sixgill`).
+    pub sixgill: SixgillTuning,
     /// Scissor claws (the shed tooth fitted to the crusher): a jab cuts soft
     /// parts, like an octopus's arm, this many times as deep.
     pub scissor_cut: f32,
@@ -625,6 +627,46 @@ pub struct EnemyTuning {
     /// never).
     pub respawn_ticks: u32,
     pub strike: StrikeTuning,
+}
+
+/// The bluntnose sixgill (`crate::sixgill`): the open-water hunter. Its
+/// body, blow and senses are an ordinary [`EnemyTuning`]; its long tell and
+/// its pass rules are its own. Lengths are world units (625 = 1 m), times
+/// are ticks (120 = 1 s). Only the length is sourced (see the docs row).
+#[derive(Clone, Debug, PartialEq)]
+pub struct SixgillTuning {
+    pub base: EnemyTuning,
+    /// Open-water exposure (ticks in its water, in the open) a crab needs
+    /// before the first pass...
+    pub first_exposure: u32,
+    /// ...and between one pass and the next.
+    pub between_exposure: u32,
+    /// The tell lasts at least this long...
+    pub tell_min: u32,
+    /// ...and at least the swim to the nearest refuge plus this...
+    pub tell_slack: u32,
+    /// ...plus a random 0 to this much more.
+    pub tell_extra: u32,
+    /// How fast a crab is taken to swim to a refuge (units per second):
+    /// slower than its walk, so the tell is long enough.
+    pub crab_swim_speed: f32,
+    /// No pass starts unless a refuge is this close to the crab.
+    pub refuge_limit: f32,
+    /// The head is this far from the crab when the tell starts (min, max).
+    pub tell_distance: (f32, f32),
+    /// Its strike reaches this far past the head (min, max).
+    pub reach: (u32, u32),
+    /// It stands this share of the reach off the crab at the strike.
+    pub stand_off: f32,
+    /// Speeds (units per second): drifting, cruising, closing in.
+    pub patrol_speed: f32,
+    pub cruise_speed: f32,
+    pub close_speed: f32,
+    /// Ticks to give up repositioning for a tell.
+    pub reposition_ticks: u32,
+    /// Ticks the strike lasts, and the shark takes leaving afterwards.
+    pub strike_ticks: u32,
+    pub leave_ticks: u32,
 }
 
 /// The common octopus (`crate::octopus`). Its pounce, senses and health are
@@ -1316,6 +1358,27 @@ impl Tuning {
                     }),
                 },
             },
+            // The shark's length is a design choice inside the sourced range
+            // (`ocean-shaped.md`, the sixgill row); the rest is tuned.
+            sixgill: SixgillTuning {
+                base: crate::sixgill::base_tuning(),
+                first_exposure: 20 * 120,
+                between_exposure: 90 * 120,
+                tell_min: 3 * 120,
+                tell_slack: 120,
+                tell_extra: 180,
+                crab_swim_speed: 200.0,
+                refuge_limit: 1500.0,
+                tell_distance: (1200.0, 1500.0),
+                reach: (300, 600),
+                stand_off: 0.8,
+                patrol_speed: 110.0,
+                cruise_speed: 300.0,
+                close_speed: 450.0,
+                reposition_ticks: 20 * 120,
+                strike_ticks: 40,
+                leave_ticks: 8 * 120,
+            },
             // "Page" = the spec table on `creatures/common-octopus.md`; "real"
             // = from its sources; everything else is tuned.
             octopus: OctopusTuning {
@@ -1625,6 +1688,11 @@ pub fn triggerfish_tuning() -> &'static EnemyTuning {
         k
     })
 }
+
+/// The moray of the cell world (the game's sea) is this much bigger than the
+/// tuning's 60 cm one, so it reads clearly against the crab: a 100 cm adult,
+/// the largest FishBase gives (`docs/design/creatures/README.md`, "Sizes").
+pub const SEA_MORAY_SCALE: f32 = 100.0 / 60.0;
 
 // Atolla-sized bell from MBARI; all timing, sting and encounter ranges are tuned.
 pub const JELLY_BELL_WIDTH: f32 = 94.0;

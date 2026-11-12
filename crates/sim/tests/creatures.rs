@@ -219,26 +219,145 @@ fn a_morays_head_out_of_its_crevice_is_what_a_claw_hits() {
     assert_eq!(e.hurtbox(t).width(), crevice);
 }
 
-/// Real sizes (cm) at crab scale (1 cm = 6.25 units; `docs/design/creatures/README.md`).
+/// Real sizes (cm) at crab scale (1 cm = 6.25 units), every animal's hurtbox on
+/// the research's own measure (`docs/design/creatures/README.md`, "Sizes at crab
+/// scale"; the drawings are checked against the same table in `src/sizes.rs`).
 #[test]
 fn every_body_is_its_real_size_at_crab_scale() {
     let t = crabsim::Tuning::default();
     let cm = |u: f32| u / 6.25;
-    // Crab: a 12 cm carapace, a blue crab just grown up (females mature at
-    // 11.3-13.0 cm, up to 23 cm).
-    let crab = cm(2.0 * t.body_half_width);
-    assert!((11.0..=13.0).contains(&crab), "crab {crab}");
-    // Big-clawed snapping shrimp: up to 5.5 cm long.
-    let snapper = cm(t.snapper.body.0);
-    assert!((3.0..=5.5).contains(&snapper), "snapper {snapper}");
-    // Peacock mantis shrimp: 3-18 cm long.
-    let mantis = cm(t.mantis.body.0);
-    assert!((3.0..=18.0).contains(&mantis), "mantis {mantis}");
-    // Snowflake moray, 60 cm: deep at the gill opening a 14th to a 23rd of that.
-    let depth = cm(t.moray.body.1);
-    assert!(
-        (60.0 / 23.0..=60.0 / 14.0).contains(&depth),
-        "moray {depth}"
+    let long = |k: Kind| cm(k.tuning(&t).body.0);
+    let sea = crabsim::tuning::SEA_MORAY_SCALE;
+    // (animal, its hurtbox along the measure, the measure, the real range in cm).
+    let rows = [
+        // Width between the lateral spines; drawn 13.6 cm tip to tip (females
+        // mature at 11.3-13.0 cm tip to tip).
+        (
+            "crab",
+            cm(2.0 * t.body_half_width),
+            "carapace width without spines",
+            10.0..=13.0,
+        ),
+        (
+            "snapping shrimp",
+            long(Kind::Snapper),
+            "total length",
+            3.0..=5.5,
+        ),
+        (
+            "mantis shrimp",
+            long(Kind::Mantis),
+            "total length",
+            3.0..=18.0,
+        ),
+        // Its head out of the crevice: a 100 cm moray in the game's sea (common
+        // 50, max 100), 60 cm in the plain test level.
+        ("moray", long(Kind::Moray) * sea, "head length", 10.0..=14.0),
+        (
+            "moray",
+            cm(t.moray.body.1) * sea,
+            "depth at the gills",
+            100.0 / 23.0..=100.0 / 14.0,
+        ),
+        (
+            "triggerfish",
+            long(Kind::Triggerfish),
+            "total length",
+            30.0..=60.0,
+        ),
+        (
+            "octopus",
+            long(Kind::Octopus),
+            "mantle and head",
+            15.0..=25.0,
+        ),
+        (
+            "alarm jelly",
+            long(Kind::AlarmJelly),
+            "bell diameter",
+            2.0..=17.0,
+        ),
+        // A carapace of 85-100 cm and the head.
+        (
+            "loggerhead turtle",
+            long(Kind::LoggerheadTurtle),
+            "carapace and head",
+            90.0..=115.0,
+        ),
+        // An 80 cm squid (common 50-80 cm total length) without its arms.
+        (
+            "humboldt squid",
+            long(Kind::HumboldtSquid),
+            "mantle and head",
+            40.0..=80.0,
+        ),
+        (
+            "viperfish",
+            long(Kind::Viperfish),
+            "standard length",
+            20.0..=35.0,
+        ),
+        (
+            "goliath grouper",
+            long(Kind::GoliathGrouper),
+            "total length",
+            150.0..=250.0,
+        ),
+        (
+            "american lobster",
+            long(Kind::Lobster),
+            "body without claws",
+            20.0..=61.0,
+        ),
+        // A 10 cm hermit (10-12 cm long), its shell and head.
+        (
+            "hermit crab",
+            long(Kind::HermitCrab),
+            "shell and head",
+            6.0..=10.0,
+        ),
+        (
+            "bobbit worm",
+            long(Kind::BobbitWorm),
+            "body width",
+            1.0..=2.6,
+        ),
+        (
+            "giant isopod",
+            long(Kind::GiantIsopod),
+            "body length",
+            19.0..=36.0,
+        ),
+        // A 2 m sixgill (up to 4.8 m: [FLMNH-SG]; the 65 cm low end not verified).
+        (
+            "bluntnose sixgill",
+            long(Kind::Sixgill),
+            "total length",
+            65.0..=480.0,
+        ),
+        // Six 50 cm fish (30-63.5 cm), coiled into a knot.
+        (
+            "hagfish",
+            long(Kind::Hagfish),
+            "the knot's width",
+            15.0..=35.0,
+        ),
+    ];
+    for (animal, size, measure, real) in &rows {
+        assert!(
+            real.contains(size),
+            "{animal} {measure}: {size:.1} cm, real {real:?}"
+        );
+    }
+    // Every kind is in the table but three: the space monkey (a joke code), the
+    // fixture (a test dummy) and the amphipods (a cloud of 2 cm animals, drawn
+    // to size in src/sizes.rs).
+    let mut animals: Vec<&str> = rows.iter().map(|r| r.0).filter(|a| *a != "crab").collect();
+    animals.dedup();
+    assert_eq!(
+        animals.len() + 3,
+        crabsim::enemy::KINDS.len(),
+        "a new animal needs a row here and in src/sizes.rs"
     );
 }
 

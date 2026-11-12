@@ -104,6 +104,8 @@ pub enum Recipe {
     ReservePortions,
     /// Change the home auto-eat preference.
     ToggleAutoEat,
+    /// A wild blue-green light grown into the lantern: its colour only.
+    BlueLantern,
 }
 
 /// One row of the recipe list.
@@ -121,7 +123,7 @@ pub struct RecipeDef {
 }
 
 /// Every recipe, in the menu's order.
-pub const RECIPES: [RecipeDef; 8] = [
+pub const RECIPES: [RecipeDef; 9] = [
     RecipeDef {
         recipe: Recipe::ScissorClaws,
         word: "scissors",
@@ -178,6 +180,13 @@ pub const RECIPES: [RecipeDef; 8] = [
         needs: &[],
         does: "Toggle automatic meals at home.",
     },
+    RecipeDef {
+        recipe: Recipe::BlueLantern,
+        word: "blue-lantern",
+        name: "Blue-green lantern",
+        needs: &[(Material::WildLight, 1)],
+        does: "Tint the lantern blue-green.",
+    },
 ];
 
 impl Recipe {
@@ -225,6 +234,7 @@ impl Sim {
             Recipe::ScissorClaws => m.scissor_claw,
             Recipe::GlassGrips => m.glass_grips,
             Recipe::ClamGuards => m.clam_guards,
+            Recipe::BlueLantern => crab.plunge.blue_lantern,
             Recipe::Lantern
             | Recipe::BuildHome
             | Recipe::ShellPortions
@@ -297,6 +307,7 @@ impl Sim {
                 }
             }
             Recipe::ToggleAutoEat => m.prepared_food.auto_eat = !m.prepared_food.auto_eat,
+            Recipe::BlueLantern => crab.plunge.blue_lantern = true,
         }
         if recorded {
             self.note_craft(tick, recipe);
@@ -308,7 +319,7 @@ impl Sim {
             }
             Recipe::BuildHome => (Skill::Building, 20.0),
             Recipe::ShellPortions | Recipe::ReservePortions => (Skill::Cooking, 12.0),
-            Recipe::Lantern | Recipe::ToggleAutoEat => return Ok(()),
+            Recipe::Lantern | Recipe::ToggleAutoEat | Recipe::BlueLantern => return Ok(()),
         };
         self.earn(id, skill, xp);
         Ok(())
@@ -324,6 +335,8 @@ pub enum Craft {
     Econ(&'static EconRecipe),
     /// Harvest or feed a culture bed.
     Bed(BedAction),
+    /// Build a piece into the shared home.
+    Piece(crate::economy::Piece),
 }
 
 impl Craft {
@@ -333,6 +346,7 @@ impl Craft {
             Craft::Basic(r) => r.def().word,
             Craft::Econ(r) => r.word,
             Craft::Bed(a) => a.word(),
+            Craft::Piece(p) => p.word(),
         }
     }
 
@@ -342,6 +356,7 @@ impl Craft {
             .map(Craft::Basic)
             .or_else(|| EconRecipe::parse(word).map(Craft::Econ))
             .or_else(|| BedAction::parse(word).map(Craft::Bed))
+            .or_else(|| crate::economy::Piece::parse(word).map(Craft::Piece))
     }
 
     /// Do it for crab `id`; a craft that can't be done changes nothing.
@@ -358,6 +373,9 @@ impl Craft {
             }
             Craft::Bed(BedAction::Feed) => {
                 let _ = sim.feed_bed(id);
+            }
+            Craft::Piece(p) => {
+                let _ = sim.build_piece(id, p);
             }
         }
     }
@@ -443,14 +461,11 @@ impl Sim {
         }
     }
 
-    /// Could crab `id` make this economy recipe (by word or row) right now?
-    pub fn can_make_econ(&self, id: PlayerId, what: impl EconRef) -> Result<(), CantMakeEcon> {
-        let r = what.econ_recipe().ok_or(CantMakeEcon::Unknown)?;
-        let crab = self.at_home(id)?;
-        let have = crab.level(r.skill, &self.tuning);
-        if have < r.level {
-            return Err(CantMakeEcon::Level(r.skill, r.level));
-        }
+    /// What a recipe asks of the crab besides skill level and inputs: its
+    /// station is built, the vent pot is not needed, and what it makes is
+    /// not already had (or has room). Shared by [`Sim::can_make_econ`] and
+    /// the wants list.
+    pub(crate) fn recipe_gate(&self, crab: &SimCrab, r: &EconRecipe) -> Result<(), CantMakeEcon> {
         match r.at {
             Bench::Workbench => {}
             Bench::At(st) if crab.econ.has_station(st) => {}
@@ -526,6 +541,18 @@ impl Sim {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Could crab `id` make this economy recipe (by word or row) right now?
+    pub fn can_make_econ(&self, id: PlayerId, what: impl EconRef) -> Result<(), CantMakeEcon> {
+        let r = what.econ_recipe().ok_or(CantMakeEcon::Unknown)?;
+        let crab = self.at_home(id)?;
+        let have = crab.level(r.skill, &self.tuning);
+        if have < r.level {
+            return Err(CantMakeEcon::Level(r.skill, r.level));
+        }
+        self.recipe_gate(crab, r)?;
         if r.from_larder() && crab.larder == 0 {
             return Err(CantMakeEcon::Missing(Item::Clam, 1));
         }
@@ -625,6 +652,9 @@ impl Sim {
             }
         }
         crab.econ.crafts_done += 1;
+        if crab.econ.pinned.as_ref().is_some_and(|p| p.word == r.word) {
+            crab.econ.pinned = None;
+        }
         self.earn(id, r.skill, xp);
         self.sound(crate::world::cues::Cue::Crafted { crab: id });
         self.record_craft(id, Craft::Econ(r));

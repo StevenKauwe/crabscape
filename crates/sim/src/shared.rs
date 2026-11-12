@@ -47,6 +47,8 @@ pub enum Thing {
     /// The economy's gathering node `.0` (its index in
     /// [`crate::Sim::placed_nodes`]).
     Node(usize),
+    /// The home piece `.0`: built once per home world.
+    Piece(crate::economy::Piece),
 }
 
 impl Thing {
@@ -58,7 +60,7 @@ impl Thing {
             Thing::Body { .. } => None,
             // A node's yield depends on the level it lies in (the placed
             // nodes): `economy::gather` gives it.
-            Thing::Node(_) => None,
+            Thing::Node(_) | Thing::Piece(_) => None,
         }
     }
 }
@@ -93,6 +95,9 @@ pub struct Shared {
     /// Each gathering node (`economy::place::nodes`, in order).
     #[serde(default)]
     pub nodes: Vec<NodeState>,
+    /// The pieces built into this world's home, seen by everyone in it.
+    #[serde(default)]
+    pub home_pieces: std::collections::BTreeSet<crate::economy::Piece>,
 }
 
 impl Shared {
@@ -103,6 +108,7 @@ impl Shared {
             grit_taken: vec![false; level.grit.len()],
             midden_taken: Vec::new(),
             bodies_eaten: Vec::new(),
+            home_pieces: Default::default(),
             nodes: crate::economy::place::nodes(level)
                 .iter()
                 .map(|n| NodeState {
@@ -124,6 +130,7 @@ impl Shared {
             }
             Thing::Body { enemy, deaths } => !self.bodies_eaten.contains(&(enemy, deaths)),
             Thing::Node(i) => self.nodes.get(i).is_some_and(|n| n.charges > 0),
+            Thing::Piece(p) => !self.home_pieces.contains(&p),
         }
     }
 
@@ -152,6 +159,9 @@ impl Shared {
                 if !self.bodies_eaten.contains(&(enemy, deaths)) {
                     self.bodies_eaten.push((enemy, deaths));
                 }
+            }
+            Thing::Piece(p) => {
+                self.home_pieces.insert(p);
             }
             Thing::Node(i) => {
                 if let Some(n) = self.nodes.get_mut(i) {

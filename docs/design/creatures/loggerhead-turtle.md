@@ -5,9 +5,9 @@ Shared rules: `README.md`. Code: `crates/sim/src/creatures/turtle.rs`, tests `cr
 
 ## Biology that matters
 - **Size:** average carapace length 85-100 cm, adults mature past 90 cm; mass 77-545 kg, average 135 kg [ADW].
-  NOAA gives adults 2.5-3.5 ft (about 76-107 cm) and 200-350 lb [NOAA]. Game adult: 90 cm, hurtbox 560 x 160
-  (1 cm = 6.25 units); the shell is 470 of that length and the head the rest (the hurtbox is rounded so shell plus
-  head is 90 cm).
+  NOAA gives adults 2.5-3.5 ft (about 76-107 cm) and 200-350 lb [NOAA]. Game adult: **90 cm straight carapace length**
+  (562 units), the head out past it, hurtbox 656 x 187 over shell and head (1 cm = 6.25 units). Size audit: the
+  shell was drawn 77 cm, the 90 cm having been shell plus head.
 - **Diet:** carnivore; juveniles and adults in coastal water eat mostly bottom-dwelling invertebrates: mollusks,
   crustaceans, horseshoe crabs; whelk and conch are named hard-shelled prey, and "their powerful jaws are designed to
   crush their prey" [NOAA]. ADW lists horseshoe crabs, bivalves, barnacles, whelks and conchs, and says food is found

@@ -8,7 +8,7 @@ use crabsim::{
 };
 
 fn canyon(grown: bool) -> Sim {
-    let mut sim = Sim::with_one_crab([6206.0, -5459.0].into());
+    let mut sim = Sim::with_one_crab([6206.0, -2059.0].into());
     sim.enable_underwater_cells();
     sim.populate();
     let mover = &mut sim.crab_mut(PlayerId(0)).unwrap().mover;
@@ -18,7 +18,7 @@ fn canyon(grown: bool) -> Sim {
     mover.moults = if grown { 64 } else { 0 };
     let mut world = sim.level.cells.take().unwrap();
     world
-        .restore_default_window(&sim.level, 6206.0, -5459.0)
+        .restore_default_window(&sim.level, 6206.0, -2059.0)
         .unwrap();
     // Valid offscreen sediment history from a previously visited canyon wall.
     // These grains remain dynamic outside the camera's speculative page ring.
@@ -27,7 +27,7 @@ fn canyon(grown: bool) -> Sim {
             sequence: i,
             outbound: false,
             x: 13 * 64 + 16 + (i % 3) as i32 * 64,
-            y: -16 * 64 + (i / 3) as i32 * 96,
+            y: -2 * 64 + (i / 3) as i32 * 24,
             emitted_tick: 0,
             advanced_tick: 0,
             cell: Cell::Sand,

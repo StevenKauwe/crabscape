@@ -132,11 +132,11 @@ fn report_357_can_climb_both_directions_on_the_pit_wall() {
 
 #[test]
 fn stepping_off_wall_growth_does_not_embed_the_walking_body() {
-    let mut sim = Sim::with_one_crab(Vec2::new(4386.0, -2469.0));
+    let mut sim = Sim::with_one_crab(Vec2::new(7684.0, -4469.0));
     sim.enable_underwater_cells();
     let mut terrain = sim.level.cells.take().unwrap();
     terrain
-        .restore_default_window(&sim.level, 4386.0, -2469.0)
+        .restore_default_window(&sim.level, 7684.0, -4469.0)
         .unwrap();
     sim.level.cells = Some(terrain);
     let m = &mut sim.crab_mut(PlayerId(0)).unwrap().mover;
@@ -155,7 +155,7 @@ fn stepping_off_wall_growth_does_not_embed_the_walking_body() {
     }
     let m = &sim.crab(PlayerId(0)).unwrap().mover;
     assert!(
-        m.pos.y < -2500.0,
+        m.pos.y < -4500.0,
         "stepping off left the crab suspended: {:?}",
         m.pos
     );

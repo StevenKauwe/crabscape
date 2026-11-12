@@ -94,15 +94,15 @@ fn swim(at: f64, strokes: u32) -> String {
 }
 
 // The hub's places, from the level.
-/// The far basin's floor, by the shaft and by the crack.
-const HUB: (f32, f32, f32) = (4490.0, 5200.0, -700.0);
+/// The far basin's floor, from the ridge to the crack.
+const HUB: (f32, f32, f32) = (4370.0, 5200.0, -700.0);
 const HUB_EAST: (f32, f32, f32) = (5200.0, 5371.0, -560.0);
 /// The ridge between the pit and the hub, and its crest.
 const RIDGE: (f32, f32) = (4300.0, 4370.0);
 const CREST: (f32, f32, f32) = (4300.0, 4370.0, 3000.0);
 /// The cliff's front foot: west of it is the way home.
 const CLIFF: f32 = 2717.0;
-const WINDOW: usize = 1;
+const WINDOW: usize = 0;
 
 fn window_net() -> crabsim::level::Net {
     Level::test_level().nets[WINDOW]
@@ -123,10 +123,13 @@ fn glides(strokes: u32) -> [String; 2] {
 }
 
 #[test]
-fn the_window_is_a_one_sided_ghost_net_in_frame_rock() {
+fn the_window_is_a_ghost_net_in_frame_rock_cut_from_either_side() {
     let level = Level::test_level();
     let net = window_net();
-    assert_eq!(net.from, CutFrom::East, "its knots are on the hub side");
+    // The pit is filled: the basin floor runs straight to the window, so
+    // the net is the scissor claws' gate and its knots reach from both sides.
+    assert_eq!(net.from, CutFrom::Either);
+    assert!(net.cuttable_from(net.rect.min.x - 50.0) && net.cuttable_from(net.rect.max.x + 50.0));
     assert!(net.rect.min.x >= RIDGE.0 && net.rect.max.x <= RIDGE.1);
     // Rock under its sill and over its roof, all the way up to the crest.
     let rock = |x: f32, y: f32| level.rocks.iter().any(|r| r.contains(Vec2::new(x, y)));
@@ -138,43 +141,48 @@ fn the_window_is_a_one_sided_ghost_net_in_frame_rock() {
 }
 
 #[test]
-fn nothing_glides_into_the_hub_until_its_window_is_cut() {
+fn nothing_gets_into_the_hub_without_scissors_until_the_window_is_cut() {
     for strokes in [0, 1, 3, 5] {
         for script in glides(strokes) {
-            let r = run(
-                &script,
-                90.0,
-                Kit {
-                    strokes,
-                    scissors: true,
-                    ..FREE
-                },
-            );
+            let r = run(&script, 90.0, Kit { strokes, ..FREE });
             assert_eq!(got_past_the_ridge(&r), None, "{script}");
-            assert!(
-                !r.sim.level.nets[WINDOW].cut,
-                "no cutting it from the pit side"
-            );
-            // Off the crest it ends up in the pit (in the window, or
-            // below), where the coral and kelp climb out; off the surface
-            // kelp the sea arch stops it short of the trench's far side (#449).
+            assert!(!r.sim.level.nets[WINDOW].cut, "no cutting it without claws");
+            // Off the crest it ends up on the basin floor before the ridge;
+            // off the surface kelp the sea arch stops it short of the
+            // trench's far side (#449).
             let end = r.crab().pos;
             if script.starts_with("start x=950") {
                 assert!(end.x < 1820.0, "not across the trench: {end}");
             } else {
                 assert!(
-                    end.x > 3300.0 && end.x < window_net().rect.min.x,
-                    "in the pit: {end}"
+                    end.x > 2800.0 && end.x < window_net().rect.min.x,
+                    "in the basin: {end}"
                 );
             }
         }
     }
+    // Walking east along the basin floor stops at the net.
+    let r = run("start x=4000 y=-700\nt=0 walk=right", 20.0, FREE);
+    assert_eq!(got_past_the_ridge(&r), None);
 }
 
 #[test]
-fn only_a_crab_on_the_hub_side_cuts_the_window() {
-    // Walking off the hub's floor into the shaft, it presses against the
-    // net's hub side: with scissor claws, cut; without, only tangled.
+fn a_crab_with_scissors_cuts_the_window_from_either_side() {
+    // From the basin (walking east along the flat floor)...
+    let from_basin = "start x=4200 y=-700\nt=0 walk=right";
+    let r = run(
+        from_basin,
+        5.0,
+        Kit {
+            scissors: true,
+            ..FREE
+        },
+    );
+    assert!(r.sim.level.nets[WINDOW].cut, "cut from the basin side");
+    assert!(got_past_the_ridge(&r).is_some(), "and through it");
+    let r = run(from_basin, 5.0, FREE);
+    assert!(!r.sim.level.nets[WINDOW].cut, "not without scissor claws");
+    // ...and from the hub (walking west).
     let off = "start x=4520 y=-700\nt=0 walk=left";
     let r = run(
         off,
@@ -187,24 +195,22 @@ fn only_a_crab_on_the_hub_side_cuts_the_window() {
     assert!(r.sim.level.nets[WINDOW].cut, "cut from the hub side");
     let r = run(off, 3.0, FREE);
     assert!(!r.sim.level.nets[WINDOW].cut, "not without scissor claws");
-    // Standing in the window on the pit side, pressing at it: never.
-    let r = run(
-        "start x=4318 y=-760\nt=0 walk=right",
-        3.0,
-        Kit {
-            scissors: true,
-            ..FREE
-        },
-    );
-    assert!(!r.sim.level.nets[WINDOW].cut, "the knots are out of reach");
 }
 
 #[test]
-fn once_cut_the_glide_off_the_cliffs_crest_is_the_way_back_into_the_hub() {
+fn once_cut_the_basin_floor_and_the_crests_glide_both_lead_into_the_hub() {
     let mut sim = world();
     sim.level.nets[WINDOW].cut = true;
-    // A jump and a stroke off the crest carry a crab over the pit, through
-    // the window and onto the hub's floor: no scissors needed now.
+    // Walking along the floor, no scissors needed now.
+    let r = run_in(
+        sim.clone(),
+        "start x=4000 y=-700\nt=0 walk=right",
+        20.0,
+        FREE,
+    );
+    assert!(r.stood_on(HUB), "on the hub's floor: {}", r.crab().pos);
+    // A jump and a stroke off the crest also carry a crab over the basin,
+    // through the window and onto the hub's floor.
     let r = run_in(sim, &glides(1)[0], 30.0, Kit { strokes: 1, ..FREE });
     assert!(r.stood_on(HUB), "on the hub's floor: {}", r.crab().pos);
 }
@@ -266,19 +272,6 @@ fn the_flood_runs_up_the_crack_to_the_hub_and_the_coral_still_climbs_it_on_the_e
     let r = run(climb, 50.0, FREE);
     assert!(r.sim.level.tide < 0.0, "the ebb runs");
     assert!(r.stood_on(HUB_EAST) || r.stood_on(HUB), "{}", r.crab().pos);
-}
-
-#[test]
-fn a_crab_left_on_the_windows_sill_gets_out_into_the_pit() {
-    // Where a glide from the west leaves a crab while the net stands: it
-    // walks off back into the pit and sinks to somewhere the coral and kelp
-    // climb from.
-    let r = run("start x=4318 y=-760\nt=0 walk=left", 40.0, FREE);
-    let end = r.crab().pos;
-    assert!(
-        r.crab().grounded && end.x < RIDGE.0 && end.y <= -3300.0,
-        "{end}"
-    );
 }
 
 #[test]

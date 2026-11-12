@@ -57,12 +57,15 @@ link` in that list.
 | 13 | Deep-sea animals accumulate **TMAO**, which counters pressure's effect on proteins: in bony fishes it rises from 40 to 261 mmol/kg between 0 and 4,850 m, and deep crabs carry more too (*Chionoecetes*: 22 shallow, 164 at bathyal depth). Oh no way: extrapolated, a fish would reach the sea's own saltiness at about 8,200 m, which may be why no fish lives deeper | Depth tolerance you build by adapting | [YANCEY-2014], [KELLY-1999] |
 | 14 | Blue crabs respond to chemical signals detected at their antennules while tracking a plume upstream; they also change height as the plume changes | Nearby scent cues, stretching upstream with the water; the drawn shapes and distances are game choices, not measurements | [PAGE] |
 | 15 | **The deep is cold, and cold slows an animal's body.** Below the surface layer the ocean's temperature "drops gradually with depth" and deep water is "usually not far from zero degrees"; most biological rates fall two- to threefold for every 10 °C colder (Q10 ~ 2 to 3). Crab-specific recovery rates after exertion: not verified | The reserve comes back more slowly the deeper the crab is (`1 + depth / 8000`, a game scale, not a measured rate): a long climb home from the deep is a real cost (`how-it-plays.md`) | [WP-THERMO], [WP-Q10] |
+| 16 | The **bluntnose sixgill shark** (*Hexanchus griseus*) reaches 4.8 m (15.8 ft, a male), pups are 60 to 75 cm at birth; it rests deep by day and rises to shallower water at night to feed. Oh no way: at crab scale (625 units = 1 m) the canyon is only 1,800 units (2.9 m) across, so the game's shark is a 2 m animal (1,250 units, 250 tall), inside the sourced range but **not a sourced figure: not verified**; it is never scaled up for drama | The open-water hunter (`crates/sim/src/sixgill.rs`, #458): one per broad open-water crossing, with a long tell | [FLMNH-SG] |
 
 A research log of papers and sources backs every creature and mechanic. Anatomy for the player crab is already
 sourced in `art/crab/anatomy-notes.md`; keep its "not verified" flags honest.
 
 ## Sources
 Each opened and checked against the row it backs.
+- **[FLMNH-SG]** Florida Museum, *Hexanchus griseus* species profile (maximum 4.8 m, pups 60 to 75 cm).
+  <https://www.floridamuseum.ufl.edu/discover-fish/species-profiles/hexanchus-griseus/>
 - **[PAGE]** Page, Dickman, Webster & Weissburg, "Simultaneous correlation of odor-plume structure and behavior I",
   SICB meeting abstract. <https://sicb.org/abstracts/simultaneous-correlation-of-odor-plume-structure-and-behavior-i-three-dimensional-plume-structure-at-antennules-affects-speed-and-sensor-height-in-tracking-blue-crabs/>
 - **[TUFTS-VC]** Tufts Now, "Social Networking Helps Hermit Crabs Find Homes" (2010), on Rotjan, Chabot & Lewis,
@@ -122,3 +125,10 @@ The watcher represents a giant squid (*Architeuthis dux*), with a provisional
 watching behaviour are **not verified**. This is a faint partial animal, never
 an enlarged enemy. Wound scent attraction is also **not verified**: the 1.5×
 range and 20-second window are game design, not a biological measurement.
+
+### The Plunge's creatures (#470, #471)
+All sizes are **not verified** (no source opened yet): the whale carcass falling past is drawn 13 m long (a gray whale's
+scale; whale-fall stages are row 9, lengths are not in that source); the anglerfish at the stage is 0.6 m long with a
+glowing lure on its own shape, its pale prey 0.15 m; the wild blue-green light is a bioluminescent culture (colour
+chosen for the game, not measured); a hydrothermal updraft carries the crab home (mechanism of an updraft is row 11's
+vents; carrying a crab is a game abstraction). The angler is presentation only: unreachable, unattackable.

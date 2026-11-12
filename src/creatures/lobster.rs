@@ -31,11 +31,14 @@ struct Joint {
     name: String,
 }
 
+/// Drawn 30 cm from tail fan to the front of the carapace, claws and feelers extra (`src/sizes.rs` checks it).
+pub(crate) const ART_SCALE: f32 = 0.382_7;
+
 fn load(mut commands: Commands, assets: Res<AssetServer>) {
-    commands.insert_resource(Art(CreatureArt::load_ink_only(
+    commands.insert_resource(Art(CreatureArt::load_scaled(
         include_str!("../../assets/creatures/american-lobster-parts.json"),
         "creatures/american-lobster-atlas.png",
-        0.5,
+        ART_SCALE,
         &assets,
     )));
 }

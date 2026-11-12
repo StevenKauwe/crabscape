@@ -164,7 +164,7 @@ pub fn parts_svg() -> String {
     }
     crate::parts::write_with(
         items,
-        "<!-- Hagfish knot: placeholder rig (six fish in a knot). -->",
+        "<!-- Hagfish knot: rig (six fish in a knot). -->",
         "Hagfish knot · rig parts",
         parent_of,
         &pal,

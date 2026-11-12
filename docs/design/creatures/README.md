@@ -12,13 +12,50 @@ of them on `art/creatures/bestiary-contact-sheet.png`. World and food web: `../u
 | [Common octopus](common-octopus.md) | Boss | Rocky shallows, its den | Rises and spreads its web |
 | [Alarm jelly](alarm-jelly.md) | Hazard | Midnight zone | None: a red shape on black and a drifting tentacle |
 
-## Sizes at crab scale (drawn and hit the same; `tests/creatures.rs` checks them)
-| Animal | Real adult | Game | × crab shell |
-|---|---|---|---|
-| Our crab (blue-crab-like swimming crab) | Females mature at 112.5–129.5 mm carapace width [HART21]; up to 23 cm [CBP] | 12 cm wide: hurtbox 72 × 48 | 1 |
-| Snapping shrimp (*A. heterochaelis*) | Up to 5.5 cm long ([HS98], `snapping-shrimp.md`) | 5.4 cm: 34 × 12 | 0.45 long |
-| Peacock mantis (*O. scyllarus*) | 3–18 cm long ([ADW], `mantis-shrimp.md`) | 15 cm: 94 × 22 | 1.25 long |
-| Snowflake moray (*E. nebulosa*) | Common 50 cm, max 100 cm; depth 1/14–1/23 of length ([FB-EN], `snowflake-moray.md`) | 60 cm long, 3.8 cm deep; head 44 × 24 out of its crevice | 5 long, 0.3 deep |
+## Sizes at crab scale (drawn, hit and real on the same measure)
+Each animal is measured the way its research measures it: our crab's 12 cm is a carapace *width*, most fish are a
+*total length*, the turtle a *carapace length*, the viperfish a *standard length* (no tail fin), the lobster a body
+length without claws. A crab with its legs out spans about twice its carapace (ours: 22 cm), so set an animal against
+the crab's leg span, not its "12 cm". "Drawn" is measured from the art itself (the opaque pixels of its parts at rest,
+at the scale the game draws them; the moray as `critters.rs` strings its head and segments, at the size the game's
+sea gives it). The table is written by
+`cargo test --bin crabscape sizes -- --nocapture` (`src/sizes.rs`), which fails if a drawing leaves its research range
+or a hurtbox stops fitting its drawing; `crates/sim/tests/creatures.rs` checks every hurtbox against the same ranges.
+1 cm = 6.25 units.
+
+![Every animal beside the crab on one ruler](lineup.png)
+
+`lineup.png` (every animal in its oil paint beside the crab, 4 px a centimetre) is redrawn by
+`cargo test --bin crabscape sizes::lineup -- --ignored`.
+
+| Animal | Measure | Real (cm) and source | Drawn (units) | Hurtbox (units) |
+|---|---|---|---|---|
+| Our crab (blue-crab-like) | carapace width, spine tip to spine tip | 11.3-13.0: females mature at 11.3-13.0 cm [HART21] | 13.6 cm (85) | 11.5 cm (72) |
+| Snapping shrimp | total length | 3.0-5.5: up to 5.5 cm [HS98], generally 3-5 [ALPH] | 5.2 cm (33) | 5.4 cm (34) |
+| Peacock mantis shrimp | total length | 3.0-18.0: 3-18 cm [ADW] | 14.5 cm (90) | 15.0 cm (94) |
+| Snowflake moray | total length (swimming out) | 50.0-100.0: common 50, max 100 cm [FB-EN] | 100.0 cm (625) | - |
+| Snowflake moray | head length (its hurtbox) | 10.0-14.0: not verified (an eighth to a seventh of its length) | 12.2 cm (76) | 11.7 cm (73) |
+| Snowflake moray | body depth at the gill opening | 4.3-7.1: 1/14-1/23 of its length [FB-EN-M] | 6.4 cm (40) | 6.4 cm (40) |
+| Queen triggerfish | total length | 30.0-60.0: common 30, max 60 cm [FB-BV] | 45.4 cm (284) | 45.0 cm (281) |
+| Common octopus | mantle and head length (arms extra) | 15.0-25.0: mantle to 25 cm (Wikipedia) | 24.6 cm (154) | 25.0 cm (156) |
+| Alarm jelly (Atolla) | bell diameter | 2.0-17.0: A. wyvillei 2-17 cm [WP-AW] | 16.6 cm (104) | 15.0 cm (94) |
+| Loggerhead turtle | straight carapace length | 85.0-100.0: average 85-100 cm [ADW] | 90.0 cm (562) | - |
+| Loggerhead turtle | carapace and head (its hurtbox) | 90.0-115.0: the carapace above plus the head (not verified) | 109.2 cm (683) | 105.0 cm (656) |
+| Humboldt squid | total length, fin to arm tips (tentacles extra) | 50.0-80.0: common 50-80 cm TL [SLB] | 80.0 cm (500) | - |
+| Humboldt squid | mantle and head (its hurtbox) | 40.0-75.0: the above without the arms (not verified) | 73.5 cm (460) | 78.7 cm (492) |
+| Viperfish | standard length (tail fin extra) | 20.0-35.0: max 35 cm SL [FB-CS] | 25.7 cm (160) | 25.6 cm (160) |
+| Goliath grouper | total length | 150.0-250.0: common 150, max 250 cm TL [FB] | 201.1 cm (1257) | 200.0 cm (1250) |
+| American lobster | body length, claws and feelers extra | 20.0-61.0: commonly 20-61 cm [WP]; about 25 cm caught [ADW] | 30.0 cm (188) | 30.4 cm (190) |
+| Red hermit crab | length, shell and the crab out of it | 10.0-12.0: about 10, up to 12 cm (Wikipedia; Oldenburg Giglio guide) | 10.0 cm (62) | - |
+| Red hermit crab | shell and head (its hurtbox) | 6.0-10.0: the above without the claws and legs (not verified) | 8.9 cm (56) | 7.5 cm (47) |
+| Bobbit worm | body width | 1.0-2.5: the 299 cm record was 25.5 mm wide [WP-EA] | 2.5 cm (16) | 2.6 cm (16) |
+| Giant isopod | body length, feelers extra | 19.0-36.0: typically 19-36 cm [WIKI-GI] | 30.8 cm (193) | 30.4 cm (190) |
+| Pacific hagfish (a knot of six) | the knot's width (each fish 30-63.5 cm, coiled) | 15.0-35.0: fish 30-63.5 cm [ADW]; the knot's size not verified | 30.1 cm (188) | 24.0 cm (150) |
+| Scavenging amphipod | one animal's length | 1.5-2.5: 2 cm, a game choice (sizes not verified) | 2.0 cm (12) | - |
+
+Not in the table: the space monkey (a joke code). Hurtboxes sit a little inside the silhouette (75-110% of the
+drawing along the measure): the crab's is its shell between the lateral spines; the moray's is only its head, the part
+that comes out of the crevice to bite; the hagfish's is the knot without the loose tails.
 
 - [HART21] Hart, Crowley & Walters (2021), "Blue crab spawning and recruitment in two Gulf Coast and two Atlantic estuaries in Florida", *Marine and Coastal Fisheries* 13(2):113–130. <https://academic.oup.com/mcf/article/13/2/113/7819956>
 - [CBP] Chesapeake Bay Program, field guide: blue crab. <https://www.chesapeakebay.net/discover/field-guide/entry/blue-crab>
@@ -96,7 +133,8 @@ Each creature's lane owns only: `crates/sim/src/creatures/<module>.rs` (rules, i
 Pipeline for a lane: spec → tests first (tells, timings, parry windows, poise break, can be beaten, can be escaped,
 never in a tunnel, no instant kill, determinism, a two-sim co-op hash) → `step`/`feels`/`phase` → rig in
 `crabrig/src/bestiary/<module>.rs`, then `cargo run -p crabrig --profile art -- parts --creature <name>` and
-`-- export --creature <name>` (ink only; `crates/crabrig/tests/bestiary.rs` checks drift) → pose in
+`-- export --creature <name>` (`crates/crabrig/tests/bestiary.rs` checks drift), `tools/paint-oil.sh <name>` and a
+look in the game (`docs/design/painted-creatures.md`) → pose in
 `src/creatures/<module>.rs` → `spots` by landmark → checks → PR `Closes #n`, auto-merge.
 
 ### Where things stand (2026-11-11, creature lead)
@@ -137,4 +175,5 @@ Read this to continue without the lead. Check live state with `gh pr view` / `gh
    swell, additive, distance-attenuated).
 3. Economy hand-off: `DROPS` names are fixed (the economy lead maps them to Items); the hagfish's
    `prize(level)` and grouper's `prize(level, home)` give the prize positions for resource nodes.
-4. Oil-painted atlases and real concept sheets only when someone asks (placeholders by decision).
+4. ~~Oil-painted atlases~~: done, all ten are painted like the crab (`docs/design/painted-creatures.md`). Real
+   concept sheets only when someone asks.

@@ -124,6 +124,8 @@ pub enum Msg {
         bodies_eaten: Vec<(u32, u32)>,
         /// Each gathering node's charges left and ticks to regrow.
         nodes: Vec<(u8, u32)>,
+        /// The pieces built into the host's home.
+        home_pieces: Vec<crate::economy::Piece>,
     },
     /// A guest's crab `by` reached a shared thing and asks the host for it.
     Take { by: PlayerId, thing: Thing },

@@ -265,8 +265,8 @@ at each end. Each band waits 180–240 seconds between appearances (first opport
 after 30 seconds). The eye stays still, turns toward the nearest crab, and has no
 combat or collision. It disappears early if a crab brings light within its safety
 margin: at least 1.2× sight reach plus the eye radius. `Sim::watched(id)` and the one-tick `watcher_cues()` onset event
-(`Cue::Watched`) are the sound hooks for W2.2. The current checkout has no sim shark; the decorative sixgill pass
-is unchanged and cannot detect a crab.
+(`Cue::Watched`) are the sound hooks for W2.2. The sixgill (`crates/sim/src/sixgill.rs`, #458) is a sim hunter; the old decorative pass
+stands down while it is in the level.
 
 ### Sound
 

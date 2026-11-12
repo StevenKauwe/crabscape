@@ -19,14 +19,17 @@ pub mod beds;
 pub mod food;
 pub mod gather;
 pub mod gear;
+pub mod home;
 pub mod items;
 pub mod nodes;
 pub mod place;
 pub mod recipes;
+pub mod wants;
 pub mod xp;
 
 pub use food::{Buff, Food};
 pub use gear::{Gear, Slot, Station, Tool, ToolKind, Worn};
+pub use home::{PIECES, Piece, PieceDef};
 pub use items::Item;
 pub use nodes::{NODES, NodeDef, NodeKind};
 pub use place::{NodeSpot, PlacedNode};
@@ -158,6 +161,9 @@ pub struct Economy {
     pub buff: Option<(Buff, u32)>,
     pub gathers_done: u64,
     pub crafts_done: u64,
+    /// The recipe the crab pinned as its goal (see [`wants`]).
+    #[serde(default)]
+    pub pinned: Option<wants::Pinned>,
 }
 
 impl Default for Economy {
@@ -172,6 +178,7 @@ impl Default for Economy {
             buff: None,
             gathers_done: 0,
             crafts_done: 0,
+            pinned: None,
         }
     }
 }
@@ -324,6 +331,14 @@ pub fn unlocks(skill: Skill, level: u32) -> Vec<String> {
         .filter(|r| r.skill == skill && r.level == level)
     {
         lines.push(format!("You can make {}.", r.name.to_lowercase()));
+    }
+    if skill == Skill::Building {
+        for p in home::PIECES.iter().filter(|p| p.level == level) {
+            lines.push(format!(
+                "You can build the {} into the home.",
+                p.name.to_lowercase()
+            ));
+        }
     }
     lines
 }

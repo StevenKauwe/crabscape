@@ -50,7 +50,15 @@ fn body_blocked(level: &Level, p: Vec2, width: f32) -> bool {
     level.solids().any(|r| !r.intersect(body).is_empty())
         || level.cells.as_ref().is_some_and(|c| {
             c.contains_world(p.x, p.y)
-                && c.game_movement_blocked(body.min.x, body.min.y, body.max.x, body.max.y, 0.0)
+                && c.game_movement_blocked(
+                    body.min.x,
+                    body.min.y,
+                    body.max.x,
+                    body.max.y,
+                    // Settled sediment has a ragged skin; a sparse bump or two
+                    // is not a wall for a fish hovering over it.
+                    2.0 * crate::underwater::GAME_CELL,
+                )
         })
         || (level
             .cells

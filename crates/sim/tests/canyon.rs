@@ -115,8 +115,8 @@ fn still_water() -> Tuning {
 const DOORSTEP: (f32, f32, f32) = (5640.0, 5900.0, -1500.0);
 const SHELF: (f32, f32, f32) = (5901.0, 6150.0, -3400.0);
 // The floor runs to the foot of the far wall's face, which stands out over it.
-const FLOOR: (f32, f32, f32) = (6151.0, 7700.0, -9400.0);
-const FAR_RIM: (f32, f32, f32) = (7901.0, 8800.0, -1900.0);
+const FLOOR: (f32, f32, f32) = (6151.0, 7700.0, -6000.0);
+const FAR_RIM: (f32, f32, f32) = (7901.0, 8800.0, -3900.0);
 
 /// A jump and every stroke, pressed on the rhythm, starting at `at` s.
 fn swim(at: f64, strokes: u32) -> String {
@@ -198,20 +198,33 @@ fn the_shelf_has_a_rest_crevice_at_its_back() {
     );
 }
 
+/// The floor of the fifth egg's hidden cave, cut into the far wall (the wall
+/// above the raised canyon floor kept its place when the floor rose 3,400).
+const EGG_CAVE_FLOOR: f32 = -5200.0;
+
+/// Where a still-water swimmer stood off the canyon floor, if anywhere,
+/// leaving out the egg cave's own floor (see
+/// [`the_egg_cave_is_out_of_a_swimmers_reach_from_the_raised_floor`]).
+fn stood_off_the_floor(r: &Run) -> Option<Vec2> {
+    r.stood
+        .iter()
+        .find(|p| p.y != FLOOR.2 && !(p.y == EGG_CAVE_FLOOR && p.x >= FLOOR.1))
+        .copied()
+}
+
 #[test]
 fn in_still_water_nothing_gets_a_crab_off_the_canyon_floor() {
     // With every stroke, from anywhere along the floor, swimming either way:
-    // the floor is the only place it ever stands.
+    // the floor is the only place it ever stands (bar the egg cave, below).
     for x in [6200.0, 6600.0, 7000.0, 7400.0, 7650.0] {
         for way in ["left", "right", "stop"] {
-            let script = format!("start x={x} y=-9400\nt=0 walk={way}{}", swim(0.2, 4));
+            let script = format!("start x={x} y=-6000\nt=0 walk={way}{}", swim(0.2, 4));
             let r = run_with(still_water(), &script, 6.0, 4);
             assert!(
-                r.stood.iter().all(|p| p.y == FLOOR.2),
+                stood_off_the_floor(&r).is_none(),
                 "from {x} going {way}: stood at {:?}",
-                r.stood.iter().find(|p| p.y != FLOOR.2)
+                stood_off_the_floor(&r)
             );
-            assert!(r.highest < -8500.0);
         }
     }
 }
@@ -265,7 +278,7 @@ fn full_kit_single_rise_for_refuge_spacing() {
 /// the crab stand?
 fn ride_up(x: f32, steer: f64, way: &str) -> Run {
     run(
-        &format!("start x={x} y=-9400\nt=2.5 jump; t=2.7 release; t={steer} walk={way}"),
+        &format!("start x={x} y=-6000\nt=2.5 jump; t=2.7 release; t={steer} walk={way}"),
         40.0,
         0,
     )
@@ -289,7 +302,7 @@ fn the_flood_carries_a_crab_up_the_canyon_to_every_ledge() {
     assert!(doorstep > 0 && shelf > 0 && far_rim > 0);
     // Riding and never steering, it bobs at the top of the current, high
     // over the floor, until the tide turns.
-    let bob = run("start x=6900 y=-9400\nt=2.5 jump; t=2.7 release", 26.0, 0);
+    let bob = run("start x=6900 y=-6000\nt=2.5 jump; t=2.7 release", 26.0, 0);
     assert!(bob.crab().pos.y > -1600.0, "at the top: {}", bob.crab().pos);
     assert!(!bob.crab().grounded);
 }
@@ -413,7 +426,7 @@ fn the_upwelling_runs_by_the_near_wall_from_the_floor_to_just_above_the_shelf() 
     tuning.tide.down_speed = 0.0;
     let r = run_with(
         tuning,
-        "start x=6200 y=-9400\nt=0.2 jump; t=0.4 release",
+        "start x=6200 y=-6000\nt=0.2 jump; t=0.4 release",
         30.0,
         0,
     );
@@ -468,9 +481,11 @@ fn the_fifth_egg_is_on_a_shelf_only_the_flood_reaches() {
     assert!(eaten, "the flood reaches the egg at {egg}");
     // In still water, with every stroke, from the floor below: never.
     for x in [7200.0, 7500.0, 7650.0] {
-        let script = format!("start x={x} y=-9400\nt=0 walk=right{}", swim(0.2, 4));
-        let r = run_with(still_water(), &script, 6.0, 4);
-        assert!(!r.sim.crabs()[0].eaten[4]);
+        for at in [0.2, 0.6, 1.0, 1.5] {
+            let script = format!("start x={x} y=-6000\nt=0 walk=right{}", swim(at, 4));
+            let r = run_with(still_water(), &script, 8.0, 4);
+            assert!(!r.sim.crabs()[0].eaten[4], "from {x}, stroking at {at}");
+        }
     }
 }
 
@@ -489,7 +504,7 @@ fn the_fifth_egg_sits_in_a_hidden_cave_cut_into_the_far_wall() {
     let solid = |p: Vec2| level.solids().any(|s| s.contains(p));
     assert!(!solid(egg), "the cave is open inside");
     let face = cave.min.x;
-    for y in [cave.min.y - 40.0, cave.max.y + 40.0, -9000.0, -2500.0] {
+    for y in [cave.min.y - 40.0, cave.max.y + 40.0, -5600.0, -4200.0] {
         assert!(solid(Vec2::new(face + 5.0, y)), "the face is wall at {y}");
         assert!(!solid(Vec2::new(face - 5.0, y)), "nothing juts out at {y}");
     }
@@ -513,7 +528,7 @@ fn the_den_is_a_roofed_chamber_on_the_route_to_the_eastern_reef() {
     let roof = Vec2::new(den.center().x, den.max.y + 5.0);
     assert!(level.solids().any(|s| s.contains(roof)), "roofed over");
     // A crab walks through the chamber into the next region.
-    let r = run("start x=8000 y=-1900\nt=0 walk=right", 5.0, 0);
+    let r = run("start x=8000 y=-3900\nt=0 walk=right", 5.0, 0);
     assert!(r.crab().pos.x > den.max.x, "{}", r.crab().pos);
 }
 

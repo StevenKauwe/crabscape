@@ -181,9 +181,13 @@ fn note_events(
             Carry::Valve => ("An empty valve for the workbench".into(), PALE),
             Carry::Glass => ("Glass! Take it home.".into(), PALE),
             Carry::Culture => ("Take it home!".into(), WILD_GLOW),
+            // Found, not announced: no text over the Plunge.
+            Carry::Item(crabsim::Item::WildLight) => (String::new(), PALE),
             Carry::Item(item) => (format!("Took a {}", item.names().0), PALE),
         };
-        notes.push((what.0, what.1));
+        if !what.0.is_empty() {
+            notes.push((what.0, what.1));
+        }
     }
     // Walking over a small thing with no room on its shell says so now and
     // then, not every frame.

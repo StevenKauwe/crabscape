@@ -8,7 +8,7 @@
  "px_per_unit": 0.6,
  "ground": [
   248.15,
-  217.4
+  226.2
  ],
  "anchors": {},
  "parts": [
@@ -26,7 +26,7 @@
     71.9
    ],
    "rect": [
-    100,
+    254,
     3,
     45,
     44
@@ -45,19 +45,23 @@
    ],
    "bbox": [
     94.9,
-    153.6,
+    143.3,
     250.3,
-    63.5
+    88.9
    ],
    "rect": [
-    222,
+    3,
     3,
     151,
-    39
+    54
    ],
    "z": 1,
    "members": [
+    "body--dorsal",
+    "body--pelvic",
     "body",
+    "body--flank",
+    "body--sheen",
     "body-photo-0",
     "body-photo-1",
     "body-photo-2",
@@ -85,12 +89,12 @@
     64.2
    ],
    "rect": [
-    148,
+    302,
     3,
     71,
     39
    ],
-   "z": 2,
+   "z": 6,
    "members": [
     "head",
     "head-fang-0",
@@ -117,7 +121,7 @@
     57,
     30
    ],
-   "z": 3,
+   "z": 7,
    "members": [
     "jaw",
     "jaw-fang-0",
@@ -145,9 +149,12 @@
     18,
     17
    ],
-   "z": 4,
+   "z": 8,
    "members": [
-    "eye"
+    "eye",
+    "eye--pupil",
+    "eye--glint",
+    "eye--glint2"
    ]
   },
   {
@@ -164,12 +171,12 @@
     73.5
    ],
    "rect": [
-    3,
+    157,
     3,
     94,
     45
    ],
-   "z": 5,
+   "z": 12,
    "members": [
     "lure"
    ]
@@ -193,7 +200,7 @@
     18,
     18
    ],
-   "z": 6,
+   "z": 13,
    "members": [
     "lure-tip"
    ]

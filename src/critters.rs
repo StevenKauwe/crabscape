@@ -40,13 +40,41 @@ const SHRIMP_ATLAS: &str = "creatures/snapping-shrimp-atlas.png";
 /// unit, and its parts file at twice that.
 const MORAY_PARTS: &str = include_str!("../assets/creatures/snowflake-moray-parts.json");
 const MORAY_ATLAS: &str = "creatures/snowflake-moray-atlas.png";
-const MORAY_ART_SCALE: f32 = 1.0 / 8.0;
+pub(crate) const MORAY_ART_SCALE: f32 = 1.0 / 8.0;
 /// Its body segments (each with its own blotches), taken in turn.
 const MORAY_SEGMENTS: [&str; 3] = ["segment-a", "segment-b", "segment-c"];
 /// The gape the inside of its mouth is drawn for (crabrig's `MOUTH_GAPE`).
 const MORAY_MOUTH_GAPE: f32 = 0.5;
-/// Body segments strung from its head back into the crevice.
-const NECK: u8 = 7;
+/// Body segments strung from its head back into the crevice: enough for the
+/// whole fish (`MORAY_LENGTH`) when it swims out.
+pub(crate) const NECK: u8 = 15;
+/// The whole moray, snout to tail tip, in world units at `moray_scale` 1: a 60
+/// cm snowflake moray (total length, real; 1 cm = 6.25), 100 cm in the game's
+/// sea (`crabsim::tuning::SEA_MORAY_SCALE`). Only its head is its hurtbox (what
+/// comes out of the crevice to bite).
+pub(crate) const MORAY_LENGTH: f32 = 375.0;
+/// From the head's middle to the first segment's, and the half-lengths of the
+/// head and a segment as drawn (world units at `moray_scale` 1).
+const MORAY_FIRST_LINK: f32 = 22.0;
+pub(crate) const MORAY_HEAD_HALF: f32 = 23.0;
+pub(crate) const MORAY_SEGMENT_HALF: f32 = 16.0;
+/// From one segment's middle to the next, so head and segments span `MORAY_LENGTH`.
+pub(crate) const MORAY_LINK: f32 =
+    (MORAY_LENGTH - MORAY_HEAD_HALF - MORAY_FIRST_LINK - MORAY_SEGMENT_HALF) / (NECK - 1) as f32;
+/// The last segments narrow to the tail: each of these is this much slimmer
+/// than the one before.
+const MORAY_TAPER: (u8, f32) = (5, 0.12);
+
+/// How far behind the head's middle segment `n` sits along the body.
+pub(crate) fn moray_link_at(n: u8) -> f32 {
+    MORAY_FIRST_LINK + f32::from(n) * MORAY_LINK
+}
+
+/// How deep segment `n` is drawn, as a share of the head's depth.
+pub(crate) fn moray_taper(n: u8) -> f32 {
+    let from = NECK - MORAY_TAPER.0;
+    1.0 - f32::from(n.saturating_sub(from)) * MORAY_TAPER.1
+}
 /// How far its throat jaws come forward into the mouth when it holds on.
 const THROAT_REACH: f32 = 13.0;
 const ROCK: Color = Color::srgb(0.07, 0.06, 0.05);
@@ -113,9 +141,9 @@ fn swimming_neck(
         if blocked {
             return None;
         }
-        let distance = (n as f32 + 0.5) * 12.0 * scale;
+        let distance = moray_link_at(n as u8) * scale;
         let wave = (time * 6.0 - distance / (20.0 * scale)).sin() * 5.0 * scale * moving;
-        let length = if n == 0 { 22.0 } else { 12.0 } * scale;
+        let length = if n == 0 { MORAY_FIRST_LINK } else { MORAY_LINK } * scale;
         for eighths in [0, -1, 1, -2, 2, -3, 3, -4, 4] {
             let turn = eighths as f32 * std::f32::consts::FRAC_PI_4 * 0.5;
             let direction = Vec2::from_angle(backward.to_angle() + turn);
@@ -421,7 +449,7 @@ fn spawn_critters(
                     let neck = commands
                         .spawn((
                             Part::Neck(n),
-                            Transform::from_xyz(0.0, deep * 0.5, 0.1 - n as f32 * 0.01),
+                            Transform::from_xyz(0.0, deep * 0.5, 0.1 - n as f32 * 0.005),
                             Visibility::default(),
                             ChildOf(root),
                         ))
@@ -626,7 +654,8 @@ fn pose_critters(
                         // A swimming body trails the head in a travelling
                         // wave. Segments still inside the cave are hidden.
                         let out = e.pos.distance(e.home) + e.reach + 22.0 * moray_scale;
-                        let distance = (f32::from(*n) + 0.5) * 12.0 * moray_scale;
+                        let distance = moray_link_at(*n) * moray_scale;
+                        tr.scale.y = moray_taper(*n);
                         let pose = swim_neck.as_ref().and_then(|neck| neck[*n as usize]);
                         if let Some((point, angle)) = pose {
                             tr.translation.x = (point.x - e.pos.x) * e.facing;

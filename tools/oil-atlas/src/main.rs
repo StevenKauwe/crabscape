@@ -16,6 +16,12 @@
 //!
 //!     oil-atlas layout <big-atlas.png> <big-parts.json> <workdir>
 //!     oil-atlas pack <big-parts.json> <game-atlas.png> <game-parts.json> <workdir> <out.png>
+//!     oil-atlas preview <out.png> <height-px> <parts.json> <atlas.png> [<atlas.png> ...] [--hide <part>,<part>]
+//!
+//! `preview` assembles the puppet at rest (every part where the art file drew it) from each atlas given (the ink
+//! one, the oil one), side by side on the deep-sea ground, each `height-px` tall, so a change can be judged as a
+//! whole animal rather than as loose parts. It is a check, not game art: its pictures are never committed except as
+//! examples in `docs/design/painted-creatures.md`.
 
 use std::fs::File;
 use std::io::BufWriter;
@@ -392,6 +398,72 @@ fn pack(big_json: &str, game_atlas: &str, game_json: &str, dir: &str, out_path: 
     println!("wrote {out_path}");
 }
 
+/// The deep-sea ground the previews sit on (the game's dark teal water).
+const SEA: [f32; 3] = [0.075, 0.13, 0.15];
+
+/// Assemble each atlas's puppet at rest and set them side by side, `height` pixels tall, leaving out the parts
+/// named in `hide` (overlays the game shows only now and then, like the squid's pale flash).
+fn preview(out_path: &str, height: usize, json: &str, atlases: &[&str], hide: &[&str]) {
+    let file = read_json(json);
+    let parts: Vec<Value> = file["parts"]
+        .as_array()
+        .expect("parts")
+        .iter()
+        .filter(|p| !hide.contains(&p["name"].as_str().unwrap_or("")))
+        .cloned()
+        .collect();
+    let ppu = file["px_per_unit"].as_f64().unwrap() as f32;
+    let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for p in &parts {
+        let [bx, by, bw, bh] = bbox(p);
+        x0 = x0.min(bx);
+        y0 = y0.min(by);
+        x1 = x1.max(bx + bw);
+        y1 = y1.max(by + bh);
+    }
+    let margin = 0.06 * (y1 - y0).max(x1 - x0);
+    let (x0, y0, x1, y1) = (x0 - margin, y0 - margin, x1 + margin, y1 + margin);
+    // output pixels per art unit
+    let k = height as f32 / (y1 - y0);
+    let w = ((x1 - x0) * k).ceil() as usize;
+    let mut out = Img::new(w * atlases.len(), height);
+    for p in out.px.iter_mut() {
+        *p = [SEA[0], SEA[1], SEA[2], 1.0];
+    }
+    let mut order: Vec<&Value> = parts.iter().collect();
+    order.sort_by_key(|p| p["z"].as_i64().unwrap_or(0));
+    for (n, atlas) in atlases.iter().enumerate() {
+        let img = Img::load(atlas);
+        for p in &order {
+            let [bx, by, bw, bh] = bbox(p);
+            let [rx, ry, rw, rh] = rect(p);
+            let (ox0, oy0) = (((bx - x0) * k) as usize, ((by - y0) * k) as usize);
+            let (ow, oh) = ((bw * k).ceil() as usize, (bh * k).ceil() as usize);
+            for j in 0..oh {
+                for i in 0..ow {
+                    let (ox, oy) = (n * w + ox0 + i, oy0 + j);
+                    if ox >= out.w || oy >= out.h {
+                        continue;
+                    }
+                    // nearest atlas pixel (the atlas is about the game's own size)
+                    let ax = rx + ((i as f32 + 0.5) / k * ppu) as usize;
+                    let ay = ry + ((j as f32 + 0.5) / k * ppu) as usize;
+                    if ax >= rx + rw || ay >= ry + rh {
+                        continue;
+                    }
+                    let s = img.at(ax, ay);
+                    let d = &mut out.px[oy * out.w + ox];
+                    for c in 0..3 {
+                        d[c] = s[c] * s[3] + d[c] * (1.0 - s[3]);
+                    }
+                }
+            }
+        }
+    }
+    out.save(out_path, false);
+    println!("wrote {out_path}");
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args
@@ -408,9 +480,22 @@ fn main() {
             assert!(Path::new(dir).is_dir());
             pack(big_json, game_atlas, game_json, dir, out)
         }
+        ["preview", out, height, json, rest @ ..] if !rest.is_empty() => {
+            let (atlases, hide): (Vec<&str>, Vec<&str>) = match rest {
+                [atlases @ .., "--hide", names] => (atlases.to_vec(), names.split(',').collect()),
+                _ => (rest.to_vec(), vec![]),
+            };
+            preview(
+                out,
+                height.parse().expect("height in px"),
+                json,
+                &atlases,
+                &hide,
+            )
+        }
         _ => {
             eprintln!(
-                "usage:\n  oil-atlas layout <big-atlas.png> <big-parts.json> <workdir>\n  oil-atlas pack <big-parts.json> <game-atlas.png> <game-parts.json> <workdir> <out.png>"
+                "usage:\n  oil-atlas layout <big-atlas.png> <big-parts.json> <workdir>\n  oil-atlas pack <big-parts.json> <game-atlas.png> <game-parts.json> <workdir> <out.png>\n  oil-atlas preview <out.png> <height-px> <parts.json> <atlas.png> [<atlas.png> ...] [--hide <part>,<part>]"
             );
             std::process::exit(2);
         }

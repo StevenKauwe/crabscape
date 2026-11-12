@@ -38,17 +38,17 @@ fn place(name: &str) -> Rect {
 }
 
 #[test]
-fn existing_floor_heights_are_unchanged_west_of_17400() {
+fn existing_floor_heights_are_unchanged_west_of_2800() {
     let level = Level::test_level();
     let mut digest = 0xcbf29ce484222325_u64;
     // Every unit, including both sides of the old vertical edges.
-    for x in 0..=17600 {
+    for x in 0..=2800 {
         for byte in level.floor_height(x as f32).to_bits().to_le_bytes() {
             digest = (digest ^ u64::from(byte)).wrapping_mul(0x100000001b3);
         }
     }
     assert_eq!(
-        digest, 0x888447f7e3f4962c,
+        digest, 0x07eccfedc8a2f593,
         "baseline floor digest: {digest:#x}"
     );
 }
@@ -192,14 +192,15 @@ fn digging_cannot_bypass_the_narrows() {
 fn frames_are_sealed() {
     let level = Level::test_level();
     let landmarks = level.landmarks();
+    // Only the Plunge's four frames stay sealed (the rest are open pockets).
     assert_eq!(
         landmarks.iter().filter(|l| l.kind == Kind::Frame).count(),
-        FRAMES.len() - 4
+        4
     );
     for &name in FRAMES {
-        if matches!(
+        if !matches!(
             name,
-            "home burrow" | "mantis mouth" | "clay tunnel" | "bone hall"
+            "odd tunnel" | "Plunge shaft" | "Plunge crack" | "angler stage"
         ) {
             continue;
         }
@@ -215,7 +216,7 @@ fn frames_are_sealed() {
         assert!(
             landmarks
                 .iter()
-                .filter(|l| l.kind == Kind::Plug && l.name.starts_with(name))
+                .filter(|l| matches!(l.kind, Kind::Plug | Kind::Mouth) && l.name.starts_with(name))
                 .count()
                 >= 2,
             "{name} needs two reserved exits"
@@ -233,10 +234,14 @@ fn frames_are_sealed() {
                 let slit = ((name == "Plunge crack" && p.x == r.max.x)
                     || (name == "angler stage" && p.x == r.min.x))
                     && (p.y + 14025.0).abs() < 6.0;
+                // The odd tunnel's dead end opens onto the chimney hall.
+                let doorway = landmarks.iter().any(|l| {
+                    l.kind == Kind::Mouth && l.name.starts_with(name) && l.rect.contains(p)
+                });
                 assert!(
                     // Permanent rock also seals the chimney after its brittle
                     // crust has cracked: no early crusher access to a frame.
-                    slit || level.rocks.iter().any(|rock| rock.contains(p)),
+                    slit || doorway || level.rocks.iter().any(|rock| rock.contains(p)),
                     "{name} open at {p}"
                 );
             }

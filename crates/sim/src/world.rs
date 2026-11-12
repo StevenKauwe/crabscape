@@ -43,7 +43,7 @@ use crate::skills::Skill;
 use crate::tuning::Tuning;
 
 #[path = "strain.rs"]
-mod strain;
+pub(crate) mod strain;
 
 /// Identifies a player. Only one exists for now, but co-op will add more.
 #[derive(
@@ -100,6 +100,9 @@ pub struct SimCrab {
     pub salvage_identity: u64,
     #[serde(default)]
     pub royal: crate::royal::Progress,
+    /// Its Plunge: dig counter, ride phase, once-only flags.
+    #[serde(default)]
+    pub plunge: crate::plunge::Plunge,
     #[serde(default)]
     pub bell_run: Option<crate::royal::BellRun>,
     #[serde(default)]
@@ -930,10 +933,11 @@ impl Sim {
     }
 
     fn scale_experimental_moray(tuning: &mut Tuning) {
-        tuning.moray.body.0 *= 1.75;
-        tuning.moray.body.1 *= 1.75;
-        tuning.moray.strike.height *= 1.75;
-        tuning.moray.strike.radius *= 1.75;
+        let s = crate::tuning::SEA_MORAY_SCALE;
+        tuning.moray.body.0 *= s;
+        tuning.moray.body.1 *= s;
+        tuning.moray.strike.height *= s;
+        tuning.moray.strike.radius *= s;
         // The experimental eel swims out to its prey instead of stretching
         // an implausibly long head and neck from a fixed point.
         tuning.moray.approach_speed = 155.0;
@@ -971,6 +975,24 @@ impl Sim {
         }
     }
 
+    /// A crab pinned (or let go of) a goal at `tick`: a running recording
+    /// notes it.
+    pub(crate) fn note_pin(&mut self, tick: u64, pin: Option<&'static crate::economy::EconRecipe>) {
+        if let Some(rec) = &mut self.recorder {
+            rec.note_pin(tick, pin);
+        }
+    }
+
+    /// The co-op connection, if any.
+    pub(crate) fn net_ref(&self) -> Option<&Net> {
+        self.net.as_ref()
+    }
+
+    /// The co-op connection, if any, to send or ask on.
+    pub(crate) fn net_mut(&mut self) -> Option<&mut Net> {
+        self.net.as_mut()
+    }
+
     /// A crab went straight home at `tick` (the Home button): a running
     /// recording notes it.
     pub(crate) fn note_home(&mut self, tick: u64) {
@@ -999,6 +1021,7 @@ impl Sim {
             drift_receipts: Vec::new(),
             salvage_identity: 0,
             royal: crate::royal::Progress::default(),
+            plunge: crate::plunge::Plunge::default(),
             bell_run: None,
             research_ticket: None,
             eaten: vec![false; self.level.eggs.len()],
@@ -1267,10 +1290,12 @@ impl Sim {
                 midden_taken,
                 bodies_eaten,
                 nodes,
+                home_pieces,
             } => {
                 if host {
                     return;
                 }
+                self.shared.home_pieces = home_pieces.into_iter().collect();
                 for (n, (charges, regrow)) in self.shared.nodes.iter_mut().zip(nodes) {
                     n.charges = charges.min(n.kind.def().charges);
                     n.regrow = regrow;
@@ -1359,6 +1384,8 @@ impl Sim {
                 };
                 if let (Some(id), Thing::Node(i)) = (ours, thing) {
                     self.finish_node(id, i, false);
+                } else if let (Some(id), Thing::Piece(p)) = (ours, thing) {
+                    self.finish_piece(id, p);
                 } else if let Some(id) = ours
                     && let Some(c) = self.crabs.iter_mut().find(|c| c.id == id && !c.remote)
                 {
@@ -1414,6 +1441,7 @@ impl Sim {
             midden_taken: s.midden_taken.clone(),
             bodies_eaten: s.bodies_eaten.clone(),
             nodes: s.nodes.iter().map(|n| (n.charges, n.regrow)).collect(),
+            home_pieces: s.home_pieces.iter().copied().collect(),
         }
     }
 
@@ -2463,6 +2491,10 @@ impl Sim {
                     &self.tuning,
                     STEP,
                 ));
+            } else if crab.plunge.carried()
+                && let Some(places) = crate::plunge::places()
+            {
+                crate::plunge::carry(crab, places);
             } else {
                 ev.merge(crate::chimney::step(
                     &mut self.level,
@@ -2665,6 +2697,10 @@ impl Sim {
             // larder. How far the home has grown changes how it rests there.
             let build = &self.tuning.build;
             let stage = build.stage(crab.home_grit);
+            let hearth = self
+                .shared
+                .home_pieces
+                .contains(&crate::economy::Piece::NoduleHearth);
             let m = &mut crab.mover;
             let place = self.level.place_at(m.pos);
             if m.tucked_in()
@@ -2693,6 +2729,8 @@ impl Sim {
                 } else {
                     self.tuning.home_heal_after_ticks
                 };
+                // The nodule hearth's warm stones: it mends sooner still.
+                let mend_after = if hearth { mend_after / 2 } else { mend_after };
                 rest(m, v, &self.tuning, mend_after, &mut crab.events);
                 // Stage 2: a shelf of grit inside, a bigger larder.
                 let larder = larder_holds(stage, &self.tuning);
@@ -2766,6 +2804,22 @@ impl Sim {
             } else {
                 crab.resting = 0;
             }
+        }
+        // The Plunge: its dig, lip, scene and cues; it also marks which
+        // crabs nothing may reach, before any hunter moves.
+        let moments = crate::plunge::step_all(
+            &mut self.crabs,
+            &self.level,
+            &self.tuning,
+            crate::plunge::places(),
+        );
+        for (crab, moment) in moments {
+            let cue = match moment {
+                crate::plunge::Moment::Silt => cues::Cue::PlungeSilt { crab },
+                crate::plunge::Moment::Roar => cues::Cue::PlungeRoar { crab },
+                crate::plunge::Moment::Tone => cues::Cue::PlungeTone { crab },
+            };
+            self.sound_cues.emit(self.tick + 1, cue);
         }
         // A crab in an octopus's ink cloud is blinded.
         let clouds: Vec<Vec2> = self
@@ -3040,6 +3094,7 @@ impl Sim {
                 && e.state_tick >= crate::codes::MONKEY_LINGER)
         });
         self.gather_step();
+        self.pin_step();
         // Each crab's memory: what it sees now is seen.
         if self
             .tick

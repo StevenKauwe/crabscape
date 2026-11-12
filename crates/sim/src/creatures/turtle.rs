@@ -28,8 +28,8 @@ pub const MIDWATER: bool = true;
 /// What its body leaves: nothing. It is driven off, never eaten.
 pub const DROPS: &[&str] = &[];
 /// Body hurtbox, width and height in units (1 cm = 6.25): the 90 cm
-/// carapace with the head, 25 cm deep.
-pub const BODY: (f32, f32) = (560.0, 160.0);
+/// carapace (straight length, real) with the head, 30 cm deep, as drawn.
+pub const BODY: (f32, f32) = (656.0, 187.0);
 
 // ---- Feel numbers (ticks at 120 Hz; units; tuned unless marked real) ------
 /// Sees a crab this far (a dimmed lantern); a lit lantern is seen 1.35x as far.
@@ -56,7 +56,7 @@ pub const LOCK_TICKS: u32 = 60;
 /// Slowest and fastest it dives (units/s); a dive that cannot arrive misses.
 pub const DIVE_MAX: f32 = 520.0;
 /// Its mouth, from its feet point (x ahead, y): the bite point goes here.
-pub const MOUTH: (f32, f32) = (270.0, -30.0);
+pub const MOUTH: (f32, f32) = (316.0, -35.0);
 /// The bite is out this long, a circle this big, centred on the mouth.
 pub const BITE_TICKS: u32 = 10;
 pub const BITE_RADIUS: f32 = 75.0;
@@ -174,7 +174,9 @@ pub fn spots(level: &Level) -> Vec<Vec2> {
     let x = basin.rect.min.x - 250.0;
     vec![Vec2::new(
         x,
-        basin.rect.max.y.max(level.floor_height(x)) + 700.0,
+        // 1,200 over the basin so its leash stays above the long
+        // chimney's top (no hunters in tunnels).
+        basin.rect.max.y.max(level.floor_height(x)) + 1200.0,
     )]
 }
 

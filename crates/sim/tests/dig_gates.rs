@@ -114,25 +114,44 @@ fn digging_never_opens_the_brittle_rock() {
 fn a_dig_cannot_cross_a_frame() {
     use crabsim::underwater::{Cell, World};
     let level = Level::test_level();
-    for body in level.strata() {
+    // Frames below the baked grid (the deep ducts and the Plunge) are not in
+    // the cell world.
+    for body in level.strata().iter().filter(|b| b.frame.min.y > -10400.0) {
         let r = body.frame;
-        // Aim into each permanent wall away from the authored mouths. Test
-        // both directions, including far more force than an ordinary stroke.
-        for (at, dx, dy) in [
-            (Vec2::new(r.min.x - 8.0, r.min.y + 40.0), 1, 0),
-            (Vec2::new(r.max.x + 8.0, r.min.y + 40.0), -1, 0),
-            (Vec2::new(r.min.x + 24.0, r.min.y - 8.0), 0, 1),
-            (Vec2::new(r.min.x + 24.0, r.max.y + 8.0), 0, -1),
-        ] {
+        let mut world = World::from_level_settled(&level);
+        world.follow_player(&level, r.center().x, r.center().y);
+        // Aim into each permanent wall away from the authored mouths: the
+        // wall's rock cells outside every opening. Test both directions,
+        // including far more force than an ordinary stroke.
+        let mut tried = 0;
+        for (at, dx, dy) in (0..60).flat_map(|i| {
+            let t = i as f32 * 17.0;
+            [
+                (Vec2::new(r.min.x - 8.0, r.min.y + 24.0 + t), 1, 0),
+                (Vec2::new(r.max.x + 8.0, r.min.y + 24.0 + t), -1, 0),
+                (Vec2::new(r.min.x + 24.0 + t, r.min.y - 8.0), 0, 1),
+                (Vec2::new(r.min.x + 24.0 + t, r.max.y + 8.0), 0, -1),
+            ]
+        }) {
+            if at.x > r.max.x + 8.0 || at.y > r.max.y + 8.0 || tried >= 12 {
+                continue;
+            }
             let mut world = World::from_level_settled(&level);
-            world.follow_player(&level, at.x, at.y);
+            if !world.follow_player(&level, at.x, at.y) && !world.contains_world(at.x, at.y) {
+                continue;
+            }
             let (x, y) = world.local_cell(at.x, at.y);
-            assert_eq!(world.cell(x as i32, y as i32), Cell::Rock);
+            if world.cell(x as i32, y as i32) != Cell::Rock {
+                continue;
+            }
+            tried += 1;
             for _ in 0..120 {
                 assert!(!world.push_for_crab(x, y, dx, dy, 10_000));
             }
             assert_eq!(world.cell(x as i32, y as i32), Cell::Rock);
         }
+        assert!(tried > 0, "no wall cell found for {:?}", body.frame);
+        let _ = &mut world;
     }
 }
 
