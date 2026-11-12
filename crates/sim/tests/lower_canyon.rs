@@ -51,7 +51,7 @@ fn existing_floor_heights_are_unchanged_west_of_2800() {
         }
     }
     assert_eq!(
-        digest, 0xfc444b46efc70704,
+        digest, 0x7eccfedc8a2f593,
         "baseline floor digest: {digest:#x}"
     );
 }

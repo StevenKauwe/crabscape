@@ -220,7 +220,6 @@ fn exact_bed(name: &str) -> Option<Declared> {
         | "the trench"
         | "far ledge"
         | "the crest"
-        | "ledge pool"
         | "the lookout"
         | "trench hollow"
         // The Drop and the Deep Galleries (`level/deep_galleries.rs`).

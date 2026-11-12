@@ -78,10 +78,11 @@ Measured targets (a level-1 bot, the systems lead's): the five skills each reach
 the main gathering skill about 15 at minute 20, and every skill 15 within three hours of mixed play.
 
 ### Built (the first-hour world PR, `level/shallows.rs`)
-- Names: "shrimp row", "the shelf", "the trench", "far ledge", "the crest", "ledge pool", "the lookout",
+- Names: "shrimp row", "the shelf", "the trench", "far ledge", "the crest", "the lookout",
   "trench hollow".
-- **Ledge pool** (x 2,290 to 2,400, bottom y -120, at the foot of the far ledge's slope): the first small dive. The
-  shelf could not take a pool: it is the arena several creature and economy tests are built on.
+- **No pool yet.** A ledge pool at the foot of the far ledge trapped a crab walking east in the cells world, and a
+  shallow one the bake fills with sand; the trench is the first dive. The shelf could not take one either (the
+  arena of several creature and economy tests).
 - **The lookout** (x 368 to 458, top y 704), stepped onto from the kelp stand by home: the first climb, a site on top
   and a view.
 - **Trench hollow** (x 1,380 to 1,520, y -480 to -340): a bay off the silt mouth's shaft, below the tier-2 line,

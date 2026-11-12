@@ -7,9 +7,9 @@
 //! point, and nothing touches the shelf (x 900 to 1,290): the creature tests
 //! fight on its flat floor. The new ground is:
 //!
-//! - **The ledge pool** (`LEDGE_POOL`): a dip at the foot of the far ledge's
-//!   slope, cut into rock with a bedrock bowl under it (the bake sweeps loose
-//!   sand off and into any hole; the rock keeps the walls).
+//! - **No pool** (see `POOLS`): the pool machinery stays (a dip cut into rock
+//!   on a bedrock bowl, as the bake sweeps loose sand into any hole), with no
+//!   pool placed.
 //! - **The lookout**: a bedrock ledge east of the kelp stand beside home
 //!   (x 280, the climb to the surface), hung off nothing (rocks float, as the
 //!   sea arch does), 704 up. A climber steps off the stalk's side onto it.
@@ -46,28 +46,10 @@ pub struct Pool {
     pub bottom: f32,
 }
 
-/// The ledge pool, at the foot of the far ledge's slope, 140 under its east
-/// rim (the clam bed at x 2,450 and the grit at 2,200 stay on the old floor). Its east rim stops at x 2,400:
-/// the co-op cells check digs at about x 2,470, and a crab cannot dig with the bowl's bedrock under its body.
-pub const LEDGE_POOL: Pool = Pool {
-    name: "ledge pool",
-    profile: &[
-        Vec2::new(2290.0, 38.0),
-        Vec2::new(2320.0, -120.0),
-        Vec2::new(2370.0, -120.0),
-        Vec2::new(2400.0, 20.0),
-    ],
-    rock: &[
-        Vec2::new(2290.0, 38.0),
-        Vec2::new(2320.0, -120.0),
-        Vec2::new(2370.0, -120.0),
-        Vec2::new(2400.0, 20.0),
-    ],
-    top: 60.0,
-    bottom: -120.0,
-};
-
-pub const POOLS: [Pool; 1] = [LEDGE_POOL];
+/// The pools cut into the shallows: none today. A ledge pool at the foot of the far ledge's slope (x 2,290 to
+/// 2,440, 140 deep on a bedrock bowl) trapped a crab walking east in the cells world (the co-op cells check), and a
+/// shallow one the bake fills with sand; the trench is the first dive instead.
+pub const POOLS: [Pool; 0] = [];
 
 /// The lookout ledge, east of the kelp stand at x 280 (which climbs to the
 /// surface): 704 over the floor. A climber on the stalk's east side steps off
@@ -128,7 +110,7 @@ fn hollow_rocks() -> [Rect; 5] {
 ///
 /// Groups, west to east: the home pocket, the shrimp row's pocket, the boulder,
 /// the lookout up the kelp beside home, the shelf's west and east ends, the trench rim, the far ledge's
-/// start, its slope, the ledge pool and the crest of the cliff above the basin
+/// start, its slope, its foot and the crest of the cliff above the basin
 /// (reached only with the strokes the far ledge's eggs give).
 pub const SITES: &[(&str, &str, Vec2)] = &[
     // Home's pocket, between the home burrow's first shaft and the first
@@ -165,9 +147,9 @@ pub const SITES: &[(&str, &str, Vec2)] = &[
     ("far ledge slope", "SnailRocks", Vec2::new(2190.0, 76.0)),
     ("far ledge slope", "MusselClump", Vec2::new(2235.0, 64.0)),
     ("far ledge slope", "KelpStand", Vec2::new(2280.0, 51.0)),
-    // In the ledge pool.
-    ("ledge pool", "GritHeap", Vec2::new(2335.0, -120.0)),
-    ("ledge pool", "ShoreGlow", Vec2::new(2355.0, -120.0)),
+    // Further down the far ledge's slope.
+    ("far ledge foot", "GritHeap", Vec2::new(2335.0, 33.0)),
+    ("far ledge foot", "ShoreGlow", Vec2::new(2355.0, 30.0)),
     // The crest of the cliff over the basin.
     ("the crest", "KelpStand", Vec2::new(2745.0, 860.0)),
     ("the crest", "SnailRocks", Vec2::new(2775.0, 860.0)),
@@ -195,8 +177,8 @@ pub const FINDS: &[Vec2] = &[
     Vec2::new(1905.0, 140.0),
     // Buried on the far ledge's slope.
     Vec2::new(2215.0, 40.0),
-    // Drifting low over the ledge pool.
-    Vec2::new(2345.0, -70.0),
+    // Drifting low over the far ledge's foot.
+    Vec2::new(2345.0, 80.0),
 ];
 
 impl Level {
