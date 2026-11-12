@@ -56,15 +56,15 @@ pieces! {
     GlassLamp, "glass-lamp", "Glass lamp", 8,
         "A glass sponge lamp: a warm glow at the home.", [(Glass, 4), (KelpCord, 1)];
     ShellMosaic, "shell-mosaic", "Shell mosaic", 15,
-        "Clam valves and grit set in a pattern on the wall.", [(Valve, 8), (Grit, 4), (Pearl, 1)];
+        "Clam valves, grit and shed teeth set in a pattern on the wall.", [(Valve, 8), (Grit, 4), (Pearl, 1), (Tooth, 4)];
     WhelkDoor, "whelk-door", "Whelk door", 20,
-        "A whelk shell set in clay, a door for the doorway.", [(WhelkShell, 1), (Clay, 2)];
+        "A whelk shell set in clay and edged with seep mussel shells, a door for the doorway.", [(WhelkShell, 1), (Clay, 2), (SeepMussel, 2)];
     BoneArch, "bone-arch", "Bone arch", 35,
         "Whale bone ribs over the home, clay-set.", [(WhaleBone, 2), (Clay, 3), (MantisClub, 1)];
     PhotophoreString, "photophore-string", "Photophore string", 40,
         "Photophores on slime thread: a cold light along the roof.", [(Photophore, 3), (SlimeThread, 2)];
     CoralGarden, "coral-garden", "Coral garden", 55,
-        "Black and bamboo coral set in clay beside the door.", [(BlackCoral, 2), (BambooCoral, 1), (Clay, 4)];
+        "Black coral and a mantis telson set in clay beside the door.", [(BlackCoral, 2), (MantisTelson, 1), (Clay, 4)];
     NoduleHearth, "nodule-hearth", "Nodule hearth", 70,
         "Warm vent-stone nodules, no fire: the shell mends sooner at home.", [(Nodule, 4), (ScalePlate, 1), (Clay, 4)];
 }
@@ -199,6 +199,14 @@ impl Sim {
         }
         crab.stash.take(piece.needs());
         crab.econ.crafts_done += 1;
+        if crab
+            .econ
+            .pinned
+            .as_ref()
+            .is_some_and(|p| p.word == piece.word())
+        {
+            crab.econ.pinned = None;
+        }
         self.earn(id, piece.skill(), piece.xp() as f32);
         self.sound(crate::world::cues::Cue::Crafted { crab: id });
     }

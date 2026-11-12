@@ -24,7 +24,60 @@ enum Act {
     Cooked(Food),
 }
 
+/// Experience for one block of sediment dug: a block is 4 by 4 cells
+/// (16 world units) under the claws. Tuned in `tests/economy_dig.rs` so a
+/// minute of steady tunnelling pays about what a minute of tier 1 gathering
+/// does.
+pub const DIG_BLOCK_XP: f32 = 1.0;
+/// How many dug blocks a crab remembers: digging a refilled spot again, or
+/// digging in place, pays nothing while the block is remembered.
+const DIG_MEMORY: usize = 96;
+
+/// The blocks a crab dug lately and the new ones not yet paid.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct DigLedger {
+    recent: Vec<(i32, i32)>,
+    next: usize,
+    owed: u32,
+}
+
+impl DigLedger {
+    /// The claws at cell (`x`, `y`) dig toward (`dx`, `dy`) into sediment:
+    /// a block not dug lately is owed experience.
+    pub(crate) fn credit(&mut self, x: f32, y: f32, dx: i32, dy: i32) {
+        let key = (
+            ((x + dx as f32 * 3.0) / 4.0).floor() as i32,
+            ((y + dy as f32 * 3.0) / 4.0).floor() as i32,
+        );
+        if self.recent.contains(&key) {
+            return;
+        }
+        if self.recent.len() < DIG_MEMORY {
+            self.recent.push(key);
+        } else {
+            self.recent[self.next] = key;
+            self.next = (self.next + 1) % DIG_MEMORY;
+        }
+        self.owed = self.owed.saturating_add(1);
+    }
+}
+
 impl Sim {
+    /// Pay every local crab for the new blocks it dug this tick: Excavating
+    /// by the unit, deterministic (no chance).
+    pub(crate) fn dig_step(&mut self) {
+        let mut pay = Vec::new();
+        for c in self.crabs.iter_mut().filter(|c| !c.remote) {
+            if c.dig.owed > 0 {
+                pay.push((c.id, c.dig.owed));
+                c.dig.owed = 0;
+            }
+        }
+        for (id, blocks) in pay {
+            self.earn(id, Skill::Excavating, blocks as f32 * DIG_BLOCK_XP);
+        }
+    }
+
     /// Crab `id` earns `xp` experience in `skill`. Returns the last level
     /// it reached, if it went up (one [`Cue::LevelUp`] is sounded for every
     /// level crossed, and the crab's next events say the last one). Only a

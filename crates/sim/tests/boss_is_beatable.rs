@@ -9,6 +9,7 @@
 //! seen (late by its reaction time), and times a planned answer by that
 //! rhythm, a little off each time (its jitter).
 //!
+<<<<<<< HEAD
 //! The bar: the expected player ([`HUMAN`]) wins 60-85% of fights from the
 //! boss's rest point (its door: `Sim::rest_points`), and a perfect one
 //! ([`PERFECT`]) nearly all. Each boss ([`Boss`]) adds its arena, a view of
@@ -23,6 +24,18 @@ use std::collections::VecDeque;
 
 use bevy_math::{Rect, Vec2};
 use crabsim::creatures::{Extra, grouper};
+=======
+//! The bar: the expected player ([`HUMAN`]) wins 60-80% of fights from the
+//! boss's rest point, and a perfect one ([`PERFECT`]) nearly all. Each boss
+//! adds its arena, the bot's reading of its tells (`Bot::read_octopus`) and a
+//! case to [`boss_is_beatable`]: the octopus now, then the sixgill and the
+//! grouper. The `--ignored` diagnostics say why fights are lost and how the
+//! odds move with the player's skill and the boss's pressure.
+
+use std::collections::VecDeque;
+
+use bevy_math::Vec2;
+>>>>>>> origin/main
 use crabsim::enemy::State;
 use crabsim::octopus::{self, ArmState};
 use crabsim::{Controls, Kind, PlayerId, Sim, Tuning};
@@ -94,6 +107,7 @@ struct OctoView {
     ink: Option<(Vec2, f32)>,
 }
 
+<<<<<<< HEAD
 /// What a player sees of the goliath grouper on one tick.
 #[derive(Clone, Copy, Debug)]
 struct GrouperView {
@@ -143,12 +157,15 @@ impl Boss {
     }
 }
 
+=======
+>>>>>>> origin/main
 /// What a player sees on one tick.
 #[derive(Clone, Debug)]
 struct View {
     tick: u64,
     crab: Vec2,
     grabbed: bool,
+<<<<<<< HEAD
     boss: Option<Seen>,
 }
 
@@ -182,10 +199,34 @@ fn look(sim: &Sim, which: Boss, boss: u32) -> View {
                 })
             }),
     };
+=======
+    boss: Option<OctoView>,
+}
+
+fn look(sim: &Sim, boss: u32) -> View {
+    let t = &sim.tuning;
+    let c = &sim.crabs()[0];
+    let boss = sim
+        .enemies()
+        .iter()
+        .find(|e| e.id == boss)
+        .and_then(|e| e.octopus().map(|o| (e, o)))
+        .filter(|(e, o)| e.state != State::Gone && !o.fled)
+        .map(|(e, o)| OctoView {
+            state: e.state,
+            phase: octopus::phase(e, o),
+            mantle: octopus::mantle(e, t),
+            half: Vec2::new(t.octopus.base.body.0, t.octopus.base.body.1) / 2.0,
+            base: e.pos,
+            arms: o.arms.iter().map(|a| (a.state, a.tip)).collect(),
+            ink: o.ink.map(|i| (i.at, t.octopus.ink.radius)),
+        });
+>>>>>>> origin/main
     View {
         tick: sim.tick_count(),
         crab: c.mover.pos,
         grabbed: c.fighter.grabbed.is_some(),
+<<<<<<< HEAD
         boss: seen,
     }
 }
@@ -195,6 +236,12 @@ fn grouper_leaving(e: &crabsim::Enemy) -> bool {
     matches!(&e.creature, Extra::Grouper(s) if s.leaving)
 }
 
+=======
+        boss,
+    }
+}
+
+>>>>>>> origin/main
 /// A press the bot has planned for a tick.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Press {
@@ -208,8 +255,11 @@ enum Why {
     Arm(usize),
     Rise,
     Flush,
+<<<<<<< HEAD
     /// The grouper's gape.
     Gape,
+=======
+>>>>>>> origin/main
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -272,6 +322,7 @@ struct Bot {
     /// How many ticks it has seen each arm slide.
     slide_seen: [u32; 8],
     trace: bool,
+<<<<<<< HEAD
     /// How it answers the grouper's gape.
     tactic: Tactic,
     /// Where it last made headway, and when.
@@ -287,6 +338,8 @@ enum Tactic {
     Brace,
     /// Dodge through the gulp on the rhythm of the tell, then punish.
     Dodge,
+=======
+>>>>>>> origin/main
 }
 
 impl Bot {
@@ -304,12 +357,15 @@ impl Bot {
             soonest_touch: f32::INFINITY,
             slide_seen: [0; 8],
             trace: std::env::var("BOT_TRACE").is_ok(),
+<<<<<<< HEAD
             last_at: Vec2::ZERO,
             moved_at: 0,
             tactic: match std::env::var("BOT_TACTIC").as_deref() {
                 Ok("brace") => Tactic::Brace,
                 _ => Tactic::Dodge,
             },
+=======
+>>>>>>> origin/main
         }
     }
 
@@ -327,10 +383,17 @@ impl Bot {
     }
 
     /// The bot's controls for this tick, from what it saw `reaction` ticks ago.
+<<<<<<< HEAD
     fn act(&mut self, sim: &Sim, which: Boss, boss: u32) -> Controls {
         let t = sim.tuning.clone();
         let now = sim.tick_count();
         self.seen.push_back(look(sim, which, boss));
+=======
+    fn act(&mut self, sim: &Sim, boss: u32) -> Controls {
+        let t = sim.tuning.clone();
+        let now = sim.tick_count();
+        self.seen.push_back(look(sim, boss));
+>>>>>>> origin/main
         while self.seen.len() > self.skill.reaction as usize + 1 {
             self.seen.pop_front();
         }
@@ -340,7 +403,11 @@ impl Bot {
         if crab.fighter.dead.is_some() {
             return c;
         }
+<<<<<<< HEAD
         let Some(seen) = view.boss.clone() else {
+=======
+        let Some(o) = view.boss.clone() else {
+>>>>>>> origin/main
             return c;
         };
         let f = &sim.crabs()[0].fighter;
@@ -354,6 +421,7 @@ impl Bot {
         if f.counter > 0 {
             self.block_until = now;
         }
+<<<<<<< HEAD
         let here = crab.mover.pos;
         match &seen {
             Seen::Octopus(o) => {
@@ -362,6 +430,10 @@ impl Bot {
             }
             Seen::Grouper(g) => self.read_grouper(now, &view, g, &t),
         }
+=======
+        self.read_octopus(now, sim.crabs()[0].mover.pos, can_parry, &view, &o, &t);
+        self.prev = Some(o.clone());
+>>>>>>> origin/main
         if view.grabbed {
             // Held: mash dodge to struggle free (about seven presses a second).
             if now as i64 >= self.last_mash as i64 + 16 + self.dice.spread(2) {
@@ -374,6 +446,11 @@ impl Bot {
 
         // The press planned for now, if any.
         let due = self.plans.iter().position(|p| p.when <= now);
+<<<<<<< HEAD
+=======
+        let here = crab.mover.pos;
+        let toward = if o.mantle.x >= here.x { 1.0 } else { -1.0 };
+>>>>>>> origin/main
         if let Some(i) = due {
             let p = self.plans.remove(i);
             if self.trace {
@@ -401,6 +478,7 @@ impl Bot {
         if now < self.block_until {
             c.block_held = true;
         }
+<<<<<<< HEAD
         match &seen {
             Seen::Octopus(o) => self.octopus_moves(now, crab, o, &t, c),
             Seen::Grouper(g) => self.grouper_moves(now, crab, g, &t, c),
@@ -419,6 +497,8 @@ impl Bot {
     ) -> Controls {
         let here = crab.mover.pos;
         let toward = if o.mantle.x >= here.x { 1.0 } else { -1.0 };
+=======
+>>>>>>> origin/main
         if o.state == State::Flee {
             // Jetting off: it lands somewhere else; wait for it.
             return c;
@@ -511,7 +591,10 @@ impl Bot {
             Why::Arm(i) => matches!(o.arms[i].0, ArmState::Slide | ArmState::Feel),
             Why::Rise => matches!(o.phase, "rise" | "drop"),
             Why::Flush => matches!(o.phase, "flush" | "pounce"),
+<<<<<<< HEAD
             Why::Gape => false,
+=======
+>>>>>>> origin/main
         };
         self.plans.retain(|p| live(p.why));
         self.answered.retain(|&why| live(why));
@@ -574,6 +657,7 @@ impl Bot {
     }
 }
 
+<<<<<<< HEAD
 impl Bot {
     /// Learn from what it sees of the grouper: the gape is the tell for the
     /// gulp, which comes a learned time after it.
@@ -666,12 +750,18 @@ impl Bot {
 /// standing at the boss's door (its rest point, where a retry begins),
 /// `offset` units further along.
 fn arena(which: Boss, offset: f32) -> (Sim, u32) {
+=======
+/// The octopus's arena: its den at the top of the canyon's far wall in the
+/// game's sea, the crab starting at the den's door (its rest point).
+fn octopus_arena(offset: f32) -> (Sim, u32) {
+>>>>>>> origin/main
     let mut sim = Sim::with_one_crab(Vec2::new(0.0, 0.0));
     sim.enable_underwater_cells();
     sim.populate();
     let boss = sim
         .enemies()
         .iter()
+<<<<<<< HEAD
         .find(|e| e.kind == which.kind())
         .unwrap_or_else(|| panic!("the level has {}", which.name()))
         .id;
@@ -683,18 +773,33 @@ fn arena(which: Boss, offset: f32) -> (Sim, u32) {
         .at
         .x
         + offset;
+=======
+        .find(|e| e.kind == Kind::Octopus)
+        .expect("the level has its octopus")
+        .id;
+    let door = sim.level.den.min.x - 120.0 + offset;
+>>>>>>> origin/main
     let y = sim.level.floor_height(door);
     let crab = sim.crab_mut(P).expect("one crab");
     crab.mover.pos = Vec2::new(door, y);
     crab.mover.vel = Vec2::ZERO;
+<<<<<<< HEAD
     // Only the boss: the rest of the level's animals stay out of it.
     sim.enemies_mut()
         .iter_mut()
         .filter(|e| e.id != boss)
+=======
+    // Only the octopus: the rest of the level's animals stay out of it.
+    let keep = boss;
+    sim.enemies_mut()
+        .iter_mut()
+        .filter(|e| e.id != keep)
+>>>>>>> origin/main
         .for_each(|e| e.state = State::Gone);
     (sim, boss)
 }
 
+<<<<<<< HEAD
 /// The finer part of a boss's state, as a player reads it.
 fn phase_of(which: Boss, e: &crabsim::Enemy) -> &'static str {
     match which {
@@ -725,6 +830,16 @@ fn fight_tuned(
     tweak: impl Fn(&mut Tuning),
 ) -> (End, Log) {
     let (mut sim, boss) = arena(which, (seed % 9) as f32 * 10.0 - 40.0);
+=======
+/// One fight, at most `seconds` long.
+fn fight(skill: Skill, seed: u64, seconds: u64) -> (End, Log) {
+    fight_tuned(skill, seed, seconds, |_| {})
+}
+
+/// One fight with the boss's tuning changed first.
+fn fight_tuned(skill: Skill, seed: u64, seconds: u64, tweak: impl Fn(&mut Tuning)) -> (End, Log) {
+    let (mut sim, boss) = octopus_arena((seed % 9) as f32 * 10.0 - 40.0);
+>>>>>>> origin/main
     tweak(&mut sim.tuning);
     let mut bot = Bot::new(skill, seed);
     let mut log = Log::default();
@@ -732,13 +847,21 @@ fn fight_tuned(
     let mut was_held = false;
     let mut last_phase = "?";
     for _ in 0..seconds * 120 {
+<<<<<<< HEAD
         let c = bot.act(&sim, which, boss);
+=======
+        let c = bot.act(&sim, boss);
+>>>>>>> origin/main
         sim.set_controls(P, c);
         let before = sim.crabs()[0].fighter.vitals.health;
         sim.tick();
         let crab = &sim.crabs()[0];
         let e = sim.enemies().iter().find(|e| e.id == boss).expect("boss");
+<<<<<<< HEAD
         let phase = phase_of(which, e);
+=======
+        let phase = e.octopus().map_or("?", |o| octopus::phase(e, o));
+>>>>>>> origin/main
         if std::env::var("BOT_TRACE").is_ok()
             && let Some(o) = e.octopus()
         {
@@ -752,10 +875,14 @@ fn fight_tuned(
                 }
             }
         }
+<<<<<<< HEAD
         if which == Boss::Octopus
             && std::env::var("BOT_TRACE").is_ok()
             && sim.tick_count() % 20 == 0
         {
+=======
+        if std::env::var("BOT_TRACE").is_ok() && sim.tick_count() % 20 == 0 {
+>>>>>>> origin/main
             println!(
                 "    t {} crab {:.0} hp {:.0} {} | octo {:.0} {} reach {:.0} hp {:.0} arms {}",
                 sim.tick_count(),
@@ -769,6 +896,7 @@ fn fight_tuned(
                 e.octopus().map_or(String::new(), |o| o.arm_letters()),
             );
         }
+<<<<<<< HEAD
         if which == Boss::Grouper
             && std::env::var("BOT_TRACE").is_ok()
             && sim.tick_count() % 20 == 0
@@ -785,6 +913,8 @@ fn fight_tuned(
                 e.vitals.health,
             );
         }
+=======
+>>>>>>> origin/main
         let lost = before - crab.fighter.vitals.health;
         if lost > 0.0 {
             add(&mut log.hurt_by, phase, lost);
@@ -799,11 +929,16 @@ fn fight_tuned(
             add(&mut log.grabbed_in, last_phase, 1.0);
         }
         last_phase = phase;
+<<<<<<< HEAD
         if held
             && !was_held
             && std::env::var("BOT_TRACE").is_ok()
             && let Some(o) = e.octopus()
         {
+=======
+        if held && !was_held && std::env::var("BOT_TRACE").is_ok() {
+            let o = e.octopus().expect("octopus");
+>>>>>>> origin/main
             println!(
                 "    grabbed at {} by {} arms {} crab {:.0} body {:.0} reach {:.0} status {} block_age {} lockout {} stagger {} swing {:?}",
                 sim.tick_count(),
@@ -831,7 +966,11 @@ fn fight_tuned(
         if crab.fighter.dead.is_some() {
             return (End::Died, log);
         }
+<<<<<<< HEAD
         if beaten(which, e) {
+=======
+        if e.octopus().is_some_and(|o| o.leaving || o.fled) {
+>>>>>>> origin/main
             return (End::Won, log);
         }
     }
@@ -839,19 +978,31 @@ fn fight_tuned(
 }
 
 /// The share of `fights` fights won.
+<<<<<<< HEAD
 fn win_share(which: Boss, skill: Skill, fights: u64) -> (f32, Vec<(End, Log)>) {
+=======
+fn win_share(skill: Skill, fights: u64) -> (f32, Vec<(End, Log)>) {
+>>>>>>> origin/main
     let first = std::env::var("BOT_SEED")
         .ok()
         .and_then(|n| n.parse().ok())
         .unwrap_or(1);
+<<<<<<< HEAD
     let runs = run_fights(which, skill, first, fights);
+=======
+    let runs = run_fights(skill, first, fights);
+>>>>>>> origin/main
     let won = runs.iter().filter(|(e, _)| *e == End::Won).count();
     (won as f32 / fights as f32, runs)
 }
 
 /// Fights are independent: spread them over the machine's cores.
 #[cfg(not(target_family = "wasm"))]
+<<<<<<< HEAD
 fn run_fights(which: Boss, skill: Skill, first: u64, fights: u64) -> Vec<(End, Log)> {
+=======
+fn run_fights(skill: Skill, first: u64, fights: u64) -> Vec<(End, Log)> {
+>>>>>>> origin/main
     let cores = std::thread::available_parallelism().map_or(4, |n| n.get()) as u64;
     std::thread::scope(|scope| {
         let workers: Vec<_> = (0..cores)
@@ -859,7 +1010,11 @@ fn run_fights(which: Boss, skill: Skill, first: u64, fights: u64) -> Vec<(End, L
                 scope.spawn(move || {
                     (w..fights)
                         .step_by(cores as usize)
+<<<<<<< HEAD
                         .map(|s| (s, fight(which, skill, s + first, seconds(which))))
+=======
+                        .map(|s| (s, fight(skill, s + first, 240)))
+>>>>>>> origin/main
                         .collect::<Vec<_>>()
                 })
             })
@@ -875,15 +1030,21 @@ fn run_fights(which: Boss, skill: Skill, first: u64, fights: u64) -> Vec<(End, L
 
 /// wasm32-wasip1 has no threads: the same fights, one after another.
 #[cfg(target_family = "wasm")]
+<<<<<<< HEAD
 fn run_fights(which: Boss, skill: Skill, first: u64, fights: u64) -> Vec<(End, Log)> {
     (0..fights)
         .map(|s| fight(which, skill, s + first, seconds(which)))
         .collect()
+=======
+fn run_fights(skill: Skill, first: u64, fights: u64) -> Vec<(End, Log)> {
+    (0..fights).map(|s| fight(skill, s + first, 240)).collect()
+>>>>>>> origin/main
 }
 
 /// Fights per check: enough that a 70% boss lands in the band nearly always.
 const FIGHTS: u64 = 60;
 
+<<<<<<< HEAD
 /// Seconds a fight may last: the grouper backs out for a minute when hurt.
 const fn seconds(which: Boss) -> u64 {
     match which {
@@ -915,16 +1076,38 @@ fn beatable(which: Boss) {
     let (perfect, _) = win_share(which, PERFECT, 10);
     println!(
         "{name}: expected player won {:.0}% of {FIGHTS}, perfect {:.0}% of 10",
+=======
+#[test]
+// The parity job checks the sim, not the bot's win rates.
+#[cfg_attr(target_family = "wasm", ignore = "statistical; native only")]
+fn boss_is_beatable() {
+    let (human, runs) = win_share(HUMAN, FIGHTS);
+    let stalled = runs.iter().filter(|(e, _)| *e == End::Stalled).count();
+    assert!(
+        (0.6..=0.85).contains(&human),
+        "the octopus: the expected player won {:.0}% of {FIGHTS} (want 60-80%)",
+        human * 100.0
+    );
+    assert_eq!(stalled, 0, "every fight ends");
+    let (perfect, _) = win_share(PERFECT, 10);
+    println!(
+        "the octopus: expected player won {:.0}% of {FIGHTS}, perfect {:.0}% of 10",
+>>>>>>> origin/main
         human * 100.0,
         perfect * 100.0
     );
     assert!(
         perfect >= 0.95,
+<<<<<<< HEAD
         "{name}: a perfect player won {:.0}%",
+=======
+        "the octopus: a perfect player won {:.0}%",
+>>>>>>> origin/main
         perfect * 100.0
     );
 }
 
+<<<<<<< HEAD
 #[test]
 // The parity job checks the sim, not the bot's win rates.
 #[cfg_attr(target_family = "wasm", ignore = "statistical; native only")]
@@ -938,10 +1121,13 @@ fn grouper_is_beatable() {
     beatable(Boss::Grouper);
 }
 
+=======
+>>>>>>> origin/main
 /// Why fights end the way they do (`cargo test -p crabsim --test
 /// boss_is_beatable -- --ignored --nocapture`).
 #[test]
 #[ignore = "diagnostics"]
+<<<<<<< HEAD
 fn why_the_bosses_win() {
     let bosses = match std::env::var("BOT_BOSS").as_deref() {
         Ok("octopus") => vec![Boss::Octopus],
@@ -953,12 +1139,19 @@ fn why_the_bosses_win() {
         .flat_map(|b| [(b, ("human", HUMAN)), (b, ("perfect", PERFECT))])
     {
         println!("{}:", which.name());
+=======
+fn why_the_octopus_wins() {
+    for (name, skill) in [("human", HUMAN), ("perfect", PERFECT)] {
+>>>>>>> origin/main
         let n = std::env::var("BOT_FIGHTS")
             .ok()
             .and_then(|n| n.parse().ok())
             .unwrap_or(20);
         let (share, runs) = win_share(
+<<<<<<< HEAD
             which,
+=======
+>>>>>>> origin/main
             skill,
             if std::env::var("BOT_TRACE").is_ok() {
                 1
@@ -980,11 +1173,15 @@ fn why_the_bosses_win() {
                 .map(|&(k, v)| (k, v / runs.len() as f32))
                 .collect::<Vec<_>>()
         );
+<<<<<<< HEAD
         for (k, (end, log)) in runs
             .iter()
             .enumerate()
             .filter(|(_, (end, _))| n <= 20 || *end == End::Stalled)
         {
+=======
+        for (k, (end, log)) in runs.iter().enumerate().take(if n > 20 { 0 } else { 20 }) {
+>>>>>>> origin/main
             println!(
                 "  seed {k} {end:?} in {:.0} s: hurt by {:?}; dealt in {:?}; parries {} blocks {} evades {} grabs {}",
                 log.ticks as f32 / 120.0,
@@ -1012,7 +1209,11 @@ fn how_pressure_moves_the_odds() {
         for gap in [45u32, 30, 20, 10] {
             let won = (1..=n)
                 .filter(|&s| {
+<<<<<<< HEAD
                     fight_tuned(Boss::Octopus, HUMAN, s, 240, |t| {
+=======
+                    fight_tuned(HUMAN, s, 240, |t| {
+>>>>>>> origin/main
                         t.octopus.arms.at_once = at_once;
                         t.octopus.arms.gap_ticks = gap;
                     })
@@ -1043,7 +1244,11 @@ fn how_skill_moves_the_odds() {
                 timing_jitter,
             };
             let won = (1..=n)
+<<<<<<< HEAD
                 .filter(|&s| fight(Boss::Octopus, skill, s, 240).0 == End::Won)
+=======
+                .filter(|&s| fight(skill, s, 240).0 == End::Won)
+>>>>>>> origin/main
                 .count();
             println!(
                 "reaction {reaction} timing +-{timing_jitter}: won {:.0}%",
@@ -1069,9 +1274,14 @@ fn how_web_rest_moves_the_odds() {
         let mut grabs = 0;
         let won = (1..=n)
             .filter(|&s| {
+<<<<<<< HEAD
                 let (end, log) = fight_tuned(Boss::Octopus, HUMAN, s, 240, |t| {
                     t.octopus.webover.rest_ticks = rest
                 });
+=======
+                let (end, log) =
+                    fight_tuned(HUMAN, s, 240, |t| t.octopus.webover.rest_ticks = rest);
+>>>>>>> origin/main
                 grabs += log.grabs;
                 end == End::Won
             })
