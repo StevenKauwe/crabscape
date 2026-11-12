@@ -39,14 +39,12 @@ pub const COLUMN_TOP: f32 = WATER_SURFACE_Y - 20.0;
 /// The rest point at the column's foot, a niche in its stand.
 pub const FOOT_HEIGHT: f32 = 200.0;
 
-/// A coral clump is this tall (as in `refuges.rs`).
-const CLUMP: f32 = 200.0;
-/// The clumps under the overhangs, between the far rim's tower and the
-/// canyon's existing coral (x of each; the line has a refuge every ~600).
-pub const OVERHANG_REFUGES: [f32; 2] = [9080.0, 9650.0];
-/// The line the refuge gap is measured along: from the tower's foot to the
-/// last of the slope's coral under the arches.
-pub const LINE: (f32, f32) = (8800.0, 15100.0);
+/// The line the refuge gap is measured along: from the end of the bobbit
+/// worms' minefield and the snapper's burrow (no cover there by design: the
+/// worms' own placement keeps rest places 400 units off) to the last of the
+/// slope's coral under the arches. The slope's coral stands and crevices
+/// already leave no gap over 580; the column's foot is the one new refuge.
+pub const LINE: (f32, f32) = (9360.0, 15100.0);
 /// The most a crab on the line may be from cover (edge to edge).
 pub const MAX_GAP: f32 = 600.0;
 
@@ -159,28 +157,10 @@ pub fn column(level: &Level) -> Climb {
     }
 }
 
-/// The coral clumps under the overhangs.
-pub fn overhang_refuges(level: &Level) -> Vec<Climb> {
-    OVERHANG_REFUGES
-        .iter()
-        .map(|&x| {
-            let bottom = level.floor_height(x);
-            Climb {
-                x,
-                bottom,
-                top: bottom + CLUMP,
-                kind: Growth::Coral,
-            }
-        })
-        .collect()
-}
-
 pub(super) fn shape(level: &mut Level) {
     level.rocks.extend(rocks());
     let column = column(level);
-    let clumps = overhang_refuges(level);
     level.climbs.push(column);
-    level.climbs.extend(clumps);
     for f in &FEATURES {
         level.sponges.push(Vec2::new(f.sponge, f.top + 10.0));
     }
@@ -202,15 +182,9 @@ pub(super) fn shape(level: &mut Level) {
     }
 }
 
-/// The name of one of this region's climbs, if `climb` is.
+/// The name of this region's climb, if `climb` is it.
 pub(super) fn climb_name(level: &Level, climb: &Climb) -> Option<String> {
-    if *climb == column(level) {
-        return Some("kelp column".into());
-    }
-    overhang_refuges(level)
-        .iter()
-        .position(|c| c == climb)
-        .map(|n| format!("overhang refuge {n}"))
+    (*climb == column(level)).then(|| "kelp column".into())
 }
 
 pub(super) fn landmarks(level: &Level) -> Vec<Landmark> {

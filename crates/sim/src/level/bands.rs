@@ -235,7 +235,6 @@ fn exact_bed(name: &str) -> Option<Declared> {
         // The open canyon (`level/open_canyon.rs`).
         | "kelp column"
         | "kelp column foot"
-        | "overhang refuge"
         | "kelp ledge"
         | "tower shelf"
         | "first arch"
