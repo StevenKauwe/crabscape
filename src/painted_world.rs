@@ -119,6 +119,59 @@ fn stacked(bytes: &[u8], layers: u32, repeat_down: bool) -> Image {
     image
 }
 
+/// Texels across one repeat of `ridges.png`, and down one layer.
+const RIDGE_SHEET_WIDTH: usize = 384;
+const RIDGE_SHEET_LAYER_HEIGHT: usize = 224;
+
+/// For one ridge (0 far, 1 near), the first row (counted from the top of its layer) that holds paint in each of
+/// `groups` equal column groups: the highest painted texel any column in the group (and the texel either side of
+/// it, which linear filtering blends in) reaches. `level.rs` builds each ridge's mesh from these so the transparent
+/// sky above the spires is never rasterised. Reads the lit layer's alpha, as `ridge.wgsl` does.
+pub fn ridge_tops(ridge: usize, groups: usize) -> Vec<usize> {
+    let image = stacked(RIDGES_PNG, RIDGE_LAYERS, false);
+    let data = image.data.as_deref().unwrap_or(&[]);
+    let (w, h) = (RIDGE_SHEET_WIDTH, RIDGE_SHEET_LAYER_HEIGHT);
+    let layer = ridge * 2;
+    let alpha = |x: usize, y: usize| {
+        data.get(((layer * h + y) * w + x) * 4 + 3)
+            .copied()
+            .unwrap_or(0)
+    };
+    let first_painted = |x: usize| {
+        (0..h)
+            .find(|&y| alpha(x, y) as f32 / 255.0 >= 0.01)
+            .unwrap_or(h)
+    };
+    let per = w / groups;
+    (0..groups)
+        .map(|g| {
+            let lo = (g * per + w - 1) % w;
+            (0..per + 2)
+                .map(|i| first_painted((lo + i) % w))
+                .min()
+                .unwrap_or(h)
+                .saturating_sub(1)
+        })
+        .collect()
+}
+
+/// The lit layer's alpha (0 to 1) of ridge `ridge`, row by row, for tests.
+#[cfg(test)]
+pub fn ridge_alpha(ridge: usize) -> Vec<f32> {
+    let image = stacked(RIDGES_PNG, RIDGE_LAYERS, false);
+    let data = image.data.as_deref().unwrap_or(&[]);
+    let rows = RIDGE_SHEET_LAYER_HEIGHT * RIDGE_SHEET_WIDTH;
+    (0..rows)
+        .map(|i| {
+            data.get((ridge * 2 * rows + i) * 4 + 3)
+                .map_or(0.0, |&a| a as f32 / 255.0)
+        })
+        .collect()
+}
+
+/// Texels down one layer of `ridges.png` (the strip's picture height, in texels).
+pub const RIDGE_TEXELS_HIGH: usize = RIDGE_SHEET_LAYER_HEIGHT;
+
 /// What a ridge layer is drawn with: its layer of `ridges.png` and how it sinks into the water.
 #[derive(ShaderType, Clone, Debug, PartialEq)]
 pub struct RidgeUniform {
