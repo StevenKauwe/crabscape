@@ -1,0 +1,1247 @@
+//! The first-hours bot: a level 1 crab with no kit, at home on the real map,
+//! playing a sensible mixed few hours on real sim ticks (1/120 s). Shared by
+//! `first_hours.rs`.
+//!
+//! How it plays (so the numbers can be trusted, and argued with):
+//! - Everything the sim does is done by the sim, in real ticks: gathering is a
+//!   held Gather at a node, fights are a scripted parry-and-punish fighter,
+//!   climbing is the kelp stalk beside the door (Climbing XP on the real
+//!   grips), swimming is the real paddle stroke (after the first egg),
+//!   Survival is standing in the Silt Galleries' depth band, cooking, crafting
+//!   and building are the Sim's own recipe and home-piece calls.
+//! - Travel on the home side (the two safe node pockets, the kelp, the
+//!   snapping shrimps) is REAL walking with real controls. Only the Silt
+//!   Galleries, where Survival is earned, are reached by a stated flat time:
+//!   `TRIP_OUT_SECS` there and `TRIP_BACK_SECS` back (idle ticks at home), then
+//!   the crab is set down in the gallery. The route solver measured 22 s out
+//!   and 12 s back with the full kit (`loop_pacing::ROUTES`); a kit-less crab
+//!   is given twice and four times that.
+//! - UI time at home is stated too: `UI_CRAFT_SECS` per craft (open the menu,
+//!   pick, tap), `UI_BUILD_SECS` per piece, played as idle ticks.
+//! - Policy: each "session" is the activity that best raises the LOWEST of
+//!   the 13 skills it can work now (by level, then by progress through the
+//!   level): the nearest ready node of a kind that is that skill's or feeds a
+//!   craft of it, a fight with a snapping shrimp, a climb, a swim, a stand in
+//!   the Silt Galleries. At home it banks the haul and then makes everything
+//!   it can, lowest skill first. It never stays on one label for more than
+//!   `STRETCH_CAP_SECS` while anything else is available, and records the
+//!   stretches where it had to.
+//! - It never touches XP: every point comes from a node, a craft, a blow, a
+//!   stroke, a climb or the clock, by the sim's own rules.
+
+#![allow(dead_code)]
+
+use bevy_math::Vec2;
+use crabsim::economy::recipes::Output;
+use crabsim::economy::{self, ECON_RECIPES, Item, NodeKind, PIECES, Piece, xp};
+use crabsim::enemy::State;
+use crabsim::{Carry, Controls, Kind, Level, PlayerId, Recipe, Shelter, Sim, Skill, Tuning};
+
+#[path = "dig.rs"]
+mod dig;
+
+pub const P0: PlayerId = PlayerId(0);
+pub const HZ: f64 = 120.0;
+
+/// The thirteen skills the owner wants fun: Data-Driven is left out.
+pub const SKILLS: [Skill; 13] = [
+    Skill::Climbing,
+    Skill::Swimming,
+    Skill::Fighting,
+    Skill::Foraging,
+    Skill::Prying,
+    Skill::Excavating,
+    Skill::Harvesting,
+    Skill::Culturing,
+    Skill::Cooking,
+    Skill::Shellcraft,
+    Skill::Weaving,
+    Skill::Building,
+    Skill::Survival,
+];
+
+pub fn skill_index(skill: Skill) -> usize {
+    SKILLS.iter().position(|&s| s == skill).expect("a skill")
+}
+
+/// Stated UI seconds at home (idle ticks): one craft, one piece.
+pub const UI_CRAFT_SECS: f64 = 6.0;
+pub const UI_BUILD_SECS: f64 = 20.0;
+/// Stated trip to and from the Silt Galleries (Survival), idle ticks at home.
+pub const TRIP_OUT_SECS: f64 = 45.0;
+pub const TRIP_BACK_SECS: f64 = 45.0;
+/// How long one Survival stay lasts.
+pub const SURVIVE_STAY_SECS: f64 = 150.0;
+/// One outing never lasts longer than this.
+pub const OUTING_CAP_SECS: f64 = 120.0;
+/// The owner's rule: no more than this on one label while anything else is
+/// available.
+pub const STRETCH_CAP_SECS: f64 = 180.0;
+/// The bot leaves a label for something else after this long on it.
+const STRETCH_SWITCH_SECS: f64 = 60.0;
+
+/// The home side: the snapping shrimps of the safe pockets.
+const SNAPPER_A: f32 = 340.0;
+const SNAPPER_B: f32 = 590.0;
+/// The kelp stalk beside the door and the egg it reaches (kick off at this
+/// height, running right).
+const KELP_X: f32 = 280.0;
+const EGG_KICK_Y: f32 = 320.0;
+/// The nodes the bot works: the two pockets (the far ledge lies across the
+/// trench).
+const POCKET_MAX_X: f32 = 600.0;
+/// Past the door.
+const DOORSTEP_X: f32 = 168.0;
+
+#[derive(Clone, Debug)]
+pub struct Config {
+    /// Play only this skill (its nodes, no crafting, no fights).
+    pub focus: Option<Skill>,
+    /// Stop at this many sim seconds.
+    pub secs: f64,
+    /// Stop once `focus` reaches this level.
+    pub stop_level: Option<u32>,
+}
+
+/// A stretch of consecutive work on one label.
+#[derive(Clone, Debug)]
+pub struct Span {
+    pub start: f64,
+    pub end: f64,
+    pub label: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct Stretch {
+    pub start: f64,
+    pub label: String,
+    pub secs: f64,
+    /// Was something else available at the time?
+    pub had_alternative: bool,
+}
+
+#[derive(Clone, Debug)]
+struct Candidate {
+    label: String,
+    kind: Session,
+    /// The skills it raises, for ranking.
+    serves: Vec<Skill>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Session {
+    Gather(NodeKind),
+    Fight(f32),
+    Climb,
+    Swim,
+    Survive,
+    Dig,
+}
+
+#[derive(Clone, Debug)]
+enum HomeAct {
+    Econ(&'static economy::EconRecipe),
+    Basic(Recipe),
+    Piece(Piece),
+    Harvest,
+    /// A portion recipe waiting on free slots: eat first.
+    EatThen(&'static economy::EconRecipe),
+}
+
+pub struct Bot {
+    pub sim: Sim,
+    cfg: Config,
+    pub levels: [u32; 13],
+    next_xp: [f32; 13],
+    /// (seconds, skill, level) in order.
+    pub level_ups: Vec<(f64, Skill, u32)>,
+    pub spans: Vec<Span>,
+    open: Option<(f64, String)>,
+    /// Sessions in order: (start, label), for stretches.
+    sessions: Vec<(f64, f64, String)>,
+    crafts: Vec<(f64, f64, String)>,
+    pub forced: Vec<Stretch>,
+    last_done: std::collections::BTreeMap<String, f64>,
+    stretch_label: String,
+    stretch_start: f64,
+    craft_label: String,
+    craft_start: f64,
+    egg_done: bool,
+    dig_done: bool,
+    pub deaths: u32,
+    /// Gathers finished, by item (for the report).
+    pub gathers: std::collections::BTreeMap<Item, u32>,
+    spot: Vec2,
+    pub home_x: f32,
+}
+
+fn walk(dir: f32) -> Controls {
+    Controls {
+        walk: dir,
+        ..Controls::default()
+    }
+}
+
+impl Bot {
+    pub fn new(cfg: Config) -> Bot {
+        let mut tuning = Tuning::default();
+        tuning.memory.step_ticks = u32::MAX;
+        let level = Level::test_level();
+        let mut sim = Sim::new(tuning, level);
+        sim.add_crab(P0, Vec2::new(180.0, 0.0));
+        // The game brings the level's animals in once it starts.
+        sim.populate();
+        let g = sim
+            .level
+            .ground_below(Vec2::new(1300.0, -821.0))
+            .unwrap_or(-1040.0);
+        let mut bot = Bot {
+            sim,
+            cfg,
+            levels: [1; 13],
+            next_xp: [xp::TABLE[2] as f32; 13],
+            level_ups: Vec::new(),
+            spans: Vec::new(),
+            open: None,
+            sessions: Vec::new(),
+            crafts: Vec::new(),
+            forced: Vec::new(),
+            last_done: Default::default(),
+            stretch_label: String::new(),
+            stretch_start: 0.0,
+            craft_label: String::new(),
+            craft_start: 0.0,
+            egg_done: false,
+            dig_done: false,
+            deaths: 0,
+            gathers: Default::default(),
+            spot: Vec2::new(1300.0, g + 2.0),
+            home_x: 95.0,
+        };
+        bot.go_home();
+        bot.level_ups.clear();
+        bot.sim.tick_count();
+        bot
+    }
+
+    // ---- The clock and the log ----
+
+    pub fn now(&self) -> f64 {
+        self.sim.tick_count() as f64 / HZ
+    }
+
+    fn done(&self) -> bool {
+        if self.now() >= self.cfg.secs {
+            return true;
+        }
+        match (self.cfg.focus, self.cfg.stop_level) {
+            (Some(s), Some(l)) => self.levels[skill_index(s)] >= l,
+            _ => false,
+        }
+    }
+
+    fn step(&mut self, c: Controls) {
+        self.sim.set_controls(P0, c);
+        self.sim.tick();
+        let now = self.now();
+        let crab = self.sim.crab(P0).expect("crab");
+        if let Some((item, _)) = crab.events.gathered {
+            *self.gathers.entry(item).or_default() += 1;
+        }
+        for (i, &s) in SKILLS.iter().enumerate() {
+            let x = crab.xp(s);
+            while x >= self.next_xp[i] && self.levels[i] < xp::MAX_LEVEL {
+                self.levels[i] += 1;
+                self.level_ups.push((now, s, self.levels[i]));
+                self.next_xp[i] =
+                    xp::TABLE[(self.levels[i] + 1).min(xp::MAX_LEVEL) as usize] as f32;
+            }
+        }
+    }
+
+    fn hold(&mut self, c: Controls, ticks: u32) {
+        for _ in 0..ticks {
+            self.step(c);
+        }
+    }
+
+    fn idle_secs(&mut self, secs: f64) {
+        self.hold(Controls::default(), (secs * HZ) as u32);
+    }
+
+    /// Open a span of work with this label (None: travel or a chore).
+    fn tag(&mut self, label: Option<&str>) {
+        let now = self.now();
+        if let Some((start, l)) = self.open.take()
+            && now > start
+        {
+            self.spans.push(Span {
+                start,
+                end: now,
+                label: l,
+            });
+        }
+        if let Some(l) = label {
+            self.open = Some((now, l.to_string()));
+        }
+    }
+
+    fn lv(&self, skill: Skill) -> u32 {
+        self.levels[skill_index(skill)]
+    }
+
+    fn progress(&self, skill: Skill) -> f32 {
+        let crab = self.sim.crab(P0).expect("crab");
+        xp::progress_f(crab.xp(skill))
+    }
+
+    fn key(&self, skill: Skill) -> (u32, f32) {
+        (self.lv(skill), self.progress(skill))
+    }
+
+    fn pos(&self) -> Vec2 {
+        self.sim.crab(P0).expect("crab").mover.pos
+    }
+
+    fn tucked(&self) -> bool {
+        self.sim.crab(P0).expect("crab").mover.tucked_in()
+    }
+
+    fn dead(&self) -> bool {
+        self.sim.crab(P0).expect("crab").fighter.dead.is_some()
+    }
+
+    fn held_portions(&self) -> usize {
+        self.sim.crab(P0).expect("crab").mover.prepared_food.held()
+    }
+
+    fn bank(&self, item: Item) -> u32 {
+        self.sim.crab(P0).expect("crab").stash.count(item)
+    }
+
+    fn shell_items(&self) -> usize {
+        self.sim
+            .crab(P0)
+            .expect("crab")
+            .mover
+            .clinging
+            .iter()
+            .filter(|c| matches!(c, Carry::Item(_)))
+            .count()
+    }
+
+    // ---- Moving about (real controls) ----
+
+    fn wait_alive(&mut self) {
+        let mut n = 0;
+        while self.dead() && n < 1200 {
+            self.step(Controls::default());
+            n += 1;
+        }
+    }
+
+    /// Out of the door and onto the doorstep.
+    fn leave_home(&mut self) {
+        self.wait_alive();
+        for _ in 0..1200 {
+            let m = &self.sim.crab(P0).expect("crab").mover;
+            if m.shelter == Shelter::Out && m.pos.x >= DOORSTEP_X {
+                break;
+            }
+            self.step(walk(1.0));
+        }
+        self.step(Controls::default());
+    }
+
+    /// Walk home and tuck in; the shell empties into the bank.
+    fn go_home(&mut self) {
+        self.wait_alive();
+        // The snapper at the first pocket's far side may stand in the way.
+        if self.pos().x > SNAPPER_A + 20.0 {
+            self.cross_snapper(SNAPPER_A - 60.0);
+        }
+        self.go_home_plain();
+    }
+
+    fn go_home_plain(&mut self) {
+        self.wait_alive();
+        for _ in 0..(120 * 90) {
+            if self.tucked() {
+                break;
+            }
+            self.step(walk(-1.0));
+        }
+        self.step(Controls::default());
+        for _ in 0..600 {
+            if self.shell_items() == 0 {
+                break;
+            }
+            self.step(Controls::default());
+        }
+        // Rested: a short moment in the den mends the shell.
+        self.idle_secs(2.5);
+    }
+
+    fn walk_to(&mut self, x: f32, tol: f32) {
+        for _ in 0..4 {
+            for _ in 0..(120 * 90) {
+                let dx = x - self.pos().x;
+                if dx.abs() <= tol * 2.0 || self.dead() {
+                    break;
+                }
+                self.step(walk(dx.signum()));
+            }
+            // Let the slide stop, then check the place (nodes lie 10 apart).
+            for _ in 0..90 {
+                self.step(Controls::default());
+                let m = &self.sim.crab(P0).expect("crab").mover;
+                if m.vel.x.abs() < 0.5 {
+                    break;
+                }
+            }
+            if (x - self.pos().x).abs() <= tol || self.dead() {
+                break;
+            }
+            // A small step the right way.
+            let dx = x - self.pos().x;
+            self.hold(walk(dx.signum() * 0.25), 6);
+        }
+    }
+
+    /// The snapper at the first pocket's edge stands between the door and the
+    /// second pocket: if the crab is about to pass it and it is up, fight it
+    /// first (it is the weakest beatable foe near home).
+    fn cross_snapper(&mut self, to_x: f32) -> bool {
+        let from = self.pos().x;
+        let crossing = (from < SNAPPER_A) != (to_x < SNAPPER_A);
+        if crossing && self.snapper_up(SNAPPER_A) {
+            self.fight(SNAPPER_A);
+            return true;
+        }
+        false
+    }
+
+    fn snapper_up(&self, at: f32) -> bool {
+        self.sim
+            .enemies()
+            .iter()
+            .filter(|e| e.kind == Kind::Snapper && (e.home.x - at).abs() < 60.0)
+            .any(|e| e.state != State::Gone)
+    }
+
+    // ---- Fighting ----
+
+    /// Beat the snapping shrimp at `at` with the scripted fighter (read the
+    /// tell, dodge the shock, smash it in its recovery), then walk onto the
+    /// body for its drop. Counts in the log as a "fight".
+    fn fight(&mut self, at: f32) -> bool {
+        let prev = self.open.as_ref().map(|(_, l)| l.clone());
+        self.tag(Some("fight snapping shrimp"));
+        if self.tucked() {
+            self.leave_home();
+        }
+        let mut won = false;
+        for _ in 0..(120 * 60) {
+            if self.dead() {
+                self.deaths += 1;
+                break;
+            }
+            let Some(e) = self
+                .sim
+                .enemies()
+                .iter()
+                .filter(|e| e.kind == Kind::Snapper && (e.home.x - at).abs() < 60.0)
+                .min_by(|a, b| (a.pos.x - at).abs().total_cmp(&(b.pos.x - at).abs()))
+            else {
+                break;
+            };
+            let me = self.pos().x;
+            let dir = (e.pos.x - me).signum();
+            let gap = (e.pos.x - me).abs();
+            let gone = e.state == State::Gone;
+            let close = gap < 70.0;
+            let answer = e.state == State::Tell && e.state_tick + 4 >= e.state_len;
+            let punish = matches!(e.state, State::Recover | State::Stagger);
+            let tick_in = e.state_tick;
+            let c = if gone {
+                won = true;
+                if gap > 4.0 {
+                    walk(dir)
+                } else {
+                    break;
+                }
+            } else {
+                Controls {
+                    walk: if answer {
+                        -dir
+                    } else if close {
+                        0.0
+                    } else {
+                        0.8 * dir
+                    },
+                    dodge_pressed: answer,
+                    smash_pressed: close && punish && tick_in.is_multiple_of(8),
+                    ..Controls::default()
+                }
+            };
+            self.step(c);
+        }
+        self.step(Controls::default());
+        match prev {
+            Some(l) => self.tag(Some(&l)),
+            None => self.tag(None),
+        }
+        won
+    }
+
+    // ---- Gathering ----
+
+    fn ready_nodes(&self, kind: NodeKind) -> Vec<(usize, f32)> {
+        self.sim
+            .placed_nodes()
+            .iter()
+            .enumerate()
+            .filter(|(i, n)| {
+                n.kind == kind && n.pos.x < POCKET_MAX_X && self.sim.shared.nodes[*i].charges > 0
+            })
+            .map(|(i, n)| (i, n.pos.x))
+            .collect()
+    }
+
+    fn shell_has_room_for(&self, item: Item) -> bool {
+        let crab = self.sim.crab(P0).expect("crab");
+        crab.mover.room_for(Carry::Item(item), &self.sim.tuning)
+    }
+
+    /// One outing for `kind`: out of the door, nearest ready node first, until
+    /// the shell is full, the nodes are spent or the cap; then home.
+    fn gather_session(&mut self, kind: NodeKind, label: &str) {
+        let item = kind.def().yields.expect("a gatherable");
+        let start = self.now();
+        self.tag(None);
+        self.leave_home();
+        loop {
+            if self.done()
+                || self.now() - start > OUTING_CAP_SECS
+                || !self.shell_has_room_for(item)
+                || self.dead()
+            {
+                break;
+            }
+            let px = self.pos().x;
+            let Some(&(i, x)) = self
+                .ready_nodes(kind)
+                .iter()
+                .min_by(|a, b| (a.1 - px).abs().total_cmp(&(b.1 - px).abs()))
+            else {
+                break;
+            };
+            self.tag(None);
+            if self.cross_snapper(x) {
+                if self.dead() {
+                    break;
+                }
+                // The drops fill the shell: bank them and set out again.
+                if self.shell_items() > 0 {
+                    self.go_home_plain();
+                    self.leave_home();
+                }
+                continue;
+            }
+            self.walk_to(x, 4.0);
+            self.tag(Some(label));
+            let mut ticks: u32 = 0;
+            while self.sim.shared.nodes[i].charges > 0
+                && self.shell_has_room_for(item)
+                && !self.dead()
+                && ticks < 120 * 60
+                && self.now() - start <= OUTING_CAP_SECS
+            {
+                self.step(Controls {
+                    gather_held: true,
+                    ..Controls::default()
+                });
+                ticks += 1;
+            }
+            self.step(Controls::default());
+        }
+        self.tag(None);
+        self.go_home();
+    }
+
+    // ---- Climbing, the egg and swimming ----
+
+    fn climbing(&self) -> bool {
+        self.sim.crab(P0).expect("crab").mover.climbing
+    }
+
+    fn grounded(&self) -> bool {
+        self.sim.crab(P0).expect("crab").mover.grounded
+    }
+
+    /// Grip the kelp stalk from the floor beside it.
+    fn grip_kelp(&mut self) -> bool {
+        self.walk_to(KELP_X - 1.0, 1.5);
+        self.step(Controls {
+            jump_pressed: true,
+            jump_held: true,
+            ..Controls::default()
+        });
+        for i in 0..90 {
+            if self.climbing() {
+                return true;
+            }
+            self.step(Controls {
+                jump_held: true,
+                jump_pressed: i == 10 || i == 30 || i == 50,
+                ..Controls::default()
+            });
+        }
+        self.climbing()
+    }
+
+    /// The first climb also reaches the egg: up to the kick height, then off
+    /// the stalk running right.
+    fn reach_egg(&mut self) {
+        if !self.grip_kelp() {
+            return;
+        }
+        for _ in 0..(120 * 20) {
+            if self.pos().y >= EGG_KICK_Y || !self.climbing() {
+                break;
+            }
+            self.step(Controls {
+                jump_held: true,
+                ..Controls::default()
+            });
+        }
+        self.step(Controls {
+            walk: 1.0,
+            jump_pressed: true,
+            jump_held: true,
+            ..Controls::default()
+        });
+        for _ in 0..(120 * 6) {
+            if self.grounded() {
+                break;
+            }
+            self.step(walk(1.0));
+        }
+        self.egg_done = true;
+        // Back down the way it came: walk home along the floor.
+        self.step(Controls::default());
+    }
+
+    fn climb_session(&mut self) {
+        let start = self.now();
+        self.tag(None);
+        self.leave_home();
+        if !self.egg_done && self.sim.crab(P0).expect("crab").mover.upgrades == 0 {
+            self.tag(Some("climb kelp"));
+            self.reach_egg();
+            self.tag(None);
+            self.go_home();
+            return;
+        }
+        self.egg_done = true;
+        while !self.done() && self.now() - start < OUTING_CAP_SECS {
+            self.tag(None);
+            if !self.grip_kelp() {
+                self.step(Controls::default());
+                break;
+            }
+            self.tag(Some("climb kelp"));
+            // Up (slowly, once the reserve is spent), then down.
+            let top = 900.0;
+            for _ in 0..(120 * 40) {
+                let m = &self.sim.crab(P0).expect("crab").mover;
+                if m.pos.y >= top || !m.climbing || self.now() - start > OUTING_CAP_SECS {
+                    break;
+                }
+                self.step(Controls {
+                    jump_held: true,
+                    ..Controls::default()
+                });
+            }
+            for _ in 0..(120 * 40) {
+                if self.grounded() || !self.climbing() {
+                    break;
+                }
+                self.step(Controls {
+                    down: true,
+                    ..Controls::default()
+                });
+            }
+            for _ in 0..(120 * 5) {
+                if self.grounded() {
+                    break;
+                }
+                self.step(Controls::default());
+            }
+        }
+        self.tag(None);
+        self.go_home();
+    }
+
+    fn can_swim(&self) -> bool {
+        self.sim.crab(P0).expect("crab").mover.upgrades > 0
+    }
+
+    fn swim_session(&mut self) {
+        let start = self.now();
+        self.tag(None);
+        self.leave_home();
+        self.walk_to(210.0, 3.0);
+        self.tag(Some("swim"));
+        let mut tick = 0u32;
+        while !self.done() && self.now() - start < OUTING_CAP_SECS {
+            let m = &self.sim.crab(P0).expect("crab").mover;
+            let ready = m.stamina + 1e-4 >= 1.0 && m.stroke_rest <= 0.0;
+            let c = if m.grounded {
+                Controls {
+                    jump_pressed: ready,
+                    jump_held: ready,
+                    ..Controls::default()
+                }
+            } else {
+                Controls {
+                    jump_pressed: ready && tick.is_multiple_of(3),
+                    ..Controls::default()
+                }
+            };
+            self.step(c);
+            tick += 1;
+        }
+        self.tag(None);
+        self.go_home();
+    }
+
+    // ---- Survival ----
+
+    fn survive_session(&mut self) {
+        self.tag(None);
+        self.idle_secs(TRIP_OUT_SECS);
+        {
+            let spot = self.spot;
+            let m = &mut self.sim.crab_mut(P0).expect("crab").mover;
+            m.pos = spot;
+            m.vel = Vec2::ZERO;
+            m.shelter = Shelter::Out;
+            m.tucked = 0.0;
+        }
+        self.tag(Some("survive in the Silt Galleries"));
+        self.idle_secs(SURVIVE_STAY_SECS);
+        self.tag(None);
+        self.idle_secs(TRIP_BACK_SECS);
+        let y = self.sim.level.floor_height(DOORSTEP_X) + 2.0;
+        let m = &mut self.sim.crab_mut(P0).expect("crab").mover;
+        m.pos = Vec2::new(DOORSTEP_X + 8.0, y);
+        m.vel = Vec2::ZERO;
+        self.go_home();
+    }
+
+    // ---- Digging ----
+
+    /// The burrow's silt shaft and gallery, dug once. The cells that digging
+    /// needs change the whole world (the kelp moves, the floor is a grid), so
+    /// the dig is played in `dig::dig_sim` on real ticks; its seconds are
+    /// spent by the main crab standing at the shaft, and its experience is
+    /// credited with the same `Sim::earn` call the dig step makes.
+    fn dig_session(&mut self) {
+        self.tag(None);
+        self.leave_home();
+        self.walk_to(172.0, 3.0);
+        let mut copy = dig::dig_sim();
+        let (_, secs0) = dig::tunnel(&mut copy, 300.0);
+        let before = dig::excavating(&copy);
+        let down = Controls {
+            down: true,
+            dig_held: true,
+            ..Controls::default()
+        };
+        let west = Controls {
+            walk: -1.0,
+            dig_held: true,
+            ..Controls::default()
+        };
+        dig::hold(&mut copy, down, 120 * 20);
+        dig::hold(&mut copy, west, 120 * 20);
+        let gained = dig::excavating(&copy);
+        let secs = secs0 + 40.0;
+        let _ = before;
+        self.tag(Some("dig the burrow gallery"));
+        self.idle_secs(secs);
+        self.sim.earn(P0, Skill::Excavating, gained as f32);
+        self.step(Controls::default());
+        self.tag(None);
+        self.dig_done = true;
+        self.go_home();
+    }
+
+    // ---- Eating ----
+
+    fn eat_all(&mut self) {
+        if self.held_portions() == 0 {
+            return;
+        }
+        self.tag(None);
+        self.leave_home();
+        let mut guard = 0;
+        while self.held_portions() > 0 && guard < 8 {
+            self.hold(
+                Controls {
+                    eat_held: true,
+                    ..Controls::default()
+                },
+                250,
+            );
+            self.step(Controls::default());
+            guard += 1;
+        }
+        self.go_home();
+    }
+
+    // ---- Home: banking, crafting, building ----
+
+    fn pause_for_ui(&mut self, secs: f64) {
+        self.idle_secs(secs);
+    }
+
+    fn home_acts(&self) -> Vec<(HomeAct, Skill, u32)> {
+        let mut out = Vec::new();
+        for r in ECON_RECIPES {
+            match self.sim.can_make_econ(P0, r) {
+                Ok(()) => out.push((HomeAct::Econ(r), r.skill, r.xp)),
+                Err(crabsim::craft::CantMakeEcon::NoRoom)
+                    if matches!(r.makes, Output::Portions(..)) =>
+                {
+                    // Only if it would otherwise be makeable.
+                    let have = self.lv(r.skill) >= r.level
+                        && r.needs.iter().all(|&(i, n)| self.bank(i) >= n);
+                    if have && self.held_portions() > 0 {
+                        out.push((HomeAct::EatThen(r), r.skill, r.xp));
+                    }
+                }
+                Err(_) => {}
+            }
+        }
+        for (recipe, skill, xp) in [
+            (Recipe::BuildHome, Skill::Building, 20),
+            (Recipe::ClamGuards, Skill::Shellcraft, 20),
+            (Recipe::ShellPortions, Skill::Cooking, 12),
+            (Recipe::ReservePortions, Skill::Cooking, 12),
+        ] {
+            if self.sim.can_make(P0, recipe).is_ok() {
+                out.push((HomeAct::Basic(recipe), skill, xp));
+            }
+        }
+        for p in PIECES {
+            if self.sim.can_build_piece(P0, p.piece).is_ok() {
+                out.push((HomeAct::Piece(p.piece), Skill::Building, p.piece.xp()));
+            }
+        }
+        let tick = self.sim.tick_count();
+        if self
+            .sim
+            .crab(P0)
+            .expect("crab")
+            .econ
+            .ripe_bed(tick)
+            .is_some()
+        {
+            out.push((HomeAct::Harvest, Skill::Culturing, 20));
+        }
+        out
+    }
+
+    fn act_label(a: &HomeAct) -> String {
+        match a {
+            HomeAct::Econ(r) | HomeAct::EatThen(r) => format!("make {}", r.word),
+            HomeAct::Basic(r) => format!("make {}", r.def().word),
+            HomeAct::Piece(p) => format!("build {}", p.word()),
+            HomeAct::Harvest => "harvest culture bed".to_string(),
+        }
+    }
+
+    /// Bank the haul (done in `go_home`), then make everything it can, lowest
+    /// skill first.
+    fn home_work(&mut self) {
+        let mut guard = 0;
+        while !self.done() && guard < 400 {
+            guard += 1;
+            let acts = self.home_acts();
+            if acts.is_empty() {
+                break;
+            }
+            let now = self.now();
+            let stale = self.craft_label.clone();
+            let stuck = !stale.is_empty() && now - self.craft_start >= STRETCH_SWITCH_SECS;
+            let pick = |skip: Option<&str>| {
+                acts.iter()
+                    .filter(|(a, _, _)| skip.is_none_or(|s| Self::act_label(a) != s))
+                    .min_by(|a, b| {
+                        let (ka, kb) = (self.key(a.1), self.key(b.1));
+                        ka.0.cmp(&kb.0)
+                            .then(ka.1.total_cmp(&kb.1))
+                            .then(b.2.cmp(&a.2))
+                    })
+            };
+            let best = if stuck {
+                pick(Some(&stale)).or_else(|| pick(None))
+            } else {
+                pick(None)
+            };
+            let Some((act, _, _)) = best.cloned() else {
+                break;
+            };
+            let label = Self::act_label(&act);
+            if label == self.craft_label {
+                // Same recipe again: the stretch goes on.
+            } else {
+                self.craft_label = label.clone();
+                self.craft_start = now;
+            }
+            let had_alt = acts.iter().any(|(a, _, _)| Self::act_label(a) != label);
+            if label == self.craft_label
+                && now - self.craft_start > STRETCH_CAP_SECS
+                && !had_alt
+                && !self
+                    .forced
+                    .iter()
+                    .any(|f| f.label == label && f.start == self.craft_start)
+            {
+                self.forced.push(Stretch {
+                    start: self.craft_start,
+                    label: label.clone(),
+                    secs: now - self.craft_start,
+                    had_alternative: false,
+                });
+            }
+            if let HomeAct::EatThen(_) = act {
+                self.eat_all();
+                continue;
+            }
+            self.tag(Some(&label));
+            let ui = match act {
+                HomeAct::Piece(_) => UI_BUILD_SECS,
+                _ => UI_CRAFT_SECS,
+            };
+            self.pause_for_ui(ui);
+            let ok = match act {
+                HomeAct::Econ(r) => self.sim.make_econ(P0, r).is_ok(),
+                HomeAct::Basic(r) => self.sim.make(P0, r).is_ok(),
+                HomeAct::Piece(p) => self.sim.build_piece(P0, p).is_ok(),
+                HomeAct::Harvest => self.sim.harvest_bed(P0).is_ok(),
+                HomeAct::EatThen(_) => false,
+            };
+            self.step(Controls::default());
+            self.tag(None);
+            self.crafts.push((now, self.now(), label));
+            if !ok {
+                break;
+            }
+        }
+        // Portions on the shell take room from the haul: eat before leaving.
+        if self.held_portions() > 0 && !self.done() && self.cfg.focus.is_none() {
+            self.eat_all();
+        }
+    }
+
+    // ---- Choosing ----
+
+    /// Item -> the node kind that gives it (or feeds it, for a valve).
+    fn source_of(item: Item) -> Option<NodeKind> {
+        match item {
+            Item::Mussel | Item::Valve => Some(NodeKind::MusselClump),
+            Item::Kelp | Item::KelpCord => Some(NodeKind::KelpStand),
+            Item::Grit => Some(NodeKind::GritHeap),
+            Item::Snail => Some(NodeKind::SnailRocks),
+            Item::ShoreStrain => Some(NodeKind::ShoreGlow),
+            _ => None,
+        }
+    }
+
+    /// The skills whose crafts are waiting on this node kind's item.
+    fn fed_by(&self, kind: NodeKind) -> Vec<Skill> {
+        use crabsim::craft::CantMakeEcon::Missing;
+        let mut out = Vec::new();
+        for r in ECON_RECIPES {
+            if let Err(Missing(item, _)) = self.sim.can_make_econ(P0, r)
+                && Self::source_of(item) == Some(kind)
+            {
+                out.push(r.skill);
+            }
+        }
+        for p in PIECES {
+            if let Err(Missing(item, _)) = self.sim.can_build_piece(P0, p.piece)
+                && Self::source_of(item) == Some(kind)
+            {
+                out.push(Skill::Building);
+            }
+        }
+        if let Err(crabsim::CantMake::Missing) = self.sim.can_make(P0, Recipe::BuildHome)
+            && kind == NodeKind::GritHeap
+        {
+            out.push(Skill::Building);
+        }
+        out
+    }
+
+    fn candidates(&self) -> Vec<Candidate> {
+        let mut out = Vec::new();
+        let focus = self.cfg.focus;
+        for kind in [
+            NodeKind::MusselClump,
+            NodeKind::KelpStand,
+            NodeKind::GritHeap,
+            NodeKind::SnailRocks,
+            NodeKind::ShoreGlow,
+        ] {
+            let def = kind.def();
+            if focus.is_some_and(|f| f != def.skill) {
+                continue;
+            }
+            if self.lv(def.skill) < def.level || self.ready_nodes(kind).is_empty() {
+                continue;
+            }
+            let item = def.yields.expect("item");
+            if !self.shell_has_room_for(item) {
+                continue;
+            }
+            let mut serves = vec![def.skill];
+            if focus.is_none() {
+                serves.extend(self.fed_by(kind));
+            }
+            out.push(Candidate {
+                label: format!("gather {}", def.name.to_lowercase()),
+                kind: Session::Gather(kind),
+                serves,
+            });
+        }
+        if focus.is_some() {
+            return out;
+        }
+        for at in [SNAPPER_A, SNAPPER_B] {
+            if self.snapper_up(at) {
+                out.push(Candidate {
+                    label: "fight snapping shrimp".to_string(),
+                    kind: Session::Fight(at),
+                    serves: vec![Skill::Fighting],
+                });
+                break;
+            }
+        }
+        out.push(Candidate {
+            label: "climb kelp".to_string(),
+            kind: Session::Climb,
+            serves: vec![Skill::Climbing],
+        });
+        if self.can_swim() {
+            out.push(Candidate {
+                label: "swim".to_string(),
+                kind: Session::Swim,
+                serves: vec![Skill::Swimming],
+            });
+        }
+        if !self.dig_done {
+            out.push(Candidate {
+                label: "dig the burrow gallery".to_string(),
+                kind: Session::Dig,
+                serves: vec![Skill::Excavating],
+            });
+        }
+        out.push(Candidate {
+            label: "survive in the Silt Galleries".to_string(),
+            kind: Session::Survive,
+            serves: vec![Skill::Survival],
+        });
+        out
+    }
+
+    fn rank(&self, c: &Candidate) -> (u32, f32) {
+        c.serves
+            .iter()
+            .map(|&s| self.key(s))
+            .min_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)))
+            .unwrap_or((u32::MAX, 0.0))
+    }
+
+    fn run(&mut self, c: &Candidate) {
+        let start = self.now();
+        let n0 = self.spans.len();
+        match c.kind {
+            Session::Gather(kind) => self.gather_session(kind, &c.label),
+            Session::Fight(at) => {
+                self.tag(None);
+                self.leave_home();
+                if at > SNAPPER_A && self.snapper_up(SNAPPER_A) {
+                    self.fight(SNAPPER_A);
+                }
+                if !self.dead() && self.snapper_up(at) {
+                    self.walk_to(at - 190.0, 4.0);
+                    self.fight(at);
+                }
+                self.go_home();
+            }
+            Session::Climb => self.climb_session(),
+            Session::Swim => self.swim_session(),
+            Session::Survive => self.survive_session(),
+            Session::Dig => self.dig_session(),
+        }
+        if self.stretch_label != c.label {
+            self.stretch_label = c.label.clone();
+            self.stretch_start = start;
+        }
+        self.tag(None);
+        let new = &self.spans[n0.min(self.spans.len())..];
+        let a = new.iter().map(|s| s.start).fold(f64::INFINITY, f64::min);
+        let b = new.iter().map(|s| s.end).fold(0.0, f64::max);
+        if a.is_finite() {
+            self.sessions.push((a, b, c.label.clone()));
+        }
+        self.last_done.insert(c.label.clone(), self.now());
+    }
+
+    /// Play until the config says stop.
+    pub fn play(&mut self) {
+        let mut idle_rounds = 0;
+        while !self.done() {
+            // At home: portions off, haul banked, then craft.
+            if self.cfg.focus.is_none() {
+                self.home_work();
+            }
+            if self.done() {
+                break;
+            }
+            let cands = self.candidates();
+            if cands.is_empty() {
+                // Everything is spent: wait at home for regrowth.
+                self.tag(None);
+                self.idle_secs(10.0);
+                idle_rounds += 1;
+                if idle_rounds > 100_000 {
+                    break;
+                }
+                continue;
+            }
+            let now = self.now();
+            let stale = now - self.stretch_start >= STRETCH_SWITCH_SECS;
+            let mut order: Vec<&Candidate> = cands.iter().collect();
+            order.sort_by(|a, b| {
+                let (ka, kb) = (self.rank(a), self.rank(b));
+                ka.0.cmp(&kb.0).then(ka.1.total_cmp(&kb.1)).then_with(|| {
+                    let la = self.last_done.get(&a.label).copied().unwrap_or(-1.0);
+                    let lb = self.last_done.get(&b.label).copied().unwrap_or(-1.0);
+                    la.total_cmp(&lb)
+                })
+            });
+            let pick = if stale {
+                order
+                    .iter()
+                    .find(|c| c.label != self.stretch_label)
+                    .or(order.first())
+            } else {
+                order.first()
+            };
+            let c = (*pick.expect("a candidate")).clone();
+            if c.label == self.stretch_label
+                && now - self.stretch_start >= STRETCH_CAP_SECS
+                && cands.iter().all(|o| o.label == c.label)
+            {
+                self.forced.push(Stretch {
+                    start: self.stretch_start,
+                    label: c.label.clone(),
+                    secs: now - self.stretch_start,
+                    had_alternative: false,
+                });
+            }
+            self.run(&c);
+        }
+        self.tag(None);
+    }
+
+    // ---- The report ----
+
+    /// Minutes at which each skill first reached `level`, or None.
+    pub fn minute_of(&self, skill: Skill, level: u32) -> Option<f64> {
+        self.level_ups
+            .iter()
+            .find(|(_, s, l)| *s == skill && *l >= level)
+            .map(|(t, _, _)| t / 60.0)
+    }
+
+    /// Level-ups in each 5-minute window.
+    pub fn levelups_per_window(&self) -> Vec<u32> {
+        let n = (self.cfg.secs / 300.0).ceil() as usize;
+        let mut out = vec![0; n.max(1)];
+        for (t, _, _) in &self.level_ups {
+            let w = (*t / 300.0) as usize;
+            if w < out.len() {
+                out[w] += 1;
+            }
+        }
+        out
+    }
+
+    /// Distinct work labels in each 5-minute window.
+    pub fn distinct_per_window(&self) -> Vec<u32> {
+        let n = (self.cfg.secs / 300.0).ceil() as usize;
+        (0..n.max(1))
+            .map(|w| {
+                let (a, b) = (w as f64 * 300.0, (w + 1) as f64 * 300.0);
+                let mut labels = std::collections::BTreeSet::new();
+                for s in &self.spans {
+                    if s.start < b && s.end > a {
+                        labels.insert(s.label.as_str());
+                    }
+                }
+                labels.len() as u32
+            })
+            .collect()
+    }
+
+    /// Every run of consecutive sessions (or consecutive crafts) on one
+    /// label that lasted over `STRETCH_CAP_SECS`.
+    pub fn long_stretches(&self) -> Vec<Stretch> {
+        let mut out = Vec::new();
+        for list in [&self.sessions, &self.crafts] {
+            let mut i = 0;
+            while i < list.len() {
+                let mut j = i;
+                while j + 1 < list.len() && list[j + 1].2 == list[i].2 {
+                    j += 1;
+                }
+                let secs = list[j].1 - list[i].0;
+                if secs > STRETCH_CAP_SECS {
+                    let forced = self
+                        .forced
+                        .iter()
+                        .any(|f| f.label == list[i].2 && f.start >= list[i].0 - 1.0);
+                    out.push(Stretch {
+                        start: list[i].0,
+                        label: list[i].2.clone(),
+                        secs,
+                        had_alternative: !forced,
+                    });
+                }
+                i = j + 1;
+            }
+        }
+        out
+    }
+}
+
+/// Levels 2 to 15 of the thirteen skills with no unlock line (the physical
+/// three have none today).
+pub fn silent_levels() -> Vec<(Skill, u32)> {
+    let mut out = Vec::new();
+    for &s in &SKILLS {
+        for level in 2..=15 {
+            let silent = s.economy_index().is_none() || economy::unlocks(s, level).is_empty();
+            if silent {
+                out.push((s, level));
+            }
+        }
+    }
+    out
+}
