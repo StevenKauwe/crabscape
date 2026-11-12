@@ -34,7 +34,7 @@ pub const DIG_BLOCK_XP: f32 = 1.0;
 const DIG_MEMORY: usize = 96;
 
 /// The blocks a crab dug lately and the new ones not yet paid.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct DigLedger {
     recent: Vec<(i32, i32)>,
     next: usize,

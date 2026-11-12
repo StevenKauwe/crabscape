@@ -145,8 +145,9 @@ pub struct SimCrab {
     /// The gather in progress (see [`crate::economy::gather`]).
     #[serde(default)]
     pub gather: crate::economy::gather::GatherProgress,
-    /// Where it dug lately, for Excavating experience (not saved).
-    #[serde(skip)]
+    /// Where it dug lately, for Excavating experience (carried in
+    /// checkpoints so a co-op authority hand-off replays it exactly).
+    #[serde(default)]
     pub(crate) dig: econ::DigLedger,
     /// Events from between ticks (a hit from outside, a moult, something
     /// made), added to the next tick's.

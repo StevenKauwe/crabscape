@@ -510,6 +510,29 @@ Pieces built into the home change it for everyone in that home's world. Eight, e
 - **Saved** with the world part of `Progress` (`Progress::home_pieces`, next to `clams`): in solo and on the host the
   crab's own world is its home. A guest visiting saves its own world's set, not the host's.
 
+## Wants that send you out (#631)
+The board's wants point outward: each piece or recipe below misses ONE far thing, one shell load, and the rest comes
+from the bank's common stock. The distance does the work (guardrail: never padding).
+
+| Want | Missing | Only from |
+|---|---|---|
+| Shell mosaic (Building 15) | 4 shed teeth | the bone hall's tooth beds |
+| Whelk door (Building 20) | 2 seep mussels | the seep garden's beds |
+| Coral garden (Building 55) | 1 mantis telson | the mantis over the clay cathedral (x 16,700) |
+| Culture bed 3 (Building 40) | 1 great mantis club | the mantis past the canyon (x 10,720) |
+| Moray-tooth claw tips (Shellcraft 42) | 3 moray fangs | morays past the canyon (x 9,880, 15,220) |
+
+Creatures beaten past x 9,000 (`BEYOND_CANYON`) or 15,000 (`CORAL_RISE`) leave a far part instead of their near one,
+by where the crab eats the body (`economy::items::drops_at`); near mantises and morays are unchanged. `Sim::wants`
+names the landmark (`Source::Node { place }`) or the far creature (`Source::Far`). The sixgill breaks off and never
+dies, so no want asks for it. The cathedral has no node of its own yet, so its want is the mantis over it. Tests:
+`wants_out.rs`.
+
+**Digging earns Excavating** (#631): 1 XP per 16-unit block of sediment the claws dig into that the crab has not dug
+among its last 96 (`economy::sim::DigLedger`), so re-digging a refilled tunnel or digging in place pays almost nothing.
+A scripted tunnel from the home burrow's silt shaft pays 206 XP/min (tier 1 gathering 180, tier 3 620:
+`a_minute_of_tunnelling_pays_like_tier_one_gathering`).
+
 ## Hidden rules (from the world build; they apply here)
 - Only `underwater*`, `physics/consts.rs`, `level/coral_rise.rs` and the level's floor and rocks force the ~9-minute
   rebake; the probe digest test says "rebake" if terrain behaviour changes. This economy changes none of them.
@@ -522,6 +545,7 @@ Pieces built into the home change it for everyone in that home's world. Eight, e
 - CI flake: `cell_save::native` on Linux (#482): rerun the failed job.
 
 ## Where things stand
+- **#631:** wants that send you out (five far-thing pieces and recipes), digging earns Excavating XP, and tier 5's trip is measured for real (307 s round trip through the narrows lock; XP/min by tier at unlock 180 / 403 / 620 / 805 / 1049). Next: point the glass lamp's want at the Silt Galleries' glass when the world lane's loop lands, and re-measure.
 - **L1 (#622), the loop measured:** `crates/sim/tests/loop_pacing.rs` plays three wants through the beat sheet
   (glass lamp 4.8 min, bone arch 2.1, kelp curtain 2.8 against 20). Pieces are wants now. Guardrail: the gap to 20 is
   the world's (distance, route choice, crossing, way home), never padded with costs, slow cuts or repeat trips; piece costs
