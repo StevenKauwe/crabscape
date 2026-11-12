@@ -296,21 +296,21 @@ fn build_specs() -> Vec<Frame> {
     // (120 tall, the crab's height with room to turn), then a short shaft up to
     // the vent floor east of the vent field's gathering spots (they run to
     // x 20,450), so no spot sits in its mouth.
-    let duct = Rect::new(20680.0, -10360.0, 20800.0, -10240.0);
+    let duct = Rect::new(20680.0, -10360.0, 20960.0, -10240.0);
     out.push(full(
         "vault duct",
         duct,
         Some(Tunnel),
-        vec![top(duct, 20740.0, W, true), left(duct, -10300.0, true)],
+        vec![top(duct, 20900.0, W, true), left(duct, -10300.0, true)],
     ));
-    let shaft_up = Rect::new(20680.0, -10200.0, 20800.0, -10020.0);
+    let shaft_up = Rect::new(20840.0, -10200.0, 20960.0, -10020.0);
     out.push(full(
         "vault shaft",
         shaft_up,
         Some(Tunnel),
         vec![
-            bottom(shaft_up, 20740.0, true),
-            top(shaft_up, 20740.0, W, true),
+            bottom(shaft_up, 20900.0, true),
+            top(shaft_up, 20900.0, W, true),
         ],
     ));
 

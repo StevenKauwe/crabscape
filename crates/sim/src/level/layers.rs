@@ -262,6 +262,54 @@ pub struct LayerMap {
     /// Where the standing rock boxes start in `shapes` (they and everything
     /// after them are not ground: see [`LayerMap::terrain_column`]).
     rocks_from: usize,
+    /// For each `BUCKET`-wide strip of x from `BUCKET_X0`, the shapes that
+    /// reach into it, in painting order: a column reads only these, not the
+    /// whole map (the cell world asks for a row of columns every tick).
+    buckets: Vec<Vec<u32>>,
+}
+
+/// The x index's strip width and where it starts. Shapes beyond either end
+/// sit in the end strips, so a query anywhere still sees them.
+const BUCKET: f32 = 256.0;
+const BUCKET_X0: f32 = -4096.0;
+const BUCKETS: usize = 128;
+
+fn bucket_of(x: f32) -> usize {
+    let b = ((x - BUCKET_X0) / BUCKET).floor();
+    if b.is_nan() || b < 0.0 {
+        0
+    } else {
+        (b as usize).min(BUCKETS - 1)
+    }
+}
+
+impl Shape {
+    /// The x range this shape can cover (inclusive; wide on both ends for
+    /// bands that run off the map).
+    fn x_extent(&self) -> (f32, f32) {
+        match &self.geom {
+            Geom::Rect { rect, .. } => (rect.min.x, rect.max.x),
+            Geom::Band { x0, x1, .. } => (*x0, *x1),
+            Geom::Poly(pts) => pts.iter().fold((f32::MAX, f32::MIN), |(lo, hi), p| {
+                (lo.min(p.x), hi.max(p.x))
+            }),
+        }
+    }
+}
+
+fn index(shapes: &[Shape]) -> Vec<Vec<u32>> {
+    let mut buckets = vec![Vec::new(); BUCKETS];
+    for (i, shape) in shapes.iter().enumerate() {
+        let (lo, hi) = shape.x_extent();
+        for bucket in buckets
+            .iter_mut()
+            .take(bucket_of(hi) + 1)
+            .skip(bucket_of(lo))
+        {
+            bucket.push(i as u32);
+        }
+    }
+    buckets
 }
 
 /// Bounds beyond any map: bands that run off both ends (floor is flat there).
@@ -311,7 +359,18 @@ impl LayerMap {
         // Authored decoration of new regions that must beat the rocks (a plug
         // of soil in a frame's wall, say).
         shapes.extend(silt_galleries::after_rocks());
-        LayerMap { shapes, rocks_from }
+        Self::from_shapes(shapes, rocks_from)
+    }
+
+    /// A map of these shapes, painted in order; the first `rocks_from` are
+    /// ground, the rest standing rock and what beats it.
+    pub fn from_shapes(shapes: Vec<Shape>, rocks_from: usize) -> Self {
+        let buckets = index(&shapes);
+        LayerMap {
+            shapes,
+            rocks_from,
+            buckets,
+        }
     }
 
     pub fn shapes(&self) -> &[Shape] {
@@ -321,8 +380,8 @@ impl LayerMap {
     /// The column at world x.
     pub fn column(&self, wx: f32) -> Column {
         let mut spans = Vec::new();
-        for s in &self.shapes {
-            s.spans_at(wx, &mut spans);
+        for &i in &self.buckets[bucket_of(wx)] {
+            self.shapes[i as usize].spans_at(wx, &mut spans);
         }
         Column { spans }
     }
@@ -332,8 +391,10 @@ impl LayerMap {
     /// is the surface that `Level::floor_height` reports.
     pub fn terrain_column(&self, wx: f32) -> Column {
         let mut spans = Vec::new();
-        for s in &self.shapes[..self.rocks_from] {
-            s.spans_at(wx, &mut spans);
+        for &i in &self.buckets[bucket_of(wx)] {
+            if (i as usize) < self.rocks_from {
+                self.shapes[i as usize].spans_at(wx, &mut spans);
+            }
         }
         Column { spans }
     }
@@ -541,8 +602,8 @@ mod tests {
 
     #[test]
     fn a_painted_shape_beats_the_ones_before_it() {
-        let mut map = LayerMap {
-            shapes: vec![
+        let map = LayerMap::from_shapes(
+            vec![
                 Shape::rect(
                     "rock",
                     Cell::Rock,
@@ -565,8 +626,8 @@ mod tests {
                     ],
                 ),
             ],
-            rocks_from: 3,
-        };
+            3,
+        );
         assert_eq!(map.cell_at(Vec2::new(10.0, 10.0)), Cell::Rock);
         assert_eq!(map.cell_at(Vec2::new(70.0, 70.0)), Cell::Water);
         assert_eq!(map.cell_at(Vec2::new(30.0, 30.0)), Cell::Sand);
@@ -574,7 +635,41 @@ mod tests {
         // (its top edge at x 30 is y 70).
         let g = map.ground_below(Vec2::new(30.0, 75.0)).expect("the wedge");
         assert!((g - 70.0).abs() < 1.0, "{g}");
-        map.shapes.clear();
-        assert_eq!(map.cell_at(Vec2::new(10.0, 10.0)), Cell::Water);
+        let empty = LayerMap::from_shapes(Vec::new(), 0);
+        assert_eq!(empty.cell_at(Vec2::new(10.0, 10.0)), Cell::Water);
+    }
+
+    /// The x index only skips shapes that cannot reach a column: every column
+    /// of the real map, off both ends too, reads the same as a scan of all.
+    #[test]
+    fn the_x_index_reads_the_same_as_every_shape() {
+        let map = LayerMap::of(&Level::test_level());
+        let mut x = -6000.0;
+        while x < 30000.0 {
+            let mut all = Vec::new();
+            for s in &map.shapes {
+                s.spans_at(x, &mut all);
+            }
+            let mut ground = Vec::new();
+            for s in &map.shapes[..map.rocks_from] {
+                s.spans_at(x, &mut ground);
+            }
+            for y in (-16000..2000).step_by(37).map(|y| y as f32) {
+                assert_eq!(
+                    map.column(x).cell(y),
+                    Column { spans: all.clone() }.cell(y),
+                    "{x}, {y}"
+                );
+                assert_eq!(
+                    map.terrain_column(x).cell(y),
+                    Column {
+                        spans: ground.clone()
+                    }
+                    .cell(y),
+                    "{x}, {y}"
+                );
+            }
+            x += 13.7;
+        }
     }
 }
