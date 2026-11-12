@@ -121,59 +121,76 @@ impl Obstruction {
 
 /// The grid cells whose middle is open water under the sea floor: the insides
 /// of caverns (the Silt Galleries, the Drop, the sealed pockets). Everything
-/// else under the floor is rock or soil. Sampled once from the level's layer
-/// map (`Level::layers`), one bit per memory cell, and shared by every crab's
-/// memory of the same level; never per frame.
-#[derive(Debug, Default, PartialEq)]
+/// else under the floor is rock or soil. Each column of the grid is sampled
+/// once from the level's layer map (`Level::layers`), the first time anything
+/// looks at it, into one bit per cell, and every crab's memory of the same
+/// level shares them; never per frame, and not the whole map at setup.
 pub struct CavernMask {
+    map: Arc<crate::level::layers::LayerMap>,
+    origin: Vec2,
     cols: u32,
     rows: u32,
-    bits: Vec<u64>,
+    cell: f32,
+    columns: Vec<std::sync::OnceLock<Box<[u64]>>>,
 }
 
 impl CavernMask {
-    /// Sample the layer map over a `cols` x `rows` grid of `cell`-unit cells
-    /// whose lower-left corner is `origin`. Pure: the same level and grid give
-    /// the same mask.
-    pub fn sample(level: &Level, origin: Vec2, cols: u32, rows: u32, cell: f32) -> Self {
-        let map = level.layers_shared();
-        let mut bits = vec![0u64; (cols as usize * rows as usize).div_ceil(64)];
-        for x in 0..cols {
-            let wx = origin.x + (x as f32 + 0.5) * cell;
-            if wx < level.min_x || wx > level.max_x {
-                continue;
-            }
-            let column = map.column(wx);
-            // Cells whose middle is more than half a cell under the sea floor.
-            let floor = level.floor_height(wx) - cell * 0.5;
-            for y in 0..rows {
-                let wy = origin.y + (y as f32 + 0.5) * cell;
+    /// A mask over a `cols` x `rows` grid of `cell`-unit cells whose
+    /// lower-left corner is `origin` (nothing sampled yet).
+    pub fn new(level: &Level, origin: Vec2, cols: u32, rows: u32, cell: f32) -> Self {
+        Self {
+            map: level.layers_shared(),
+            origin,
+            cols,
+            rows,
+            cell,
+            columns: (0..cols).map(|_| std::sync::OnceLock::new()).collect(),
+        }
+    }
+
+    /// One column's bits, bottom to top: set where the middle of the cell is
+    /// open water more than half a cell under the sea floor. Pure: the same
+    /// level and grid give the same bits.
+    pub fn column_bits(&self, level: &Level, x: u32) -> Box<[u64]> {
+        let mut bits = vec![0u64; (self.rows as usize).div_ceil(64)];
+        let wx = self.origin.x + (x as f32 + 0.5) * self.cell;
+        if wx >= level.min_x && wx <= level.max_x {
+            let column = self.map.column(wx);
+            let floor = level.floor_height(wx) - self.cell * 0.5;
+            for y in 0..self.rows {
+                let wy = self.origin.y + (y as f32 + 0.5) * self.cell;
                 if wy >= floor {
                     break;
                 }
                 if column.cell(wy) == crate::underwater::Cell::Water {
-                    let i = y as usize * cols as usize + x as usize;
-                    bits[i / 64] |= 1 << (i % 64);
+                    bits[y as usize / 64] |= 1 << (y % 64);
                 }
             }
         }
-        Self { cols, rows, bits }
+        bits.into_boxed_slice()
     }
 
     /// Is the cell at (`x`, `y`) open cavern water?
-    pub fn open(&self, x: u32, y: u32) -> bool {
+    pub fn open(&self, level: &Level, x: u32, y: u32) -> bool {
         if x >= self.cols || y >= self.rows {
             return false;
         }
-        let i = y as usize * self.cols as usize + x as usize;
-        self.bits
-            .get(i / 64)
-            .is_some_and(|w| w >> (i % 64) & 1 == 1)
+        let bits = self.columns[x as usize].get_or_init(|| self.column_bits(level, x));
+        bits.get(y as usize / 64)
+            .is_some_and(|w| w >> (y % 64) & 1 == 1)
     }
 
-    /// How many cells are open cavern water.
-    pub fn count(&self) -> usize {
-        self.bits.iter().map(|w| w.count_ones() as usize).sum()
+    /// How many cells are open cavern water (samples every column).
+    pub fn count(&self, level: &Level) -> usize {
+        (0..self.cols)
+            .map(|x| {
+                self.columns[x as usize]
+                    .get_or_init(|| self.column_bits(level, x))
+                    .iter()
+                    .map(|w| w.count_ones() as usize)
+                    .sum::<usize>()
+            })
+            .sum()
     }
 
     /// The mask for this level and grid, shared with every memory that asks
@@ -201,7 +218,7 @@ impl CavernMask {
         {
             return Arc::clone(mask);
         }
-        let mask = Arc::new(Self::sample(level, origin, cols, rows, cell));
+        let mask = Arc::new(Self::new(level, origin, cols, rows, cell));
         if cache.len() >= 4 {
             cache.remove(0);
         }
@@ -483,7 +500,22 @@ impl Memory {
                 .chain(&level.secrets)
                 .any(|r| r.contains(c))
             || crate::level::royal::solids().any(|r| r.contains(c))
-            || (c.y < level.floor_height(c.x) - t.cell * 0.5 && !self.cavern_water(i, level, t))
+            || self.under_the_floor(i, c, level, t)
+    }
+
+    /// [`sample_solid`](Self::sample_solid) with the rocks that can matter
+    /// already picked out (those reaching the sight window).
+    fn sample_solid_among(&self, i: u64, near: &[Rect], level: &Level, t: &MemoryTuning) -> bool {
+        let c = self.centre(i, t);
+        c.x < level.min_x
+            || c.x > level.max_x
+            || near.iter().any(|r| r.contains(c))
+            || self.under_the_floor(i, c, level, t)
+    }
+
+    /// More than half a cell under the sea floor and not cavern water.
+    fn under_the_floor(&self, i: u64, c: Vec2, level: &Level, t: &MemoryTuning) -> bool {
+        c.y < level.floor_height(c.x) - t.cell * 0.5 && !self.cavern_water(i, level, t)
     }
 
     /// Is this cell open water inside a cavern (under the sea floor, where
@@ -493,6 +525,7 @@ impl Memory {
             .caverns
             .get_or_init(|| CavernMask::shared(level, self.origin, self.cols, self.rows, t.cell));
         mask.open(
+            level,
             (i % u64::from(self.cols)) as u32,
             (i / u64::from(self.cols)) as u32,
         )
@@ -636,8 +669,27 @@ impl Memory {
             self.obstruction.y = (first / u64::from(self.cols)) as u32;
             self.obstruction.width = (last % u64::from(self.cols)) as u32 - self.obstruction.x + 1;
             self.obstruction.height = (last / u64::from(self.cols)) as u32 - self.obstruction.y + 1;
+            // The rocks, secrets and royal walls that reach the window: the
+            // few that matter, found once, not once for every cell.
+            let window = Rect::from_corners(
+                self.centre(first, t).min(self.centre(last, t)) - Vec2::splat(t.cell),
+                self.centre(first, t).max(self.centre(last, t)) + Vec2::splat(t.cell),
+            );
+            let near: Vec<Rect> = level
+                .rocks
+                .iter()
+                .chain(&level.secrets)
+                .copied()
+                .chain(crate::level::royal::solids())
+                .filter(|r| {
+                    r.min.x <= window.max.x
+                        && r.max.x >= window.min.x
+                        && r.min.y <= window.max.y
+                        && r.max.y >= window.min.y
+                })
+                .collect();
             for &i in &cells {
-                let solid = self.sample_solid(i, level, t);
+                let solid = self.sample_solid_among(i, &near, level, t);
                 self.obstruction.cells.push(solid);
             }
         }

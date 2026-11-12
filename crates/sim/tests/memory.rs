@@ -313,10 +313,11 @@ fn the_cavern_mask_marks_open_water_under_the_floor_and_nothing_else() {
     let level = crabsim::Level::test_level();
     let t = crabsim::Tuning::default().memory;
     let blank = Memory::new(&level, &t);
-    let mask = CavernMask::sample(&level, blank.origin, blank.cols, blank.rows, t.cell);
+    let mask = CavernMask::new(&level, blank.origin, blank.cols, blank.rows, t.cell);
     let open = |p: Vec2| {
         let i = blank.cell_at(p, &t).expect("on the grid");
         mask.open(
+            &level,
             (i % u64::from(blank.cols)) as u32,
             (i / u64::from(blank.cols)) as u32,
         )
@@ -337,16 +338,18 @@ fn the_cavern_mask_marks_open_water_under_the_floor_and_nothing_else() {
     );
     assert!(!open(Vec2::new(160.0, 50.0)), "the open sea");
     assert!(!open(Vec2::new(1200.0, -2220.0)), "a slab of the Drop");
-    let n = mask.count();
+    let n = mask.count(&level);
     println!(
         "{n} cavern cells of {}",
         blank.cols as u64 * blank.rows as u64
     );
     assert!(n > 10_000, "{n}");
-    // The same grid, sampled again, is the same mask.
+    // Sampled again (a fresh mask), a column is the same bits.
+    let again = CavernMask::new(&level, blank.origin, blank.cols, blank.rows, t.cell);
+    let x = blank.cell_at(Vec2::new(1200.0, 0.0), &t).unwrap() % u64::from(blank.cols);
     assert_eq!(
-        mask,
-        CavernMask::sample(&level, blank.origin, blank.cols, blank.rows, t.cell)
+        mask.column_bits(&level, x as u32),
+        again.column_bits(&level, x as u32)
     );
 }
 

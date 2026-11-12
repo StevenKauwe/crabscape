@@ -89,19 +89,21 @@ pub fn stalk_x(k: i32) -> f32 {
     }
 }
 
+/// Slab `k` (1 to `SLABS`): a ledge of bedrock across all but a gap of the
+/// shaft.
+pub fn slab(k: i32) -> Rect {
+    let top = level_of(k);
+    let (x0, x1) = if gap_east(k) {
+        (SHAFT.min.x, SHAFT.max.x - GAP)
+    } else {
+        (SHAFT.min.x + GAP, SHAFT.max.x)
+    };
+    Rect::new(x0, top - SLAB_THICK, x1, top)
+}
+
 /// The slabs, by level (1 to `SLABS`).
 pub fn slabs() -> Vec<Rect> {
-    (1..=SLABS)
-        .map(|k| {
-            let top = level_of(k);
-            let (x0, x1) = if gap_east(k) {
-                (SHAFT.min.x, SHAFT.max.x - GAP)
-            } else {
-                (SHAFT.min.x + GAP, SHAFT.max.x)
-            };
-            Rect::new(x0, top - SLAB_THICK, x1, top)
-        })
-        .collect()
+    (1..=SLABS).map(slab).collect()
 }
 
 /// The coral stalks that climb back up the Drop, bottom to top: stalk `k`
@@ -287,33 +289,79 @@ pub fn lining() -> &'static [Rect] {
         let mut out = Vec::new();
         for r in rooms() {
             let a = r.rect;
-            // The breach's walls start where the duct's roof does.
+            // The breach's walls start where the duct's roof does. (No floors:
+            // a body in a cavern stands on the layer map's own floor,
+            // `Level::footing`, and the cells under it are bedrock.)
             let low = if r.part == Part::Breach {
                 a.min.y + 20.0
             } else {
-                a.min.y - EDGE
+                a.min.y
             };
             let mut bands = vec![
                 Rect::new(a.min.x - EDGE, low, a.min.x, a.max.y + EDGE),
                 Rect::new(a.max.x, low, a.max.x + EDGE, a.max.y + EDGE),
                 Rect::new(a.min.x, a.max.y, a.max.x, a.max.y + EDGE),
             ];
-            if r.part != Part::Breach {
-                bands.push(Rect::new(a.min.x, a.min.y - EDGE, a.max.x, a.min.y));
-            }
             out.extend(subtract_all(
                 bands,
                 all_voids().chain(std::iter::once(FAR_GAP)),
             ));
         }
-        out
+        merge(out)
     })
+}
+
+/// Fewer, larger boxes: drop a box inside another and join two that share a
+/// whole edge. (Every rock is looked at by every creature on every tick, so
+/// the corner crumbs where two linings meet cost more than they hold.)
+fn merge(mut rects: Vec<Rect>) -> Vec<Rect> {
+    'again: loop {
+        for i in 0..rects.len() {
+            for j in 0..rects.len() {
+                if i == j {
+                    continue;
+                }
+                let (a, b) = (rects[i], rects[j]);
+                let inside = a.min.x >= b.min.x
+                    && a.min.y >= b.min.y
+                    && a.max.x <= b.max.x
+                    && a.max.y <= b.max.y;
+                let same_rows = a.min.y == b.min.y && a.max.y == b.max.y;
+                let same_columns = a.min.x == b.min.x && a.max.x == b.max.x;
+                let joined = if inside {
+                    Some(b)
+                } else if same_rows && a.min.x <= b.max.x && b.min.x <= a.max.x {
+                    Some(Rect::new(
+                        a.min.x.min(b.min.x),
+                        a.min.y,
+                        a.max.x.max(b.max.x),
+                        a.max.y,
+                    ))
+                } else if same_columns && a.min.y <= b.max.y && b.min.y <= a.max.y {
+                    Some(Rect::new(
+                        a.min.x,
+                        a.min.y.min(b.min.y),
+                        a.max.x,
+                        a.max.y.max(b.max.y),
+                    ))
+                } else {
+                    None
+                };
+                if let Some(r) = joined {
+                    rects[i] = r;
+                    rects.swap_remove(j);
+                    continue 'again;
+                }
+            }
+        }
+        return rects;
+    }
 }
 
 impl Level {
     /// Does this level carry the deep galleries?
     pub fn has_deep_galleries(&self) -> bool {
-        self.has_silt_galleries() && self.rocks.contains(&lining()[0])
+        self.has_silt_galleries() && self.rocks.contains(&slab(1))
     }
 }
 

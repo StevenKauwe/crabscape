@@ -886,3 +886,89 @@ fn the_far_door_shaft_climbs_back_with_a_niche_to_rest_in() {
         up.get()
     );
 }
+
+/// The plug shaft's ledge can be used: up the stalk, a kick off it onto the
+/// niche, a rest, a jump back onto the stalk, and on up to the plug.
+#[test]
+fn the_plug_shafts_ledge_is_somewhere_a_climber_can_stand_and_leave_again() {
+    let stalk = sg::CORAL[1];
+    let ledge = sg::PLUG_LEDGE;
+    let mut sim = route::world(KIT, Vec2::new(stalk.x + 70.0, stalk.bottom), false);
+    assert!(run(
+        &mut sim,
+        5.0,
+        |_, _| Controls::default(),
+        |s| standing_at(s, stalk.bottom)
+    ));
+    let gripped = std::cell::Cell::new(false);
+    let climbed = run(
+        &mut sim,
+        30.0,
+        |s, _| {
+            let m = crab(s);
+            if m.climbing {
+                return Controls {
+                    jump_held: true,
+                    ..Default::default()
+                };
+            }
+            Controls {
+                walk: -1.0,
+                jump_pressed: m.grounded && !gripped.get(),
+                jump_held: true,
+                ..Default::default()
+            }
+        },
+        |s| {
+            gripped.set(gripped.get() || crab(s).climbing);
+            crab(s).climbing && crab(s).pos.y > ledge.min.y + 20.0
+        },
+    );
+    assert!(
+        climbed,
+        "gripped: {}, at {:?}",
+        gripped.get(),
+        crab(&sim).pos
+    );
+    let landed = run(
+        &mut sim,
+        6.0,
+        |s, tick| Controls {
+            walk: 1.0,
+            jump_pressed: tick == 0 && crab(s).climbing,
+            jump_held: tick < 30,
+            ..Default::default()
+        },
+        |s| standing_at(s, ledge.min.y),
+    );
+    assert!(landed, "on the ledge: {:?}", crab(&sim).pos);
+    rest(&mut sim);
+    let up = std::cell::Cell::new(false);
+    let top = sg::PLUG.min.y - 100.0;
+    let out = run(
+        &mut sim,
+        40.0,
+        |s, _| {
+            let m = crab(s);
+            if m.climbing {
+                up.set(true);
+                return Controls {
+                    jump_held: true,
+                    ..Default::default()
+                };
+            }
+            Controls {
+                walk: -1.0,
+                jump_pressed: m.grounded,
+                jump_held: true,
+                ..Default::default()
+            }
+        },
+        |s| up.get() && crab(s).pos.y > top,
+    );
+    assert!(
+        out,
+        "back on the stalk and up to the plug: {:?}",
+        crab(&sim).pos
+    );
+}
