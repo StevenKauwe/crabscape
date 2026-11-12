@@ -1482,7 +1482,7 @@ impl Tuning {
                     poise: 30.0,
                     recover_ticks: 70, // page
                     arm_damage: 1.5,   // page
-                    rest_ticks: 120,
+                    rest_ticks: 210,   // `boss_is_beatable`: the expected player wins 68%
                 },
                 bite: BiteTuning {
                     venom_at: 120, // page

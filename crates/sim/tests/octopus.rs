@@ -235,6 +235,55 @@ fn a_parried_probe_tip_recoils_without_grabbing() {
 }
 
 #[test]
+fn a_tip_follows_a_crab_that_steps_mid_slide_and_still_takes_its_whole_tell() {
+    // Found by `boss_is_beatable`: a tip used to grab on contact while still
+    // sliding, so a crab that moved into it was taken with no tell at all.
+    let still = probe("", 400);
+    let start = still
+        .arms
+        .iter()
+        .position(|a| a[0] == ArmState::Slide)
+        .unwrap();
+    let r = probe(
+        &format!("@{} walk=left; @{} walk=stop", start + 20, start + 32),
+        400,
+    );
+    let h = r.first_hurt();
+    assert!(
+        r.x[h] < still.x[h] - 5.0,
+        "it stepped back: {} {}",
+        r.x[h],
+        still.x[h]
+    );
+    assert_eq!(h - start + 1, 60, "the touch still comes on the 60th tick");
+    assert_eq!(r.status[h], "grabbed", "where the crab went");
+}
+
+#[test]
+fn a_parry_makes_it_flinch_open_to_the_counter() {
+    // Found by `boss_is_beatable`: with two tips out, the next one always
+    // came before a counter could land, so a parry won nothing.
+    let h = probe("", 400).first_hurt();
+    let r = probe(&format!("@{} parry", h - 3), h as u64 + 120);
+    assert!(r.parried);
+    let t = &r.sim.tuning;
+    let after = &r.arms[h + 1..];
+    assert!(
+        after[0].iter().all(|a| *a != ArmState::Slide),
+        "its other sliding tip draws back: {:?}",
+        after[0]
+    );
+    let next = after
+        .iter()
+        .position(|a| a.contains(&ArmState::Slide))
+        .expect("it probes again");
+    assert!(
+        next + 1 >= t.counter_ticks as usize,
+        "no tip sent while the crab counters: {next}"
+    );
+}
+
+#[test]
 fn a_guard_pushes_tips_back_until_its_poise_gives_out() {
     let r = probe("t=0 guard", 600);
     assert!(r.blocked);
@@ -477,6 +526,27 @@ fn close_under_its_web_it_rises_then_drops_it_and_caught_crabs_are_grabbed() {
     assert_eq!(r.enemy[caught].0, State::Grab);
     // Not even probing while it rises: its arms gather in.
     assert!(r.arms[rise + 45].iter().all(|a| *a == ArmState::Curled));
+}
+
+#[test]
+fn the_web_catches_only_as_it_lands() {
+    // Found by `boss_is_beatable`: the web used to catch a crab whenever its
+    // edge passed the crab's height, so the moment to dodge moved with the
+    // crab. Now it is the landing, every time.
+    let c = close("", 400, |_| {});
+    let r = &c.run;
+    let drop = drop_tick();
+    let caught = r
+        .status
+        .iter()
+        .position(|s| s == "grabbed")
+        .expect("caught");
+    let w = &r.sim.tuning.octopus.webover;
+    assert_eq!(
+        caught - drop + 1,
+        w.drop_ticks as usize,
+        "on its last tick, the landing"
+    );
 }
 
 #[test]
