@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 use bevy_math::Vec2;
 use crabsim::craft::CantMakeEcon;
 use crabsim::economy::home::{PIECES, Piece, piece_xp};
-use crabsim::economy::items::drops_of;
+use crabsim::economy::items::{drops_of, far_drops_of};
 use crabsim::economy::recipes::Bench;
 use crabsim::economy::wants::Source;
 use crabsim::economy::{ECON_RECIPES, Item, NODES, NodeKind, Output, Station, ToolKind, xp};
@@ -821,7 +821,10 @@ fn activity(s: Src) -> Activity {
 /// A copy of `economy_every_way_pays.rs`'s classifier: where an item comes
 /// from, by the activity.
 fn sources(item: Item, depth: u32) -> BTreeSet<Src> {
-    let drops: BTreeSet<Item> = KINDS.into_iter().flat_map(drops_of).collect();
+    let drops: BTreeSet<Item> = KINDS
+        .into_iter()
+        .flat_map(|k| drops_of(k).into_iter().chain(far_drops_of(k)))
+        .collect();
     let mut out = BTreeSet::new();
     for n in NODES.iter().filter(|n| n.yields == Some(item)) {
         out.insert(match n.skill {
@@ -913,6 +916,7 @@ fn the_soft_lock_fixed_point_includes_the_pieces() {
         }
         for kind in KINDS {
             items.extend(drops_of(kind));
+            items.extend(far_drops_of(kind));
         }
         for r in ECON_RECIPES {
             let bench_ok = match r.at {

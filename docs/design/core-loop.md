@@ -42,6 +42,7 @@ Each lead keeps their own lines here. `[x]` means it is in the game; the rest sa
 - [x] Guardrail (owner, via the coordinator, 2026-11-11): the 20 minutes come from the world (distance, route choice, the crossing, the way home), never from padding with costs, slower gathering or repeat trips down the same route. A piece costs about one good trip (a shell load), plus at most an optional second run. The lamp is 4 glass + 1 cord, the curtain 6 kelp + 2 cords, the bone arch 2 whale bone + 3 clay + 1 mantis club; a glass cut is the tier's 3.5 s (#622 tried 16 glass and a 30 s, then 12 s, cut and undid them)
 - [x] Home pieces are wants (#622): `wants` lists a piece one kind short (not built yet), `pin_want` / `pinned_status` / `goal_ready` take piece words, and building it lets the pin go; the Wants tab shows them
 - [x] Fight wants (#622): one kill, one drop; the bone arch needs one mantis club. On the Plate D map the mantis is the one at the mantis mouth in the basin, 3,785 units from the door across the basin's pit (12 s of crossing, a 6 s scripted win, 63 s home); the crab has the full kit, because its bank already holds whale bone from the canyon floor
+- [x] Wants that send you out (#631): five pieces and recipes each miss one far thing, one shell load apiece: shed teeth (bone hall tooth beds, Shell mosaic), seep mussels (seep garden, Whelk door), a mantis telson (the mantis over the clay cathedral, x 16,700, Coral garden), a great mantis club (the mantis past the canyon, x 10,720, Culture bed 3), three moray fangs (a moray past the canyon, Moray-tooth claw tips). Creatures past x 9,000 leave a far part by where the crab eats the body (`items::drops_at`); `Sim::wants` names the landmark or the far creature. The sixgill cannot be beaten, so no want asks for one. `skills-and-resources.md`, "Wants that send you out"
 - [x] Re-measure the loop on the new map (2026-11-11, #626): `cargo test --release -p crabsim --test loop_pacing -- --ignored --nocapture measure_routes` (about 25 min; `LOOP_ONLY=glass` and `LOOP_EGGS=n` narrow it), `ROUTES` pasted. The lamp's garden is now the far rim's (across the canyon), the fight is the basin's mantis; totals 5.62 / 3.48 / 2.88 min (were 4.81 / 2.05 / 2.78)
 - [x] Digging earns Excavating (#631): a crab holding dig toward sediment is paid 1 XP per new 16-unit block under its claws (last 96 blocks remembered, so digging in place or in a refilled tunnel pays about nothing); the home burrow's shaft and gallery pay 206 XP / min against 180 for tier 1 and 620 for tier 3 (`economy_dig.rs`, `economy_pacing.rs`)
 - [x] Tier 5's trip is measured, not extrapolated (#631): 307 s round trip to the vent field (`measure_vent_trip`), tier 5 pays 1,049 XP / min at its unlock level, still above tier 4's 805
@@ -49,9 +50,9 @@ Each lead keeps their own lines here. `[x]` means it is in the game; the rest sa
 **Loop world** (map, regions, landmarks: the world lane)
 - [ ] Way out too short: the shallows end at the first open water (the basin, 2,706 units from the door) after 14 to 17 s on foot (measured again on the Plate D map, unchanged by it). The familiar way out is a quarter of its 4 minutes
 - [ ] Crossing too short: 96 s from the basin to the far rim's landing (the lamp's garden) and 12 s to the mantis mouth, against 6 minutes; the open water is still one clean line, no detour to plan, and the new canyon floor (x 7,130 to 7,610) is 46 s out, nearer than the far rim
-- [ ] The fight is short: the basin's mantis (3,785 units from the door) takes a dive and a climb out (a 1 to 6 egg crab cannot get home from the pit: only the full kit can), then a 6 s scripted win. A hunting want needs a creature that is worth a crossing; the mantises at x 10,720 and 16,700 lie beyond the solver's kit today
+- [ ] The fight is short: the basin's mantis (3,785 units from the door) takes a dive and a climb out (a 1 to 6 egg crab cannot get home from the pit: only the full kit can), then a 6 s scripted win. A hunting want needs a creature that is worth a crossing: the coral garden's mantis at x 16,700 is now one (the solver reaches it with the full kit: 105 s of crossing, 129 s out in all); the one at x 10,720 and the morays are not measured
 - [ ] Way home too short: 100 s from the far rim, 63 s from the basin (no tired-leg wait), and no hunter between you and home
-- [ ] Nothing but the lamp's garden at the far rim: nothing to find on the way (the 12 to 15 minute "strange, beautiful moment" has no place yet). The bone hall, seep garden and cathedral now have nodes and prizes, but no want sends a crab there
+- [ ] Nothing but the lamp's garden at the far rim: nothing to find on the way (the 12 to 15 minute "strange, beautiful moment" has no place yet). The bone hall and seep garden have nodes and prizes, and wants now send a crab to each (and to the cathedral's mantis); the route solver cannot play the digs into them, so only the cathedral's mantis is measured
 
 ## Measured loop (2026-11-11, Plate D map after #610, one-trip piece costs)
 `crates/sim/tests/loop_pacing.rs` plays one loop per want, headless, and prints this table with `--nocapture`.
@@ -96,6 +97,18 @@ Kelp curtain (the low-attention loop): Building 3, 6 kelp plus 2 cords (10 kelp 
 | Way home | 15-19 | 0.00 | n/a | in the prize beat |
 | Build | 19-20 | 1.28 | OK | 75 s assumed UI (two cords) + 2 s |
 | Total | 20 | 2.88 | | |
+
+Coral garden (fight, mantis telson; a want that sends you out, #631): Building 55, black coral and clay already in the bank (the garden needs one mantis telson), Fighting 1; same full kit.
+
+| Beat | Window | Minutes | Verdict | Reason |
+|---|---|---|---|---|
+| Home | 0-2 | 1.00 | OK | 60 s assumed UI; the board pins the garden |
+| Way out | 2-6 | 0.24 | too short | 14 s to the first open water, 2,706 units from the door |
+| Crossing | 6-12 | 1.76 | too short | 105 s from the basin to the coral stand by the cathedral, 13,709 units on; 9 s more to the fighting stand |
+| Prize | 12-15 | 0.24 | too short | the real fight took 6 s; the mantis is 16,605 units from the door |
+| Way home | 15-19 | 1.95 | too short | 113 s of route + 4 s walking in |
+| Build | 19-20 | 0.78 | OK | 45 s assumed UI + 2 s |
+| Total | 20 | 5.98 | | |
 
 What it says: the loop is 3 to 6 minutes on the Plate D map, not 20, and the gap is still the world's: the familiar
 way out, the crossing and the way home are each a fraction of their windows, and the route is a few clean lines with

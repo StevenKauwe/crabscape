@@ -33,14 +33,20 @@ pub const NEXT_UNLOCKS: usize = 3;
 pub enum Source {
     /// A gathering node of this kind. `remembered_at` is the nearest one
     /// the crab has seen (None: it has never seen one); `band` is the depth
-    /// band this kind grows in.
+    /// band this kind grows in; `place` names the landmark every node of
+    /// the kind lies in (the bone hall, the seep garden), or None for the
+    /// open map.
     Node {
         node: NodeKind,
         remembered_at: Option<Vec2>,
         band: &'static str,
+        place: Option<&'static str>,
     },
     /// Dropped by a beaten creature of this kind.
     Creature(Kind),
+    /// Dropped only by a beaten creature of this kind far out
+    /// ([`items::FAR_DROPS`]), at `place`.
+    Far { kind: Kind, place: &'static str },
     /// Made at home by this recipe (its replay word).
     Recipe(&'static str),
 }
@@ -127,11 +133,21 @@ pub fn sources_of(sim: &Sim, crab: Option<&SimCrab>, item: Item) -> Vec<Source> 
             node: n.kind,
             remembered_at: crab.and_then(|c| remembered_node(sim, c, n.kind)),
             band: kind_band(sim, n.kind),
+            place: node_place(n.kind),
         });
     }
     for kind in crate::enemy::KINDS {
         if items::drops_of(kind).contains(&item) {
             out.push(Source::Creature(kind));
+        }
+        for d in items::FAR_DROPS
+            .iter()
+            .filter(|d| d.kind == kind && d.item == item)
+        {
+            out.push(Source::Far {
+                kind,
+                place: d.place,
+            });
         }
     }
     for r in ECON_RECIPES.iter() {
@@ -143,6 +159,14 @@ pub fn sources_of(sim: &Sim, crab: Option<&SimCrab>, item: Item) -> Vec<Source> 
         }
     }
     out
+}
+
+/// The landmark every spot of this kind lies in, by name (`None`: some lie
+/// on the open map, or it has none).
+fn node_place(kind: NodeKind) -> Option<&'static str> {
+    let mut spots = super::place::SPOTS.iter().filter(|s| s.kind == kind);
+    let first = spots.next()?.place?;
+    spots.all(|s| s.place == Some(first)).then_some(first)
 }
 
 /// The nearest node of `kind` the crab remembers seeing.

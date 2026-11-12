@@ -157,7 +157,10 @@ fn sources(item: Item, depth: u32) -> BTreeSet<Source> {
         }
         _ => {}
     }
-    if all_drops().contains(&item) {
+    let far = KINDS
+        .into_iter()
+        .any(|k| crabsim::economy::items::far_drops_of(k).contains(&item));
+    if all_drops().contains(&item) || far {
         out.insert(Source::Fighting);
         if item.tier() >= 4 {
             out.insert(Source::Diving);
