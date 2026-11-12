@@ -138,7 +138,7 @@ fn every_new_place_is_named() {
     let ledges = marks.iter().filter(|l| l.name.starts_with("drop ledge ")).count();
     assert_eq!(ledges as i32, dg::SLABS);
     let stalks = marks.iter().filter(|l| l.name.starts_with("drop coral ")).count();
-    assert_eq!(stalks as i32, dg::SLABS + 1);
+    assert_eq!(stalks as i32, dg::SLABS + 2, "the Drop's and the far door's");
     // The breach's cover is a gate (a crusher's), and sits in the lair
     // passage's floor.
     let cover = marks
@@ -529,6 +529,17 @@ fn the_deep_galleries_keep_clear_of_the_bone_hall_and_the_other_frames() {
             assert!(fat.intersect(bone).is_empty());
             continue;
         }
+        if room.name == "bone far door" {
+            // It opens into the hall's west end, on purpose.
+            assert!(room.rect.min.x < bone.min.x && room.rect.max.x > bone.min.x);
+            continue;
+        }
+        if room.name.starts_with("bone far") {
+            // Its shaft and niche run beside the hall's west wall, which is
+            // the hall's own twenty units of bedrock.
+            assert!(room.rect.intersect(bone).is_empty(), "{} is in the bone hall", room.name);
+            continue;
+        }
         assert!(fat.intersect(bone).is_empty(), "{} touches the bone hall", room.name);
         assert!(fat.intersect(chimney).is_empty(), "{} touches the long chimney", room.name);
         assert!(fat.intersect(ret).is_empty(), "{} touches the return duct", room.name);
@@ -590,4 +601,145 @@ fn the_lair_octopus_jets_along_the_lairs_own_floor() {
         before = e.state;
     }
     assert!(jetted, "it inked and jetted");
+}
+
+// --- The far door from the bone hall ------------------------------------------
+
+/// The hall's far door is a mouth in its west wall, well clear of the haze,
+/// which still exists and still keeps off every mouth.
+#[test]
+fn the_far_door_is_clear_of_the_haze() {
+    use crabsim::bone_hall;
+    let level = Level::test_level();
+    let marks = level.landmarks();
+    let door = named(&marks, "bone far door");
+    assert_eq!(door.kind, Kind::Mouth);
+    let hall = named(&marks, "bone hall");
+    assert!(door.rect.intersect(hall.rect).width() <= 100.0, "it opens at the hall's west end");
+    let real = bone_hall::find(&level).expect("the hall");
+    let haze = bone_hall::haze(&level, &real).expect("the hall still has its haze");
+    println!("haze {haze:?}, far door {:?}", door.rect);
+    let gap = haze.min.x - door.rect.max.x;
+    assert!(gap >= 80.0, "the haze keeps {gap} from the far door");
+    for l in &marks {
+        if matches!(l.kind, Kind::Tunnel | Kind::Mouth) {
+            let apart = l.rect.intersect(haze);
+            assert!(apart.is_empty(), "{} is in the haze", l.name);
+        }
+    }
+}
+
+/// Down the far door's shaft and west along the passage to the Drop's third
+/// ledge; back by the stalk, resting in the niche halfway.
+#[test]
+fn from_the_bone_hall_a_crab_walks_the_far_door_to_the_drop_and_climbs_back() {
+    let marks = marks();
+    let door = named(&marks, "bone far door").rect;
+    let passage = named(&marks, "bone far passage").rect;
+    let shaft = named(&marks, "bone far shaft").rect;
+    let mut sim = route::world(KIT, Vec2::new(door.max.x + 40.0, door.min.y), false);
+    assert!(run(&mut sim, 5.0, |_, _| Controls::default(), |s| standing_at(s, door.min.y)));
+    // Out of the hall and down the shaft (no steering in the air).
+    let dropped = run(
+        &mut sim,
+        20.0,
+        |s, _| Controls {
+            walk: if crab(s).grounded { -1.0 } else { 0.0 },
+            ..Default::default()
+        },
+        |s| standing_at(s, passage.min.y) && crab(s).pos.x > shaft.min.x,
+    );
+    assert!(dropped, "down the shaft: {:?}", crab(&sim).pos);
+    // West along the passage and up the step onto the Drop's third ledge.
+    let step = named(&marks, "bone far step").rect;
+    let there = run(
+        &mut sim,
+        40.0,
+        |s, tick| {
+            let m = crab(s);
+            let at_step = m.pos.x < step.max.x + 90.0;
+            Controls {
+                walk: if m.pos.x > step.max.x - 60.0 { -1.0 } else { 0.0 },
+                jump_pressed: at_step && m.grounded && m.pos.y < step.min.y - 40.0 && tick.is_multiple_of(30),
+                jump_held: at_step && m.pos.y < step.min.y - 10.0,
+                ..Default::default()
+            }
+        },
+        |s| standing_at(s, step.min.y) && crab(s).pos.x < step.max.x,
+    );
+    assert!(there, "on the Drop's third ledge: {:?}", crab(&sim).pos);
+}
+
+/// The shaft up from the passage to the bone hall (770 units): the stalk, a
+/// kick off it onto the niche halfway, and on up to the hall's floor.
+#[test]
+fn the_far_door_shaft_climbs_back_with_a_niche_to_rest_in() {
+    let marks = marks();
+    let door = named(&marks, "bone far door").rect;
+    let niche = named(&marks, "bone far ledge").rect;
+    let stalk = dg::FAR_CORAL;
+    assert!(niche.min.y - stalk.bottom <= 600.0 && stalk.top - niche.min.y <= 600.0);
+    let mut sim = route::world(KIT, Vec2::new(stalk.x - 70.0, stalk.bottom), false);
+    assert!(run(&mut sim, 5.0, |_, _| Controls::default(), |s| standing_at(s, stalk.bottom)));
+    // Jump at the stalk and climb to just over the niche's floor.
+    let gripped = std::cell::Cell::new(false);
+    let climbed = run(
+        &mut sim,
+        30.0,
+        |s, _| {
+            let m = crab(s);
+            if m.climbing {
+                return Controls { jump_held: true, ..Default::default() };
+            }
+            Controls {
+                walk: 1.0,
+                jump_pressed: m.grounded && !gripped.get(),
+                jump_held: true,
+                ..Default::default()
+            }
+        },
+        |s| {
+            gripped.set(gripped.get() || crab(s).climbing);
+            crab(s).climbing && crab(s).pos.y > niche.min.y + 20.0
+        },
+    );
+    assert!(climbed, "gripped: {}, at {:?}", gripped.get(), crab(&sim).pos);
+    // Kick off east onto the niche.
+    let landed = run(
+        &mut sim,
+        6.0,
+        |s, tick| Controls {
+            walk: 1.0,
+            jump_pressed: tick == 0 && crab(s).climbing,
+            jump_held: tick < 30,
+            ..Default::default()
+        },
+        |s| standing_at(s, niche.min.y),
+    );
+    assert!(landed, "on the niche: {:?}", crab(&sim).pos);
+    rest(&mut sim);
+    // And back across onto the stalk and on up to the hall's floor.
+    let up = std::cell::Cell::new(false);
+    let out = run(
+        &mut sim,
+        40.0,
+        |s, _| {
+            let m = crab(s);
+            if m.climbing {
+                up.set(true);
+                return Controls { jump_held: true, ..Default::default() };
+            }
+            if m.grounded && up.get() {
+                return Controls::default();
+            }
+            Controls {
+                walk: if m.pos.y > door.min.y - 30.0 { 1.0 } else { -1.0 },
+                jump_pressed: m.grounded,
+                jump_held: true,
+                ..Default::default()
+            }
+        },
+        |s| up.get() && standing_at(s, door.min.y),
+    );
+    assert!(out, "out into the hall: {:?} (climbed again: {})", crab(&sim).pos, up.get());
 }

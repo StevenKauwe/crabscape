@@ -226,7 +226,12 @@ fn exact_bed(name: &str) -> Option<Declared> {
         | "octopus lair"
         | "octopus lair door"
         | "lair passage"
-        | "breach shaft" => Depth,
+        | "breach shaft"
+        | "bone far door"
+        | "bone far shaft"
+        | "bone far passage"
+        | "bone far step"
+        | "bone far ledge" => Depth,
         _ => return None,
     })
 }

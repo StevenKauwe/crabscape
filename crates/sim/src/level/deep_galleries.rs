@@ -133,6 +133,18 @@ pub const BREACH: Rect = Rect::new(3600.0, -12600.0, 3720.0, FOOT);
 /// The cover, flush with the passage's floor.
 pub const BREACH_COVER: Rect = Rect::new(3600.0, FOOT - 40.0, 3720.0, FOOT);
 
+/// The bone hall's water (its frame is `lower_canyon`'s): the far door opens
+/// into it from the west, as far from the sulfide haze (the deep east corner)
+/// as the hall allows.
+const BONE_HALL_VOID: Rect = Rect::new(3440.0, -2540.0, 4170.0, -2140.0);
+/// The far door's coral: the climb from the passage up to the bone hall.
+pub const FAR_CORAL: Climb = Climb {
+    x: 3300.0,
+    bottom: -3300.0,
+    top: -2530.0,
+    kind: Growth::Coral,
+};
+
 /// What a room is, for its lining.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Part {
@@ -206,6 +218,34 @@ pub fn rooms() -> &'static [Room] {
                 Passage,
             ),
             room("breach shaft", BREACH, Breach),
+            // The far door: out of the bone hall's west end, down a shaft
+            // (with a niche to rest in), west under the moray hall to the
+            // Drop's third ledge.
+            room(
+                "bone far door",
+                Rect::new(3240.0, -2540.0, 3460.0, -2380.0),
+                Door,
+            ),
+            room(
+                "bone far shaft",
+                Rect::new(3240.0, -3300.0, 3360.0, -2540.0),
+                Shaft,
+            ),
+            room(
+                "bone far ledge",
+                Rect::new(3360.0, -2920.0, 3520.0, -2760.0),
+                Door,
+            ),
+            room(
+                "bone far passage",
+                Rect::new(1520.0, -3300.0, 3360.0, -3140.0),
+                Passage,
+            ),
+            room(
+                "bone far step",
+                Rect::new(SHAFT.max.x, level_of(3), SHAFT.max.x + 120.0, level_of(3) + 160.0),
+                Door,
+            ),
         ]
     })
 }
@@ -249,7 +289,10 @@ pub fn lining() -> &'static [Rect] {
             if r.part != Part::Breach {
                 bands.push(Rect::new(a.min.x, a.min.y - EDGE, a.max.x, a.min.y));
             }
-            out.extend(subtract_all(bands, all_voids()));
+            out.extend(subtract_all(
+                bands,
+                all_voids().chain(std::iter::once(BONE_HALL_VOID)),
+            ));
         }
         out
     })
@@ -287,6 +330,12 @@ pub(super) fn shape(level: &mut Level) {
         .into_iter()
         .flat_map(|r| subtract_all(vec![r], std::iter::once(hole)))
         .collect();
+    // The far door through the bone hall's west wall.
+    let door = room_named("bone far door");
+    level.rocks = std::mem::take(&mut level.rocks)
+        .into_iter()
+        .flat_map(|r| subtract_all(vec![r], std::iter::once(door)))
+        .collect();
     let existing: Vec<Rect> = level.rocks.clone();
     for wall in lining() {
         for piece in subtract_all(vec![*wall], existing.iter().copied()) {
@@ -295,6 +344,7 @@ pub(super) fn shape(level: &mut Level) {
     }
     level.rocks.extend(slabs());
     level.climbs.extend(corals().iter().copied());
+    level.climbs.push(FAR_CORAL);
     level.brittle.push(Brittle {
         rect: BREACH_COVER,
         cracked: false,
@@ -320,6 +370,9 @@ pub const NODE_SITES: [(&str, &str, Vec2); 9] = [
 
 /// The names of the deep corals (landmark names are `drop coral {n}`).
 pub(super) fn coral_index(climb: &Climb) -> Option<usize> {
+    if *climb == FAR_CORAL {
+        return Some(corals().len());
+    }
     corals().iter().position(|c| c == climb)
 }
 
@@ -351,6 +404,18 @@ pub(super) fn landmarks(level: &Level) -> Vec<Landmark> {
     add("octopus lair", room_named("octopus lair"), Kind::Frame);
     add("lair passage", room_named("lair passage"), Kind::Frame);
     add("breach shaft", BREACH, Kind::Frame);
+    // The far door out of the bone hall (a burrow's mouth: the haze keeps
+    // clear of it), its shaft, the niche to rest in and the passage west.
+    add("bone far door", room_named("bone far door"), Kind::Mouth);
+    add("bone far shaft", room_named("bone far shaft"), Kind::Frame);
+    add("bone far passage", room_named("bone far passage"), Kind::Frame);
+    add("bone far step", room_named("bone far step"), Kind::Frame);
+    let niche = room_named("bone far ledge");
+    add(
+        "bone far ledge",
+        Rect::new(niche.min.x, niche.min.y, niche.max.x, niche.min.y + 60.0),
+        Kind::Refuge,
+    );
     // The resting places: the Drop's top ledge, at the approach's west end,
     // and the foot, outside the lair's door.
     add(
