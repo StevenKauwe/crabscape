@@ -735,13 +735,13 @@ fn every_gather_site_is_on_its_rooms_floor() {
         );
     }
     let count = |k: &str| sc::NODE_SITES.iter().filter(|s| s.1 == k).count();
-    assert_eq!(count("BambooCoral"), 3);
+    assert_eq!(count("BlackCoral"), 3);
     assert_eq!(count("GritHeap"), 3);
     assert_eq!(count("ToothBed"), 1);
-    // The coral fragments lie on the reef's mounds, at two or three heights.
+    // The black coral lies on the reef's mounds, at two or three heights.
     let heights: std::collections::BTreeSet<i32> = sc::NODE_SITES
         .iter()
-        .filter(|s| s.1 == "BambooCoral")
+        .filter(|s| s.1 == "BlackCoral")
         .map(|s| s.2.y as i32)
         .collect();
     assert!(heights.len() >= 2);
