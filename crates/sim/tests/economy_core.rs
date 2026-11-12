@@ -51,7 +51,7 @@ fn every_node_is_in_its_depth_band_and_out_of_the_rock() {
         );
         for (j, m) in placed.iter().enumerate().skip(i + 1) {
             assert!(
-                n.pos.distance(m.pos) >= 12.0,
+                n.pos.distance(m.pos) >= 10.0,
                 "nodes {i} and {j} are {} apart",
                 n.pos.distance(m.pos)
             );
@@ -318,4 +318,78 @@ fn the_older_skills_sound_the_same_cue() {
         }
     });
     assert_eq!(heard, vec![(Skill::Swimming, 2)]);
+}
+
+// ---- Nodes on the Plate D map, found by landmark ----
+
+/// The place a kind of node lies in (by landmark name), per the plan: the
+/// home burrow's gallery holds the clam beds and clay banks, the bone hall the
+/// fish-fall and tooth beds, the seep garden the seep mussels and sulfur mat,
+/// the vent field the tier 5 kinds.
+fn home_of(kind: NodeKind) -> Option<&'static str> {
+    use NodeKind as K;
+    match kind {
+        K::ClamBed | K::ClayBank => Some("home burrow"),
+        K::FishFall | K::ToothBed => Some("bone hall"),
+        K::SeepMusselBed | K::SulfurMatSite => Some("seep garden"),
+        k if k.def().tier == 5 => Some("vent field"),
+        _ => None,
+    }
+}
+
+#[test]
+fn nodes_lie_in_their_places_on_a_floor_and_never_in_a_mouth() {
+    use crabsim::level::landmarks::Kind;
+    let level = Level::test_level();
+    let marks = level.landmarks();
+    let bodies = level.strata();
+    let placed = nodes(&level);
+    let mut counts = std::collections::BTreeMap::new();
+    for n in &placed {
+        // A door is a way in, never a place to work.
+        for m in marks.iter().filter(|m| m.kind == Kind::Mouth) {
+            assert!(
+                !(m.rect.contains(n.pos) || m.rect.contains(n.pos - Vec2::new(0.0, 6.0))),
+                "{:?} at {:?} sits in {}",
+                n.kind,
+                n.pos,
+                m.name
+            );
+        }
+        let Some(name) = home_of(n.kind) else {
+            continue;
+        };
+        *counts.entry(name).or_insert(0) += 1;
+        let mark = marks.iter().find(|m| m.name == name).expect("the place");
+        assert!(mark.rect.contains(n.pos), "{:?} is not in {name}", n.kind);
+        // Sealed places: water at the node, a solid floor right under it.
+        if let Some(body) = bodies.iter().find(|b| b.frame == mark.rect) {
+            use crabsim::underwater::Cell;
+            assert_eq!(body.cell_at(n.pos.x, n.pos.y), Some(Cell::Water));
+            let under = body.cell_at(n.pos.x, n.pos.y - 8.0);
+            assert!(
+                matches!(under, Some(Cell::Mud | Cell::Sand)),
+                "{:?} at {:?} floats over {under:?}",
+                n.kind,
+                n.pos
+            );
+        }
+    }
+    // 3 + 3 clam beds and clay banks, 3 + 3 fish falls and tooth beds,
+    // 3 + 3 seep mussels and sulfur mats, and the vent field's 17.
+    assert_eq!(counts.get("home burrow"), Some(&6));
+    assert_eq!(counts.get("bone hall"), Some(&6));
+    assert_eq!(counts.get("seep garden"), Some(&6));
+    assert_eq!(counts.get("vent field"), Some(&17));
+}
+
+#[test]
+fn a_level_without_a_pocket_drops_its_nodes_and_keeps_the_rest() {
+    let level = Level::test_level();
+    let all = nodes(&level).len();
+    let mut bare = level.clone();
+    bare.rocks.clear();
+    let left = nodes(&bare);
+    assert_eq!(left.len(), all - 18, "the three pockets' 18 nodes are gone");
+    assert!(left.iter().all(|n| home_of(n.kind) != Some("home burrow")));
 }

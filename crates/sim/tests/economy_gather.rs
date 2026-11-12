@@ -41,9 +41,17 @@ fn node_of(sim: &Sim, kind: NodeKind) -> usize {
 fn at_node(level: Level, kind: NodeKind) -> (Sim, usize) {
     let probe = Sim::new(Tuning::default(), level.clone());
     let i = node_of(&probe, kind);
-    let x = probe.placed_nodes()[i].pos.x;
+    let at = probe.placed_nodes()[i].pos;
     let mut sim = Sim::new(Tuning::default(), level);
-    sim.add_crab(P0, Vec2::new(x, sim.level.floor_height(x)));
+    if sim.level.pocket_at(at).is_some() {
+        // A node in a sealed pocket (the burrow's clam beds) is worked from
+        // inside it, on the cell floor, as the game does.
+        sim.add_crab(P0, at);
+        sim.enable_underwater_cells();
+        sim.crab_mut(P0).expect("crab").mover.pos = at;
+    } else {
+        sim.add_crab(P0, Vec2::new(at.x, sim.level.floor_height(at.x)));
+    }
     for _ in 0..5 {
         sim.tick();
     }
@@ -275,7 +283,14 @@ fn charges_run_out_and_regrow_after_exactly_the_respawn_time() {
         sim.tick();
         // Empty the shell so there is always room.
         let crab = sim.crab_mut(P0).unwrap();
-        items += crab.mover.clinging.len();
+        // Only the mussels: a rare find (a hash of the crab's own counters,
+        // so it moves with the node's place) may ride along.
+        items += crab
+            .mover
+            .clinging
+            .iter()
+            .filter(|c| matches!(c, Carry::Item(Item::Mussel)))
+            .count();
         crab.mover.clinging.clear();
         if sim.shared.nodes[i].charges == 0 {
             spent_at = Some(t);

@@ -64,9 +64,9 @@ const TOO_LONG: f64 = 1.5;
 /// What the scripted crab goes for.
 #[derive(Clone, Copy, PartialEq)]
 enum How {
-    /// Cut glass at a tier 3 garden.
+    /// Cut glass at the farthest tier 3 garden (the far rim's, across the canyon).
     Glass,
-    /// Beat a mantis shrimp for its club.
+    /// Beat the mantis shrimp of the lowest x (the basin's) for its club.
     Club,
     /// Cut kelp beside the door.
     Kelp,
@@ -121,12 +121,15 @@ const WANTS: [Want; 3] = [
         bank: &[(Item::WhaleBone, 2), (Item::Clay, 3), (Item::Mussel, 2)],
         needs: (Item::MantisClub, 1),
         tool_tier: 0,
+        // The bank holds whale bone from the canyon floor, so this crab has
+        // the kit that got there: the basin's mantis lies across the
+        // basin's pit, a dive and a climb out.
         kit: Kit {
-            eggs: 1,
-            scissors: false,
-            glass: false,
-            crusher: false,
-            dactyls: false,
+            eggs: 6,
+            scissors: true,
+            glass: true,
+            crusher: true,
+            dactyls: true,
         },
         floor_min: 1.5,
     },
@@ -171,30 +174,30 @@ struct Route {
 const ROUTES: [Route; 3] = [
     Route {
         open: 14.48,
-        land: 93.12,
-        target: 96.42,
-        back: 66.89,
+        land: 110.16,
+        target: 111.42,
+        back: 100.02,
         dry: 0.00,
-        target_x: 5443.0,
+        target_x: 8015.0,
         home_x: 1228.0,
     },
     Route {
-        open: 6.77,
-        land: 6.77,
-        target: 6.77,
-        back: 0.00,
+        open: 17.08,
+        land: 28.74,
+        target: 28.74,
+        back: 62.76,
         dry: 0.00,
-        target_x: 930.0,
-        home_x: 894.0,
+        target_x: 3690.0,
+        home_x: 1228.0,
     },
     Route {
-        open: 2.36,
-        land: 2.36,
-        target: 2.36,
+        open: 0.00,
+        land: 0.00,
+        target: 0.00,
         back: 0.00,
         dry: 0.00,
-        target_x: 187.0,
-        home_x: 129.0,
+        target_x: 232.0,
+        home_x: 300.0,
     },
 ];
 
@@ -208,7 +211,7 @@ fn target_of(level: &Level, how: How) -> (Vec2, Vec2) {
             let n = nodes(level)
                 .into_iter()
                 .filter(|n| n.kind == NodeKind::GlassSpongeGarden)
-                .min_by(|a, b| a.pos.x.total_cmp(&b.pos.x))
+                .max_by(|a, b| a.pos.x.total_cmp(&b.pos.x))
                 .expect("a glass sponge garden");
             (n.pos, n.pos)
         }
@@ -288,7 +291,10 @@ fn measure(w: &Want) -> Route {
     use std::cell::Cell;
     let level = Level::test_level();
     let (goal, thing) = target_of(&level, w.how);
-    let kit = w.kit;
+    let mut kit = w.kit;
+    if let Some(e) = std::env::var("LOOP_EGGS").ok().and_then(|e| e.parse().ok()) {
+        kit.eggs = e;
+    }
     let best = Cell::new(f64::INFINITY);
     let mut s = route::survey_from(
         route::start_node(kit, route::HOME, false),
@@ -347,8 +353,10 @@ fn measure(w: &Want) -> Route {
 #[ignore = "route solving, several minutes in release; prints ROUTES"]
 fn measure_routes() {
     let routes: Vec<Route> = std::thread::scope(|sc| {
+        let only = std::env::var("LOOP_ONLY").ok();
         let jobs: Vec<_> = WANTS
             .iter()
+            .filter(|w| only.as_ref().is_none_or(|o| w.name.contains(o.as_str())))
             .map(|w| {
                 sc.spawn(move || {
                     let r = measure(w);
