@@ -239,6 +239,22 @@ pub const SPOTS: &[NodeSpot] = &[
     at(NODULE_FIELD, K::NoduleField, 1620.0),
     at(NODULE_FIELD, K::NoduleField, 1700.0),
     at(NODULE_FIELD, K::NoduleField, 1780.0),
+    // Region 6 (`level::slope_caves::NODE_SITES`, the world lane's): one
+    // tooth bed (a midden) in the cave nearest the far rim, a grit heap on
+    // each upper cave's floor, and coral on the sunken reef's mounds. The
+    // world lane named bamboo coral for the mounds, but bamboo coral is tier
+    // 5 (the deep band, below -9,500) and the reef lies at about -8,600, in
+    // the midnight band, so the mounds hold black coral (tier 4) and bamboo
+    // coral stays in the vent field. The caves and the reef are `Frame`
+    // rooms, so each node sits on the ground under the room's roof at its
+    // `x`. Appended, so earlier indices hold.
+    at("midden cave", K::ToothBed, 8950.0),
+    at("rubble hall", K::GritHeap, 11980.0),
+    at("cobble cave", K::GritHeap, 13000.0),
+    at("pillar cave", K::GritHeap, 14420.0),
+    at("reef west bay", K::BlackCoral, 12500.0),
+    at("reef great hall", K::BlackCoral, 13850.0),
+    at("reef east bay", K::BlackCoral, 14550.0),
 ];
 
 /// Where a spot lies on this level, or `None` when its named place is not
