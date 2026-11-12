@@ -751,23 +751,21 @@ mod parallax_tests {
     /// Far layers move less on screen than near ones, and by exactly (1 - factor) of the camera's move.
     #[test]
     fn far_layers_move_less_than_near_ones() {
-        let move_on_screen = |factor: f32| {
+        // How far (to the left, in screen units) a feature of the layer moves when the camera moves 100 right,
+        // modulo whole periods (the root jumps by those, invisibly).
+        let leftwards = |factor: f32| {
             let a = Vec2::new(1000.0, -300.0);
             let b = a + Vec2::new(100.0, 0.0);
-            // The same feature (a whole number of periods apart from where the root sits).
             let at = |c: Vec2| on_screen(layer_root(c, 0.0, factor, PERIOD, 0.0), 0.0, c).x;
-            (at(b) - at(a)).rem_euclid(PERIOD)
+            (at(a) - at(b)).rem_euclid(PERIOD)
         };
-        let (near, far) = (move_on_screen(0.45), move_on_screen(0.7));
+        let (near, far) = (leftwards(0.45), leftwards(0.7));
         assert!(far < near, "far {far} near {near}");
         assert!(
-            (near - (PERIOD - 55.0)).abs() < 1e-2,
+            (near - 55.0).abs() < 1e-2,
             "moves left by 0.55 of 100: {near}"
         );
-        assert!(
-            (far - (PERIOD - 30.0)).abs() < 1e-2,
-            "moves left by 0.3 of 100: {far}"
-        );
+        assert!((far - 30.0).abs() < 1e-2, "moves left by 0.3 of 100: {far}");
     }
 
     /// A strip never runs out: wherever the camera is in the level or beyond, and at the widest view, the root's

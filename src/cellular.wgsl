@@ -148,6 +148,11 @@ fn solid_at(texel: vec2<i32>, dims: vec2<i32>) -> f32 {
     return select(0.0, 1.0, textureLoad(cell_texture, texel, 0).r > 0.5 / 255.0);
 }
 
+fn cell_texel(p: vec2<f32>, dims: vec2<i32>) -> vec2<i32> {
+    let uv = vec2<f32>((p.x - bounds.x) / bounds.z, 1.0 - (p.y - bounds.y) / bounds.w);
+    return vec2<i32>(floor(uv * vec2<f32>(dims)));
+}
+
 fn cell_position(p: vec2<f32>, dims: vec2<i32>) -> vec2<f32> {
     return vec2<f32>((p.x - bounds.x) / bounds.z, 1.0 - (p.y - bounds.y) / bounds.w) * vec2<f32>(dims) - 0.5;
 }
@@ -204,6 +209,14 @@ fn dominant_layer(p: vec2<f32>, dims: vec2<i32>) -> i32 {
 // ground's lit top-left), deep where it lies down or to the right, and a dark warm ink line along the edge itself.
 fn cell_rim(c: vec3<f32>, p: vec2<f32>, dims: vec2<i32>, cover: f32) -> vec3<f32> {
     let reach = 5.0;
+    // Deep inside the ground (the usual case, and the costly one on a phone): four plain reads say so.
+    let cu = vec2<f32>(0.0, reach);
+    let cr = vec2<f32>(reach, 0.0);
+    if cover > 0.999
+        && solid_at(cell_texel(p + cu, dims), dims) + solid_at(cell_texel(p - cu, dims), dims)
+            + solid_at(cell_texel(p - cr, dims), dims) + solid_at(cell_texel(p + cr, dims), dims) > 3.999 {
+        return c;
+    }
     let up = coverage(p + vec2<f32>(0.0, reach), dims);
     let down = coverage(p - vec2<f32>(0.0, reach), dims);
     let left = coverage(p - vec2<f32>(reach, 0.0), dims);

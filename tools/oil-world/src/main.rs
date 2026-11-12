@@ -431,9 +431,7 @@ fn cut_ridges(dir: &Path, out: &Path) -> Result<(), String> {
                     let alpha =
                         (near(0, 0) * 4.0 + near(-1, 0) + near(1, 0) + near(0, -1) + near(0, 1))
                             / 8.0;
-                    for k in 0..3 {
-                        stacked.push(to_byte(c[k]));
-                    }
+                    stacked.extend(c.map(to_byte));
                     stacked.push(to_byte(alpha * foot));
                 }
             }

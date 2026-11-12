@@ -157,6 +157,7 @@ const PLANT_Z: f32 = 2.0;
 /// Draw the floor, the rocks and the background spires as flat shapes. The
 /// level's own shapes are seen through the crab's memory (`memory.rs`); the
 /// far-away spires are scenery.
+#[allow(clippy::too_many_arguments)] // Bevy system inputs
 fn draw_level(
     mut commands: Commands,
     sim: Res<Sim>,
