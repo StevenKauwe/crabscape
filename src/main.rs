@@ -86,6 +86,7 @@ mod chimney;
 mod cling;
 mod codes;
 mod coop;
+mod corner;
 mod creature_art;
 mod creatures;
 mod crevices;
@@ -102,6 +103,7 @@ mod gather_ui;
 mod go_home;
 mod home;
 mod home_pieces;
+mod hud;
 mod impact;
 mod input;
 mod interior;
@@ -131,6 +133,7 @@ mod report;
 mod reset;
 mod salvage;
 mod save;
+mod screen_fit;
 mod scribe;
 mod secrets;
 mod settings;
@@ -144,6 +147,7 @@ mod stamina;
 mod style;
 mod triggerfish;
 mod tuning;
+mod ui_theme;
 mod view;
 mod voice;
 mod wants_ui;
@@ -203,6 +207,12 @@ fn run_app() {
                 ..default()
             }),
     )
+    // The HUD's font and look, before anything spawns words.
+    .add_plugins((
+        ui_theme::UiThemePlugin,
+        screen_fit::ScreenFitPlugin,
+        corner::CornerPlugin,
+    ))
     .init_resource::<tuning::ViewTuning>()
     // The game's core, then the world's things and the HUD. (Bevy takes
     // at most 15 plugins in one group.)
@@ -249,6 +259,7 @@ fn run_app() {
             gather_ui::GatherUiPlugin,
             skills_panel::SkillsPanelPlugin,
             skill_juice::SkillJuicePlugin,
+            hud::HudPlugin,
         ),
         feel::FeelPlugin,
         foes::FoesPlugin,

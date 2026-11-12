@@ -390,7 +390,7 @@ pub(super) fn play(host: &mut Player, guest: &mut Player, site: &Site) -> Result
     }
     // Send the original owner home using the visible button, leaving the guest
     // to own the distant Canyon region before it departs.
-    host.b.click(1140.0, 70.0)?;
+    host.b.click(crate::tap::HOME.0, crate::tap::HOME.1)?;
     for p in [&mut *host, &mut *guest] {
         p.until(90.0, "Canyon authority separates from the owner", |p| {
             p.b.attr("data-cell-regions").as_deref() == Some("separate")

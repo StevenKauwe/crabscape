@@ -15,7 +15,7 @@ use bevy::prelude::*;
 use crabsim::{Feel, Sim};
 
 use crate::player::GameSet;
-use crate::{save, settings};
+use crate::save;
 
 /// How a preset looks and sounds. [`Juice::OFF`] is the game's look before
 /// the lab: the old anticipation pose and flash, no shake, debris or sound.
@@ -336,14 +336,13 @@ struct Toast;
 #[derive(Component)]
 struct ToastText;
 
-/// The two buttons: under "Settings" and the Home button under it, the
-/// same size, stacked.
+/// The two buttons: under the corner row's right end, stacked.
 fn button_rect(window: Vec2, which: LabButton) -> Rect {
-    let rows = match which {
-        LabButton::Feel => 2.0,
-        LabButton::Juice => 3.0,
+    let n = match which {
+        LabButton::Feel => 0.0,
+        LabButton::Juice => 1.0,
     };
-    settings::below(window, rows)
+    crate::corner::under(window, n)
 }
 
 fn spawn_lab(mut commands: Commands, lab: Res<FeelLab>, window: Single<&Window>) {

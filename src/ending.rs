@@ -184,7 +184,7 @@ fn reach_the_end(
                         border_radius: BorderRadius::all(px(r.height() / 2.0)),
                         ..default()
                     },
-                    BorderColor::all(Color::srgba(1.0, 0.85, 0.55, 0.35)),
+                    BorderColor::all(crate::ui_theme::RIM),
                     BackgroundColor(Color::srgba(0.05, 0.12, 0.14, 0.6)),
                 ))
                 .with_children(|b| {

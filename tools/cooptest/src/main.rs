@@ -163,13 +163,16 @@ fn sleep(secs: f64) {
 
 /// Taps, in the 1200 x 800 window every player has.
 mod tap {
-    pub const INVITE: (f64, f64) = (1016.0, 27.0);
-    pub const MIC: (f64, f64) = (914.0, 27.0);
-    pub const SETTINGS: (f64, f64) = (1138.0, 27.0);
-    pub const GAME_TAB: (f64, f64) = (945.0, 96.0);
-    pub const COOP_TAB: (f64, f64) = (1151.0, 96.0);
-    pub const START_OVER: (f64, f64) = (1050.0, 304.0);
-    pub const NEW_LINK: (f64, f64) = (1050.0, 345.0);
+    // The corner row (src/corner.rs: 40 square, 8 apart, 10 from the right and top), right to left Settings,
+    // Home, Skills, Invite, Mic; the settings panel opens under it.
+    pub const INVITE: (f64, f64) = (1026.0, 30.0);
+    pub const MIC: (f64, f64) = (978.0, 30.0);
+    pub const SETTINGS: (f64, f64) = (1170.0, 30.0);
+    pub const HOME: (f64, f64) = (1122.0, 30.0);
+    pub const GAME_TAB: (f64, f64) = (945.0, 102.0);
+    pub const COOP_TAB: (f64, f64) = (1151.0, 102.0);
+    pub const START_OVER: (f64, f64) = (1050.0, 310.0);
+    pub const NEW_LINK: (f64, f64) = (1050.0, 351.0);
 }
 
 /// One player: a browser, and what this run expects of it.
