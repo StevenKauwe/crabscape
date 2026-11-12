@@ -76,3 +76,16 @@ the places and gives positions; the systems lead places the nodes and their kind
 
 Measured targets (a level-1 bot, the systems lead's): the five skills each reach level 5 within the first 10 minutes,
 the main gathering skill about 15 at minute 20, and every skill 15 within three hours of mixed play.
+
+### Built (the first-hour world PR, `level/shallows.rs`)
+- Names: "shrimp row", "the shelf", "the trench", "far ledge", "the crest", "ledge pool", "the lookout",
+  "trench hollow".
+- **Ledge pool** (x 2,290 to 2,440, bottom y -120, at the foot of the far ledge's slope): the first small dive. The
+  shelf could not take a pool: it is the arena several creature and economy tests are built on.
+- **The lookout** (x 368 to 458, top y 704), stepped onto from the kelp stand by home: the first climb, a site on top
+  and a view.
+- **Trench hollow** (x 1,380 to 1,520, y -480 to -340): a bay off the silt mouth's shaft, below the tier-2 line,
+  holding the first tier-2 sites a level-1 crab sees.
+- `shallows::SITES`: ten mixed tier-1 groups from x 234 to 2,760 (gaps under 420 but the trench's ~600) and three
+  tier-2 sites in the hollow; `shallows::FINDS`: nine small finds. The systems lead places the nodes and resolves the
+  shelf sites against the baked ground (the shelf's sand settles about 100 lower than its authored floor).
