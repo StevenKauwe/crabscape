@@ -56,3 +56,9 @@ __pycache__/
 /web/kingworker/kingworker-version.txt
 
 /web/king-ddd
+
+# CrabBridge generated frontend; host/private state never belongs in git.
+/web/crabbridge/
+/tools/crabbridge/target/
+/tools/crabbridge/transport/target/
+/tools/crabbridge/transport/web/pkg/

@@ -41,22 +41,25 @@ jobs:
       code: ${{ steps.flags.outputs.code }}
       art: ${{ steps.flags.outputs.art }}
       introducer: ${{ steps.flags.outputs.introducer }}
+      bridge: ${{ steps.flags.outputs.bridge }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # A pull request is checked out as its merge into the base: its first parent is the base.
           fetch-depth: 2
+      - name: Component classifier regression tests
+        run: bash tools/test-changes.sh
       - id: flags
         name: Which checks this change needs
         run: |
           if [ "${{ github.event_name }}" = pull_request ]; then
             git diff --name-only HEAD^1 HEAD | tee /dev/stderr | tools/changes.sh | tee -a "$GITHUB_OUTPUT"
           else
-            printf 'docs_only=false\ncode=true\nart=true\nintroducer=true\n' | tee -a "$GITHUB_OUTPUT"
+            printf 'docs_only=false\ncode=true\nart=true\nintroducer=true\nbridge=true\n' | tee -a "$GITHUB_OUTPUT"
           fi
 
-  check:
-    name: fmt, clippy (native + wasm32), tests
+  game-check:
+    name: game fmt, clippy (native + wasm32), tests
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.introducer == 'true') }}
     runs-on: ubuntu-latest
@@ -119,6 +122,63 @@ jobs:
           cargo fmt --manifest-path tools/tidy/Cargo.toml --check
           cargo clippy --manifest-path tools/tidy/Cargo.toml --all-targets --locked -- -D warnings
           cargo test --manifest-path tools/tidy/Cargo.toml --locked
+
+  bridge-check:
+    name: CrabBridge authentication, transport and browser tests
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.bridge == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Public asset packaging regression
+        run: bash tools/test-build-crabbridge.sh
+      - name: Rust toolchain
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: |
+            tools/crabbridge
+            tools/crabbridge/transport
+          key: crabbridge
+      - name: Install matching WASM binding generator
+        run: |
+          version=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/[^0-9.]/, ""); print; exit }' tools/crabbridge/transport/Cargo.lock)
+          test -n "$version"
+          cargo install wasm-bindgen-cli --version "$version" --locked
+      # Browser automation is confined to this independent terminal tool. No Node dependency enters the game.
+      - name: Install pinned browser test dependencies
+        working-directory: tools/crabbridge
+        run: npm ci && npx playwright install --with-deps chromium
+      - name: Security and real browser regression suite
+        working-directory: tools/crabbridge
+        run: bash tests/run-proof.sh
+      - name: Package public browser assets only
+        run: bash tools/build-crabbridge.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: crabbridge-web-${{ github.sha }}
+          path: web/crabbridge/
+          retention-days: 14
+
+  check:
+    # Preserve the branch-protected name and gate BOTH independent products.
+    name: fmt, clippy (native + wasm32), tests
+    needs: [changes, game-check, bridge-check]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: All selected checks passed
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          GAME: ${{ needs.game-check.result }}
+          BRIDGE: ${{ needs.bridge-check.result }}
+        run: |
+          test "$CHANGES" = success
+          for result in "$GAME" "$BRIDGE"; do
+            case "$result" in success|skipped) ;; *) exit 1 ;; esac
+          done
 
   determinism:
     name: native and wasm sims agree
