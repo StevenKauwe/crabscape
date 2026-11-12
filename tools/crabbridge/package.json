@@ -1,0 +1,1 @@
+{"name":"codex-harbor-browser-tests","private":true,"scripts":{"test:e2e":"node tests/webrtc-terminal-smoke.cjs"},"devDependencies":{"playwright":"1.60.0"}}

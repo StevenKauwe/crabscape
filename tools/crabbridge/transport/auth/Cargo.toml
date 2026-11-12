@@ -1,0 +1,14 @@
+[package]
+name = "harbor-noise"
+version = "0.1.0"
+edition = "2021"
+[lib]
+crate-type = ["cdylib", "rlib"]
+[dependencies]
+snow = { version = "0.10", default-features = false, features = ["default-resolver", "use-chacha20poly1305", "use-blake2", "use-curve25519", "use-getrandom"] }
+hex = "0.4"
+wasm-bindgen = "=0.2.129"
+getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom02 = { package = "getrandom", version = "0.2", features = ["js"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

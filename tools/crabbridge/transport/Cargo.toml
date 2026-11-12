@@ -1,0 +1,3 @@
+[workspace]
+members = ["auth", "host", "rendezvous"]
+resolver = "2"

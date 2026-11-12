@@ -37,3 +37,7 @@ Static pages do not create a host connection or grant any tools. A trusted front
 signaling/ICE policy are still required. The verified LAN test does not prove arbitrary Internet NAT
 traversal. Existing game service workers and same-origin pages are part of the trusted-code boundary
 when hosting under the game origin; review that before public use with real host credentials.
+
+The generated static directory does not inherit the local host server's CSP, frame restrictions,
+cache policy or other security headers. Equivalent reviewed hosting policy must be configured before
+public use; successful local asset loading is not proof that the production origin enforces it.
