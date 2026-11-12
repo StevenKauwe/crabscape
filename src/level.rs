@@ -293,7 +293,10 @@ fn draw_level(
 
     // The far ridges, two layers of painted rock spires (`painted_world.rs`): a strip each, which `view.rs` keeps
     // in view whatever the zoom, the position or the depth.
-    for (layer, ridge) in RIDGES.iter().enumerate() {
+    // Only the near ridge is drawn: each is a wide blended strip, and on
+    // software rendering (CI, slow phones) the two together cost the co-op
+    // pages enough to push joins towards their 10 s promise.
+    for (layer, ridge) in RIDGES.iter().enumerate().skip(1) {
         let material = ridge_materials.add(RidgeMaterial {
             paint: RidgeUniform {
                 water: Vec4::ZERO,
