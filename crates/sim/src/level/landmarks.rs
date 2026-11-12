@@ -102,6 +102,7 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
         // set down (a ride's landing picks the nearest refuge).
         let gallery = super::silt_galleries::CORAL.iter().position(|c| c == climb);
         let deep = super::deep_galleries::coral_index(climb);
+        let cave = super::slope_caves::coral_index(climb);
         add(
             if *climb == super::lower_canyon::HANGING_GARDEN {
                 "hanging garden".into()
@@ -111,11 +112,13 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
                 format!("gallery coral {n}")
             } else if let Some(n) = deep {
                 format!("drop coral {n}")
+            } else if let Some(n) = cave {
+                format!("cave coral {n}")
             } else {
                 format!("{name} {i}")
             },
             Rect::new(climb.x - 60.0, climb.bottom, climb.x + 60.0, climb.top),
-            if gallery.is_some() || deep.is_some() {
+            if gallery.is_some() || deep.is_some() || cave.is_some() {
                 Kind::Frame
             } else {
                 kind
@@ -284,5 +287,6 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
     landmarks.extend(super::deep_galleries::landmarks(level));
     landmarks.extend(super::open_canyon::landmarks(level));
     landmarks.extend(super::shallows::landmarks(level));
+    landmarks.extend(super::slope_caves::landmarks(level));
     landmarks
 }

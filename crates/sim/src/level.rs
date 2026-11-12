@@ -33,6 +33,7 @@ pub mod rest;
 pub mod royal;
 pub mod shallows;
 pub mod silt_galleries;
+pub mod slope_caves;
 pub mod strata;
 
 /// The canyon's floor (the sea-pen floor): the lower canyon is the deepest step.
@@ -498,6 +499,7 @@ impl Level {
         deep_galleries::shape(&mut level);
         open_canyon::shape(&mut level);
         shallows::shape(&mut level);
+        slope_caves::shape(&mut level);
         // Last, so every place a creature anchors to (landmarks, refuges, the
         // lower canyon, the galleries) exists.
         bestiary::place(&mut level);
