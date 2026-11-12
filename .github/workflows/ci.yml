@@ -48,7 +48,7 @@ jobs:
           # A pull request is checked out as its merge into the base: its first parent is the base.
           fetch-depth: 0
       - name: Component classifier regression tests
-        run: bash tools/test-changes.sh && bash tools/test-ci-changes.sh
+        run: bash tools/test-changes.sh && bash tools/test-ci-changes.sh && bash tools/test-component-gate.sh
       - id: flags
         name: Which checks this change needs
         env:
@@ -176,16 +176,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: All selected checks passed
         env:
           CHANGES: ${{ needs.changes.result }}
+          CODE: ${{ needs.changes.outputs.code }}
+          INTRODUCER: ${{ needs.changes.outputs.introducer }}
+          BRIDGE: ${{ needs.changes.outputs.bridge }}
           GAME: ${{ needs.game-check.result }}
-          BRIDGE: ${{ needs.bridge-check.result }}
-        run: |
-          test "$CHANGES" = success
-          for result in "$GAME" "$BRIDGE"; do
-            case "$result" in success|skipped) ;; *) exit 1 ;; esac
-          done
+          BRIDGE_RESULT: ${{ needs.bridge-check.result }}
+        run: bash tools/check-component-gate.sh
+
 
   determinism:
     name: native and wasm sims agree

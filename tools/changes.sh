@@ -16,7 +16,7 @@ while IFS= read -r path; do
     tools/introducer/* | .github/workflows/introducer.yml)
       introducer=true; bridge=true; continue ;;
     # Shared build/security/publishing controls affect both products.
-    tools/changes.sh | tools/test-changes.sh | tools/ci-changes.sh | tools/test-ci-changes.sh | tools/previews.sh | tools/test-previews.sh | \
+    tools/changes.sh | tools/test-changes.sh | tools/check-component-gate.sh | tools/test-component-gate.sh | tools/ci-changes.sh | tools/test-ci-changes.sh | tools/previews.sh | tools/test-previews.sh | \
       tools/main-health.sh | tools/wait-pages-artifact.sh | tools/test-pages-artifact-wait.sh | \
       .github/workflows/ci.yml | .github/workflows/previews.yml | .cargo/config.toml | \
       rust-toolchain.toml | Cargo.toml | Cargo.lock | deny.toml | .gitignore)
