@@ -86,7 +86,7 @@ fn the_drop_has_a_standing_place_every_500_units_and_a_stalk_between() {
         assert!(s.width() >= 250.0, "a ledge a crab can stand on");
     }
     // The Drop falls from near the top of the Silt Galleries to the foot.
-    assert!(dg::TOP_FLOOR > -2000.0 && dg::FOOT < -10000.0);
+    const { assert!(dg::TOP_FLOOR > -2000.0 && dg::FOOT < -10000.0) };
 }
 
 #[test]
@@ -135,17 +135,31 @@ fn every_new_place_is_named() {
     // and one of the shaft's ledges is named for each slab.
     assert_eq!(named(&marks, "octopus lair door").kind, Kind::Refuge);
     assert_eq!(named(&marks, "octopus lair").kind, Kind::Frame);
-    let ledges = marks.iter().filter(|l| l.name.starts_with("drop ledge ")).count();
+    let ledges = marks
+        .iter()
+        .filter(|l| l.name.starts_with("drop ledge "))
+        .count();
     assert_eq!(ledges as i32, dg::SLABS);
-    let stalks = marks.iter().filter(|l| l.name.starts_with("drop coral ")).count();
-    assert_eq!(stalks as i32, dg::SLABS + 2, "the Drop's and the far door's");
+    let stalks = marks
+        .iter()
+        .filter(|l| l.name.starts_with("drop coral "))
+        .count();
+    assert_eq!(
+        stalks as i32,
+        dg::SLABS + 2,
+        "the Drop's and the far door's"
+    );
     // The breach's cover is a gate (a crusher's), and sits in the lair
     // passage's floor.
     let cover = marks
         .iter()
         .find(|l| matches!(l.kind, Kind::Gate { .. }) && l.rect == dg::BREACH_COVER)
         .expect("the breach's brittle cover");
-    assert!(named(&marks, "lair passage").rect.contains(cover.rect.center() + Vec2::Y * 60.0));
+    assert!(
+        named(&marks, "lair passage")
+            .rect
+            .contains(cover.rect.center() + Vec2::Y * 60.0)
+    );
 }
 
 // --- The walk -------------------------------------------------------------
@@ -237,20 +251,27 @@ fn step_up(sim: &mut Sim, k: i32) -> f32 {
 }
 
 fn rest(sim: &mut Sim) {
-    run(sim, 30.0, |_, _| Controls::default(), |s| {
-        let m = crab(s);
-        m.reserve >= m.strokes(&s.tuning) as f32 - 0.01
-    });
+    run(
+        sim,
+        30.0,
+        |_, _| Controls::default(),
+        |s| {
+            let m = crab(s);
+            m.reserve >= m.strokes(&s.tuning) as f32 - 0.01
+        },
+    );
 }
 
 #[test]
 fn a_crab_walks_down_the_drop_to_the_lair_door_and_climbs_back_up_by_the_ledges() {
     let mut sim = route::world(KIT, Vec2::new(1700.0, dg::TOP_FLOOR), false);
     // Settle on the approach's floor, then west to the top ledge.
-    assert!(run(&mut sim, 5.0, |_, _| Controls::default(), |s| standing_at(
-        s,
-        dg::TOP_FLOOR
-    )));
+    assert!(run(
+        &mut sim,
+        5.0,
+        |_, _| Controls::default(),
+        |s| standing_at(s, dg::TOP_FLOOR)
+    ));
     // Down: every level lands on the next ledge.
     for k in 0..=dg::SLABS {
         step_down(&mut sim, k);
@@ -272,9 +293,15 @@ fn a_crab_walks_down_the_drop_to_the_lair_door_and_climbs_back_up_by_the_ledges(
     // And back: a crab climbs by the ledges only (every stalk starts from a
     // standing place and ends on one), each climb paid from the reserve and
     // rested off on the ledge above.
-    run(&mut sim, 8.0, |_, _| Controls { walk: -1.0, ..Default::default() }, |s| {
-        crab(s).pos.x < dg::stalk_x(dg::SLABS) + 4.0
-    });
+    run(
+        &mut sim,
+        8.0,
+        |_, _| Controls {
+            walk: -1.0,
+            ..Default::default()
+        },
+        |s| crab(s).pos.x < dg::stalk_x(dg::SLABS) + 4.0,
+    );
     let mut worst: f32 = 0.0;
     let mut total = 0.0;
     for k in (0..=dg::SLABS).rev() {
@@ -285,8 +312,14 @@ fn a_crab_walks_down_the_drop_to_the_lair_door_and_climbs_back_up_by_the_ledges(
     }
     println!("climb: {total:.1} strokes of reserve in all, at most {worst:.2} between ledges");
     assert!(worst > 0.1, "a climb costs reserve");
-    assert!(worst < sim.tuning.stamina_reserve as f32, "and never the whole reserve");
-    assert!((crab(&sim).pos.y - dg::TOP_FLOOR).abs() <= 8.0, "back at the top ledge");
+    assert!(
+        worst < sim.tuning.stamina_reserve as f32,
+        "and never the whole reserve"
+    );
+    assert!(
+        (crab(&sim).pos.y - dg::TOP_FLOOR).abs() <= 8.0,
+        "back at the top ledge"
+    );
 }
 
 /// The jump across the drop cavern from the Silt Galleries' ledge to the
@@ -295,10 +328,12 @@ fn a_crab_walks_down_the_drop_to_the_lair_door_and_climbs_back_up_by_the_ledges(
 fn from_the_silt_galleries_ledge_a_jump_west_lands_on_the_approach() {
     let ledge = named(&marks(), "drop ledge").rect;
     let mut sim = route::world(KIT, Vec2::new(ledge.center().x, ledge.min.y), false);
-    assert!(run(&mut sim, 5.0, |_, _| Controls::default(), |s| standing_at(
-        s,
-        ledge.min.y
-    )));
+    assert!(run(
+        &mut sim,
+        5.0,
+        |_, _| Controls::default(),
+        |s| standing_at(s, ledge.min.y)
+    ));
     let landed = run(
         &mut sim,
         4.0,
@@ -331,7 +366,10 @@ fn no_hunters_reach_touches_the_drop_or_the_halls_and_the_lair_door_is_far_from_
         places.push((name.into(), named(&marks, name).rect));
     }
     for (hall, _, at) in dg::NODE_SITES {
-        places.push((format!("a gather spot in the {hall}"), Rect::from_center_size(at, Vec2::new(80.0, 80.0))));
+        places.push((
+            format!("a gather spot in the {hall}"),
+            Rect::from_center_size(at, Vec2::new(80.0, 80.0)),
+        ));
     }
     for (kind, home) in level.foes.iter().copied() {
         let k = kind.tuning(&tuning);
@@ -358,7 +396,12 @@ fn no_hunters_reach_touches_the_drop_or_the_halls_and_the_lair_door_is_far_from_
         } else {
             seabed
         };
-        let envelope = Rect::new(home.x - reach, bottom - 60.0, home.x + reach, home.y + reach);
+        let envelope = Rect::new(
+            home.x - reach,
+            bottom - 60.0,
+            home.x + reach,
+            home.y + reach,
+        );
         for (name, r) in &places {
             assert!(
                 envelope.intersect(*r).is_empty(),
@@ -380,10 +423,17 @@ fn no_hunters_reach_touches_the_drop_or_the_halls_and_the_lair_door_is_far_from_
     let lair = named(&marks, "octopus lair").rect;
     assert!(lair.contains(dg::OCTOPUS_DEN + Vec2::Y * 10.0));
     let door = dg::lair_door();
-    let sight = tuning.octopus.base.notice_range.max(tuning.octopus.base.strike_range);
+    let sight = tuning
+        .octopus
+        .base
+        .notice_range
+        .max(tuning.octopus.base.strike_range);
     let far = (dg::OCTOPUS_DEN.x - door.max.x).min(dg::OCTOPUS_DEN.x - dg::SHAFT.max.x);
     println!("the lair door is {far} from the octopus (its sight is {sight})");
-    assert!(far > 2.0 * sight, "the walk into the lair is out of its reach");
+    assert!(
+        far > 2.0 * sight,
+        "the walk into the lair is out of its reach"
+    );
     // Room for its webover and an arena long enough for its jet.
     assert!(lair.height() >= tuning.octopus.webover.headroom + 40.0);
     assert!(lair.width() >= tuning.octopus.ink.jet + tuning.octopus.webover.width);
@@ -400,7 +450,11 @@ fn the_lair_octopus_lives_hidden_in_the_lair_on_its_floor() {
         .iter()
         .find(|e| e.kind == Foe::Octopus && (e.pos.x - lair.x).abs() < 1.0)
         .expect("the lair's octopus");
-    assert!((e.pos.y - dg::FOOT).abs() < 1.0, "on the lair's floor: {:?}", e.pos);
+    assert!(
+        (e.pos.y - dg::FOOT).abs() < 1.0,
+        "on the lair's floor: {:?}",
+        e.pos
+    );
     assert!(e.facing < 0.0, "faces the door");
     assert!(e.hidden(&sim.tuning));
 }
@@ -420,7 +474,8 @@ fn no_sealed_cavity_in_the_deep_galleries() {
     let mut water = vec![false; w * h];
     for dx in 0..w {
         for dy in 0..h {
-            water[dy * w + dx] = initial_terrain_cell(&level, x0 + dx as i32, y0 + dy as i32) == Cell::Water;
+            water[dy * w + dx] =
+                initial_terrain_cell(&level, x0 + dx as i32, y0 + dy as i32) == Cell::Water;
         }
     }
     let at = |p: Vec2| -> (usize, usize) {
@@ -435,7 +490,12 @@ fn no_sealed_cavity_in_the_deep_galleries() {
     let mut queue = VecDeque::from([start]);
     seen[start.1 * w + start.0] = true;
     while let Some((x, y)) = queue.pop_front() {
-        for (nx, ny) in [(x + 1, y), (x.wrapping_sub(1), y), (x, y + 1), (x, y.wrapping_sub(1))] {
+        for (nx, ny) in [
+            (x + 1, y),
+            (x.wrapping_sub(1), y),
+            (x, y + 1),
+            (x, y.wrapping_sub(1)),
+        ] {
             if nx < w && ny < h && water[ny * w + nx] && !seen[ny * w + nx] {
                 seen[ny * w + nx] = true;
                 queue.push_back((nx, ny));
@@ -475,7 +535,10 @@ fn no_sealed_cavity_in_the_deep_galleries() {
             }
         }
     }
-    assert!(sealed <= 16, "{sealed} cells of water in a room that no flood reaches");
+    assert!(
+        sealed <= 16,
+        "{sealed} cells of water in a room that no flood reaches"
+    );
 }
 
 /// The five-minute settling must leave the deep galleries' cavities open
@@ -504,7 +567,11 @@ fn the_baked_cavities_stay_mostly_open_water() {
             lowest_column = lowest_column.min(column_open as f32 * GAME_CELL);
         }
         let kept = open as f32 / total as f32;
-        println!("{}: {:.1}% open water; least open column {lowest_column}", room.name, kept * 100.0);
+        println!(
+            "{}: {:.1}% open water; least open column {lowest_column}",
+            room.name,
+            kept * 100.0
+        );
         if r.height() <= 300.0 {
             assert!(lowest_column >= 90.0, "{} is nearly blocked", room.name);
         }
@@ -529,24 +596,40 @@ fn the_deep_galleries_keep_clear_of_the_bone_hall_and_the_other_frames() {
             assert!(fat.intersect(bone).is_empty());
             continue;
         }
-        if room.name == "bone far door" {
-            // It opens into the hall's west end, on purpose.
-            assert!(room.rect.min.x < bone.min.x && room.rect.max.x > bone.min.x);
-            continue;
-        }
         if room.name.starts_with("bone far") {
             // Its shaft and niche run beside the hall's west wall, which is
             // the hall's own twenty units of bedrock.
-            assert!(room.rect.intersect(bone).is_empty(), "{} is in the bone hall", room.name);
+            assert!(
+                room.rect.intersect(bone).is_empty(),
+                "{} is in the bone hall",
+                room.name
+            );
             continue;
         }
-        assert!(fat.intersect(bone).is_empty(), "{} touches the bone hall", room.name);
-        assert!(fat.intersect(chimney).is_empty(), "{} touches the long chimney", room.name);
-        assert!(fat.intersect(ret).is_empty(), "{} touches the return duct", room.name);
+        assert!(
+            fat.intersect(bone).is_empty(),
+            "{} touches the bone hall",
+            room.name
+        );
+        assert!(
+            fat.intersect(chimney).is_empty(),
+            "{} touches the long chimney",
+            room.name
+        );
+        assert!(
+            fat.intersect(ret).is_empty(),
+            "{} touches the return duct",
+            room.name
+        );
     }
     // The breach comes down through the duct's roof, under a brittle cover.
     assert!(dg::BREACH.min.y + 20.0 >= ret.max.y);
-    assert!(level.brittle.iter().any(|b| b.rect == dg::BREACH_COVER && !b.cracked));
+    assert!(
+        level
+            .brittle
+            .iter()
+            .any(|b| b.rect == dg::BREACH_COVER && !b.cracked)
+    );
 }
 
 const EDGE_CLEAR: f32 = 30.0;
@@ -556,9 +639,15 @@ fn every_gather_spot_is_on_a_hall_floor() {
     let level = Level::test_level();
     for (hall, kind, at) in dg::NODE_SITES {
         let room = dg::hall_rect(hall);
-        assert!(room.contains(at + Vec2::Y * 10.0), "{kind} at {at:?} is in the {hall}");
+        assert!(
+            room.contains(at + Vec2::Y * 10.0),
+            "{kind} at {at:?} is in the {hall}"
+        );
         let floor = level.ground_below(at + Vec2::Y * 4.0).expect("a floor");
-        assert!((floor - at.y).abs() <= 12.0, "{kind} at {at:?} lies {floor} above its floor");
+        assert!(
+            (floor - at.y).abs() <= 12.0,
+            "{kind} at {at:?} lies {floor} above its floor"
+        );
     }
     let kinds: std::collections::BTreeSet<_> = dg::NODE_SITES.iter().map(|s| s.1).collect();
     assert_eq!(kinds.len(), 3);
@@ -571,7 +660,9 @@ fn the_lair_octopus_jets_along_the_lairs_own_floor() {
     use crabsim::enemy::{Part, State};
     use crabsim::{Hit, Source};
     let mut level = Level::test_level();
-    level.foes.retain(|(k, at)| *k == Foe::Octopus && *at == dg::OCTOPUS_DEN);
+    level
+        .foes
+        .retain(|(k, at)| *k == Foe::Octopus && *at == dg::OCTOPUS_DEN);
     let mut sim = Sim::new(Tuning::default(), level);
     let start = Vec2::new(dg::OCTOPUS_DEN.x - 300.0, dg::FOOT);
     sim.add_crab(route::ME, start);
@@ -594,8 +685,16 @@ fn the_lair_octopus_jets_along_the_lairs_own_floor() {
         if before == State::Flee && e.state != State::Flee && e.vitals.health > 0.0 {
             jetted = true;
             println!("jetted to {:?}", e.pos);
-            assert!((e.pos.y - dg::FOOT).abs() < 8.0, "on the lair's floor: {:?}", e.pos);
-            assert!(lair.contains(e.pos + Vec2::Y * 20.0), "inside the lair: {:?}", e.pos);
+            assert!(
+                (e.pos.y - dg::FOOT).abs() < 8.0,
+                "on the lair's floor: {:?}",
+                e.pos
+            );
+            assert!(
+                lair.contains(e.pos + Vec2::Y * 20.0),
+                "inside the lair: {:?}",
+                e.pos
+            );
             break;
         }
         before = e.state;
@@ -605,21 +704,28 @@ fn the_lair_octopus_jets_along_the_lairs_own_floor() {
 
 // --- The far door from the bone hall ------------------------------------------
 
-/// The hall's far door is a mouth in its west wall, well clear of the haze,
-/// which still exists and still keeps off every mouth.
+/// The hall's far door is one of the hall's own mouths (a gap in its west
+/// wall, clay to be dug through), well clear of the haze, which still exists
+/// and still keeps off every mouth.
 #[test]
 fn the_far_door_is_clear_of_the_haze() {
     use crabsim::bone_hall;
     let level = Level::test_level();
     let marks = level.landmarks();
-    let door = named(&marks, "bone far door");
+    let door = marks
+        .iter()
+        .find(|l| l.rect == dg::FAR_GAP)
+        .expect("the far door is a mouth of the bone hall")
+        .clone();
     assert_eq!(door.kind, Kind::Mouth);
-    let hall = named(&marks, "bone hall");
-    assert!(door.rect.intersect(hall.rect).width() <= 100.0, "it opens at the hall's west end");
+    assert!(door.name.starts_with("bone hall mouth"), "{}", door.name);
+    // The room outside it ends at the gap.
+    assert_eq!(named(&marks, "bone far door").rect.max.x, dg::FAR_GAP.min.x);
     let real = bone_hall::find(&level).expect("the hall");
     let haze = bone_hall::haze(&level, &real).expect("the hall still has its haze");
     println!("haze {haze:?}, far door {:?}", door.rect);
     let gap = haze.min.x - door.rect.max.x;
+    println!("the haze keeps {gap} from the far door");
     assert!(gap >= 80.0, "the haze keeps {gap} from the far door");
     for l in &marks {
         if matches!(l.kind, Kind::Tunnel | Kind::Mouth) {
@@ -637,8 +743,13 @@ fn from_the_bone_hall_a_crab_walks_the_far_door_to_the_drop_and_climbs_back() {
     let door = named(&marks, "bone far door").rect;
     let passage = named(&marks, "bone far passage").rect;
     let shaft = named(&marks, "bone far shaft").rect;
-    let mut sim = route::world(KIT, Vec2::new(door.max.x + 40.0, door.min.y), false);
-    assert!(run(&mut sim, 5.0, |_, _| Controls::default(), |s| standing_at(s, door.min.y)));
+    let mut sim = route::world(KIT, Vec2::new(door.max.x - 30.0, door.min.y), false);
+    assert!(run(
+        &mut sim,
+        5.0,
+        |_, _| Controls::default(),
+        |s| standing_at(s, door.min.y)
+    ));
     // Out of the hall and down the shaft (no steering in the air).
     let dropped = run(
         &mut sim,
@@ -659,8 +770,15 @@ fn from_the_bone_hall_a_crab_walks_the_far_door_to_the_drop_and_climbs_back() {
             let m = crab(s);
             let at_step = m.pos.x < step.max.x + 90.0;
             Controls {
-                walk: if m.pos.x > step.max.x - 60.0 { -1.0 } else { 0.0 },
-                jump_pressed: at_step && m.grounded && m.pos.y < step.min.y - 40.0 && tick.is_multiple_of(30),
+                walk: if m.pos.x > step.max.x - 60.0 {
+                    -1.0
+                } else {
+                    0.0
+                },
+                jump_pressed: at_step
+                    && m.grounded
+                    && m.pos.y < step.min.y - 40.0
+                    && tick.is_multiple_of(30),
                 jump_held: at_step && m.pos.y < step.min.y - 10.0,
                 ..Default::default()
             }
@@ -680,7 +798,12 @@ fn the_far_door_shaft_climbs_back_with_a_niche_to_rest_in() {
     let stalk = dg::FAR_CORAL;
     assert!(niche.min.y - stalk.bottom <= 600.0 && stalk.top - niche.min.y <= 600.0);
     let mut sim = route::world(KIT, Vec2::new(stalk.x - 70.0, stalk.bottom), false);
-    assert!(run(&mut sim, 5.0, |_, _| Controls::default(), |s| standing_at(s, stalk.bottom)));
+    assert!(run(
+        &mut sim,
+        5.0,
+        |_, _| Controls::default(),
+        |s| standing_at(s, stalk.bottom)
+    ));
     // Jump at the stalk and climb to just over the niche's floor.
     let gripped = std::cell::Cell::new(false);
     let climbed = run(
@@ -689,7 +812,10 @@ fn the_far_door_shaft_climbs_back_with_a_niche_to_rest_in() {
         |s, _| {
             let m = crab(s);
             if m.climbing {
-                return Controls { jump_held: true, ..Default::default() };
+                return Controls {
+                    jump_held: true,
+                    ..Default::default()
+                };
             }
             Controls {
                 walk: 1.0,
@@ -703,7 +829,12 @@ fn the_far_door_shaft_climbs_back_with_a_niche_to_rest_in() {
             crab(s).climbing && crab(s).pos.y > niche.min.y + 20.0
         },
     );
-    assert!(climbed, "gripped: {}, at {:?}", gripped.get(), crab(&sim).pos);
+    assert!(
+        climbed,
+        "gripped: {}, at {:?}",
+        gripped.get(),
+        crab(&sim).pos
+    );
     // Kick off east onto the niche.
     let landed = run(
         &mut sim,
@@ -727,13 +858,20 @@ fn the_far_door_shaft_climbs_back_with_a_niche_to_rest_in() {
             let m = crab(s);
             if m.climbing {
                 up.set(true);
-                return Controls { jump_held: true, ..Default::default() };
+                return Controls {
+                    jump_held: true,
+                    ..Default::default()
+                };
             }
             if m.grounded && up.get() {
                 return Controls::default();
             }
             Controls {
-                walk: if m.pos.y > door.min.y - 30.0 { 1.0 } else { -1.0 },
+                walk: if m.pos.y > door.min.y - 30.0 {
+                    1.0
+                } else {
+                    -1.0
+                },
                 jump_pressed: m.grounded,
                 jump_held: true,
                 ..Default::default()
@@ -741,5 +879,10 @@ fn the_far_door_shaft_climbs_back_with_a_niche_to_rest_in() {
         },
         |s| up.get() && standing_at(s, door.min.y),
     );
-    assert!(out, "out into the hall: {:?} (climbed again: {})", crab(&sim).pos, up.get());
+    assert!(
+        out,
+        "out into the hall: {:?} (climbed again: {})",
+        crab(&sim).pos,
+        up.get()
+    );
 }

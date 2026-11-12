@@ -125,23 +125,25 @@ pub fn corals() -> &'static [Climb] {
 const HALL_LEVELS: [i32; 3] = [5, 9, 13];
 
 /// The octopus's den: the lair's far end, facing west, the way in.
-pub const OCTOPUS_DEN: Vec2 = Vec2::new(3040.0, FOOT + 4.0);
+pub const OCTOPUS_DEN: Vec2 = Vec2::new(3400.0, FOOT + 4.0);
 /// The breach: a shaft from the passage's floor down to the long chimney's
 /// return duct, under a cover of brittle rock (a plain brittle cover: the
 /// act-three flag is a crab's own, not the world's).
-pub const BREACH: Rect = Rect::new(3600.0, -12600.0, 3720.0, FOOT);
+pub const BREACH: Rect = Rect::new(4200.0, -12600.0, 4320.0, FOOT);
 /// The cover, flush with the passage's floor.
-pub const BREACH_COVER: Rect = Rect::new(3600.0, FOOT - 40.0, 3720.0, FOOT);
+pub const BREACH_COVER: Rect = Rect::new(4200.0, FOOT - 40.0, 4320.0, FOOT);
 
-/// The bone hall's water (its frame is `lower_canyon`'s): the far door opens
-/// into it from the west, as far from the sulfide haze (the deep east corner)
-/// as the hall allows.
-const BONE_HALL_VOID: Rect = Rect::new(3440.0, -2540.0, 4170.0, -2140.0);
-/// The far door's coral: the climb from the passage up to the bone hall.
+/// The bone hall's far door: a gap in its frame's west wall (the hall is
+/// `lower_canyon`'s; this is one of its doors, filled with clay like the
+/// others, to be dug through) as far from the sulfide haze (the deep east
+/// corner) as the hall allows. A crab digs 80 units, the gap and the hall's
+/// clay wall, between the far door's room and the hall's water.
+pub const FAR_GAP: Rect = Rect::new(3360.0, -2520.0, 3380.0, -2400.0);
+/// The far door's coral: the climb from the passage up to the door's floor.
 pub const FAR_CORAL: Climb = Climb {
-    x: 3300.0,
+    x: 3180.0,
     bottom: -3300.0,
-    top: -2530.0,
+    top: -2510.0,
     kind: Growth::Coral,
 };
 
@@ -182,7 +184,12 @@ pub fn rooms() -> &'static [Room] {
         let door = |k: i32, name: &'static str| {
             room(
                 name,
-                Rect::new(SHAFT.max.x, level_of(k), SHAFT.max.x + 120.0, level_of(k) + 160.0),
+                Rect::new(
+                    SHAFT.max.x,
+                    level_of(k),
+                    SHAFT.max.x + 120.0,
+                    level_of(k) + 160.0,
+                ),
                 Door,
             )
         };
@@ -209,12 +216,12 @@ pub fn rooms() -> &'static [Room] {
             door(SLABS + 1, "lair door"),
             room(
                 "octopus lair",
-                Rect::new(SHAFT.max.x + 120.0, FOOT, 3120.0, FOOT + 300.0),
+                Rect::new(SHAFT.max.x + 120.0, FOOT, 3600.0, FOOT + 300.0),
                 Lair,
             ),
             room(
                 "lair passage",
-                Rect::new(3120.0, FOOT, 4320.0, FOOT + 160.0),
+                Rect::new(3600.0, FOOT, 4800.0, FOOT + 160.0),
                 Passage,
             ),
             room("breach shaft", BREACH, Breach),
@@ -223,27 +230,32 @@ pub fn rooms() -> &'static [Room] {
             // Drop's third ledge.
             room(
                 "bone far door",
-                Rect::new(3240.0, -2540.0, 3460.0, -2380.0),
+                Rect::new(3120.0, -2520.0, 3360.0, -2360.0),
                 Door,
             ),
             room(
                 "bone far shaft",
-                Rect::new(3240.0, -3300.0, 3360.0, -2540.0),
+                Rect::new(3120.0, -3300.0, 3240.0, -2520.0),
                 Shaft,
             ),
             room(
                 "bone far ledge",
-                Rect::new(3360.0, -2920.0, 3520.0, -2760.0),
+                Rect::new(3240.0, -2920.0, 3400.0, -2760.0),
                 Door,
             ),
             room(
                 "bone far passage",
-                Rect::new(1520.0, -3300.0, 3360.0, -3140.0),
+                Rect::new(1520.0, -3300.0, 3240.0, -3140.0),
                 Passage,
             ),
             room(
                 "bone far step",
-                Rect::new(SHAFT.max.x, level_of(3), SHAFT.max.x + 120.0, level_of(3) + 160.0),
+                Rect::new(
+                    SHAFT.max.x,
+                    level_of(3),
+                    SHAFT.max.x + 120.0,
+                    level_of(3) + 160.0,
+                ),
                 Door,
             ),
         ]
@@ -291,7 +303,7 @@ pub fn lining() -> &'static [Rect] {
             }
             out.extend(subtract_all(
                 bands,
-                all_voids().chain(std::iter::once(BONE_HALL_VOID)),
+                all_voids().chain(std::iter::once(FAR_GAP)),
             ));
         }
         out
@@ -325,16 +337,15 @@ pub(super) fn after_rocks() -> Vec<Shape> {
 pub(super) fn shape(level: &mut Level) {
     // Carve the breach through the return duct's roof (the wall is a rock
     // box; the cells under it are bedrock anyway).
-    let hole = Rect::new(BREACH.min.x, BREACH.min.y, BREACH.max.x, BREACH.min.y + 20.0);
+    let hole = Rect::new(
+        BREACH.min.x,
+        BREACH.min.y,
+        BREACH.max.x,
+        BREACH.min.y + 20.0,
+    );
     level.rocks = std::mem::take(&mut level.rocks)
         .into_iter()
         .flat_map(|r| subtract_all(vec![r], std::iter::once(hole)))
-        .collect();
-    // The far door through the bone hall's west wall.
-    let door = room_named("bone far door");
-    level.rocks = std::mem::take(&mut level.rocks)
-        .into_iter()
-        .flat_map(|r| subtract_all(vec![r], std::iter::once(door)))
         .collect();
     let existing: Vec<Rect> = level.rocks.clone();
     for wall in lining() {
@@ -357,15 +368,51 @@ pub(super) fn shape(level: &mut Level) {
 /// water): `(hall, node kind, position)`. Iron-red nodules and pebbles are the
 /// second crafting tier; the lanternfish shoal is a fish fall.
 pub const NODE_SITES: [(&str, &str, Vec2); 9] = [
-    ("lanternfish hall", "FishFall", Vec2::new(2100.0, level_of(5) + 6.0)),
-    ("lanternfish hall", "FishFall", Vec2::new(2400.0, level_of(5) + 6.0)),
-    ("lanternfish hall", "FishFall", Vec2::new(2700.0, level_of(5) + 6.0)),
-    ("nodule hall", "NoduleField", Vec2::new(2200.0, level_of(9) + 6.0)),
-    ("nodule hall", "NoduleField", Vec2::new(2500.0, level_of(9) + 6.0)),
-    ("nodule hall", "NoduleField", Vec2::new(2800.0, level_of(9) + 6.0)),
-    ("whale-fall hall", "WhaleFallBones", Vec2::new(3400.0, level_of(13) + 6.0)),
-    ("whale-fall hall", "WhaleFallBones", Vec2::new(3700.0, level_of(13) + 6.0)),
-    ("whale-fall hall", "WhaleFallBones", Vec2::new(4000.0, level_of(13) + 6.0)),
+    (
+        "lanternfish hall",
+        "FishFall",
+        Vec2::new(2100.0, level_of(5) + 6.0),
+    ),
+    (
+        "lanternfish hall",
+        "FishFall",
+        Vec2::new(2400.0, level_of(5) + 6.0),
+    ),
+    (
+        "lanternfish hall",
+        "FishFall",
+        Vec2::new(2700.0, level_of(5) + 6.0),
+    ),
+    (
+        "nodule hall",
+        "NoduleField",
+        Vec2::new(2200.0, level_of(9) + 6.0),
+    ),
+    (
+        "nodule hall",
+        "NoduleField",
+        Vec2::new(2500.0, level_of(9) + 6.0),
+    ),
+    (
+        "nodule hall",
+        "NoduleField",
+        Vec2::new(2800.0, level_of(9) + 6.0),
+    ),
+    (
+        "whale-fall hall",
+        "WhaleFallBones",
+        Vec2::new(3400.0, level_of(13) + 6.0),
+    ),
+    (
+        "whale-fall hall",
+        "WhaleFallBones",
+        Vec2::new(3700.0, level_of(13) + 6.0),
+    ),
+    (
+        "whale-fall hall",
+        "WhaleFallBones",
+        Vec2::new(4000.0, level_of(13) + 6.0),
+    ),
 ];
 
 /// The names of the deep corals (landmark names are `drop coral {n}`).
@@ -398,17 +445,27 @@ pub(super) fn landmarks(level: &Level) -> Vec<Landmark> {
     let whale = room_named("whale-fall hall");
     add(
         "whale fall",
-        Rect::new(whale.min.x + 600.0, whale.min.y, whale.max.x - 600.0, whale.max.y),
+        Rect::new(
+            whale.min.x + 600.0,
+            whale.min.y,
+            whale.max.x - 600.0,
+            whale.max.y,
+        ),
         Kind::Frame,
     );
     add("octopus lair", room_named("octopus lair"), Kind::Frame);
     add("lair passage", room_named("lair passage"), Kind::Frame);
     add("breach shaft", BREACH, Kind::Frame);
-    // The far door out of the bone hall (a burrow's mouth: the haze keeps
-    // clear of it), its shaft, the niche to rest in and the passage west.
-    add("bone far door", room_named("bone far door"), Kind::Mouth);
+    // The far door out of the bone hall (its gap is a mouth of the hall, so
+    // the haze keeps clear of it), its shaft, the niche to rest in and the
+    // passage west.
+    add("bone far door", room_named("bone far door"), Kind::Frame);
     add("bone far shaft", room_named("bone far shaft"), Kind::Frame);
-    add("bone far passage", room_named("bone far passage"), Kind::Frame);
+    add(
+        "bone far passage",
+        room_named("bone far passage"),
+        Kind::Frame,
+    );
     add("bone far step", room_named("bone far step"), Kind::Frame);
     let niche = room_named("bone far ledge");
     add(
@@ -420,17 +477,17 @@ pub(super) fn landmarks(level: &Level) -> Vec<Landmark> {
     // and the foot, outside the lair's door.
     add(
         "drop top ledge",
-        Rect::new(SHAFT.max.x + 40.0, TOP_FLOOR, SHAFT.max.x + 160.0, TOP_FLOOR + 60.0),
+        Rect::new(
+            SHAFT.max.x + 40.0,
+            TOP_FLOOR,
+            SHAFT.max.x + 160.0,
+            TOP_FLOOR + 60.0,
+        ),
         Kind::Refuge,
     );
     add(
         "octopus lair door",
-        Rect::new(
-            SHAFT.max.x - 120.0,
-            FOOT,
-            SHAFT.max.x,
-            FOOT + 60.0,
-        ),
+        Rect::new(SHAFT.max.x - 120.0, FOOT, SHAFT.max.x, FOOT + 60.0),
         Kind::Refuge,
     );
     // Every standing place on the way: the slabs' free ends are ledges.

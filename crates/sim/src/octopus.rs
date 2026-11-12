@@ -355,7 +355,12 @@ fn jet_spot(e: &Enemy, crab_x: Option<f32>, level: &Level, t: &Tuning) -> f32 {
             .iter()
             .all(|&s| (ground(s) - y).abs() <= 20.0);
         // Room to rise in too: a tunnel's low roof is no place to fight from.
-        let body = Rect::new(x - half, y + 1.0, x + half, y + h.max(t.octopus.webover.headroom));
+        let body = Rect::new(
+            x - half,
+            y + 1.0,
+            x + half,
+            y + h.max(t.octopus.webover.headroom),
+        );
         x - half >= level.min_x
             && x + half <= level.max_x
             && (y - e.pos.y).abs() <= i.climb

@@ -166,7 +166,9 @@ impl CavernMask {
             return false;
         }
         let i = y as usize * self.cols as usize + x as usize;
-        self.bits.get(i / 64).is_some_and(|w| w >> (i % 64) & 1 == 1)
+        self.bits
+            .get(i / 64)
+            .is_some_and(|w| w >> (i % 64) & 1 == 1)
     }
 
     /// How many cells are open cavern water.
@@ -178,7 +180,11 @@ impl CavernMask {
     /// for the same one.
     fn shared(level: &Level, origin: Vec2, cols: u32, rows: u32, cell: f32) -> Arc<Self> {
         use std::sync::Mutex;
-        type Entry = (Arc<crate::level::layers::LayerMap>, [u32; 5], Arc<CavernMask>);
+        type Entry = (
+            Arc<crate::level::layers::LayerMap>,
+            [u32; 5],
+            Arc<CavernMask>,
+        );
         static CACHE: Mutex<Vec<Entry>> = Mutex::new(Vec::new());
         let map = level.layers_shared();
         let key = [
@@ -483,10 +489,13 @@ impl Memory {
     /// Is this cell open water inside a cavern (under the sea floor, where
     /// the floor's height would call it solid)?
     fn cavern_water(&self, i: u64, level: &Level, t: &MemoryTuning) -> bool {
-        let mask = self.caverns.get_or_init(|| {
-            CavernMask::shared(level, self.origin, self.cols, self.rows, t.cell)
-        });
-        mask.open((i % u64::from(self.cols)) as u32, (i / u64::from(self.cols)) as u32)
+        let mask = self
+            .caverns
+            .get_or_init(|| CavernMask::shared(level, self.origin, self.cols, self.rows, t.cell));
+        mask.open(
+            (i % u64::from(self.cols)) as u32,
+            (i / u64::from(self.cols)) as u32,
+        )
     }
 
     /// Capture only changed pages. Clock advancement does not dirty distant pages.

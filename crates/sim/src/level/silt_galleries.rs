@@ -248,7 +248,10 @@ fn subtract(piece: Rect, cut: Rect) -> Vec<Rect> {
     out
 }
 
-pub(super) fn subtract_all(pieces: Vec<Rect>, cuts: impl Iterator<Item = Rect> + Clone) -> Vec<Rect> {
+pub(super) fn subtract_all(
+    pieces: Vec<Rect>,
+    cuts: impl Iterator<Item = Rect> + Clone,
+) -> Vec<Rect> {
     let mut pieces = pieces;
     for cut in cuts {
         pieces = pieces.into_iter().flat_map(|p| subtract(p, cut)).collect();

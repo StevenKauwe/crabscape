@@ -151,7 +151,15 @@ fn build_specs() -> Vec<Frame> {
         name: "bone hall",
         rect: hall,
         kind: Some(Chamber),
-        gaps: vec![top(hall, 3800.0, W, true), top(hall, 4110.0, W, true)],
+        gaps: vec![
+            top(hall, 3800.0, W, true),
+            top(hall, 4110.0, W, true),
+            // The far door, west, into the Drop's passage (`deep_galleries`).
+            Gap {
+                rect: super::deep_galleries::FAR_GAP,
+                open: true,
+            },
+        ],
         doors: Vec::new(),
         shafts: Vec::new(),
         // The hall holds its bones in clay: floor and walls stay clay.

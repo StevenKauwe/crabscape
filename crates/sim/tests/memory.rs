@@ -316,7 +316,10 @@ fn the_cavern_mask_marks_open_water_under_the_floor_and_nothing_else() {
     let mask = CavernMask::sample(&level, blank.origin, blank.cols, blank.rows, t.cell);
     let open = |p: Vec2| {
         let i = blank.cell_at(p, &t).expect("on the grid");
-        mask.open((i % u64::from(blank.cols)) as u32, (i / u64::from(blank.cols)) as u32)
+        mask.open(
+            (i % u64::from(blank.cols)) as u32,
+            (i / u64::from(blank.cols)) as u32,
+        )
     };
     // The upper gallery's water, the Drop's shaft and a deep hall.
     assert!(open(Vec2::new(2000.0, -900.0)), "the upper gallery");
@@ -324,12 +327,21 @@ fn the_cavern_mask_marks_open_water_under_the_floor_and_nothing_else() {
     assert!(open(Vec2::new(2000.0, -4050.0)), "the lanternfish hall");
     // Its clay floor, solid bedrock, the open sea above the floor (never a
     // cavern: the floor's height answers there) and a slab in the Drop.
-    assert!(!open(Vec2::new(2000.0, -1060.0)), "the gallery's clay floor");
-    assert!(!open(Vec2::new(2000.0, -1500.0)), "bedrock between galleries");
+    assert!(
+        !open(Vec2::new(2000.0, -1060.0)),
+        "the gallery's clay floor"
+    );
+    assert!(
+        !open(Vec2::new(2000.0, -1500.0)),
+        "bedrock between galleries"
+    );
     assert!(!open(Vec2::new(160.0, 50.0)), "the open sea");
     assert!(!open(Vec2::new(1200.0, -2220.0)), "a slab of the Drop");
     let n = mask.count();
-    println!("{n} cavern cells of {}", blank.cols as u64 * blank.rows as u64);
+    println!(
+        "{n} cavern cells of {}",
+        blank.cols as u64 * blank.rows as u64
+    );
     assert!(n > 10_000, "{n}");
     // The same grid, sampled again, is the same mask.
     assert_eq!(
@@ -354,5 +366,8 @@ fn a_crab_in_a_cavern_sees_its_water_and_not_the_rooms_behind_the_walls() {
     assert!(seen(at + Vec2::new(120.0, 60.0)), "water in the same room");
     // The sealed mouth shaft's water, west of the gallery's door and out of
     // the line of sight through rock, is not in sight.
-    assert!(!seen(Vec2::new(2000.0, -1500.0)), "rock under the floor, out of the lantern");
+    assert!(
+        !seen(Vec2::new(2000.0, -1500.0)),
+        "rock under the floor, out of the lantern"
+    );
 }
