@@ -119,6 +119,13 @@ fn stacked(bytes: &[u8], layers: u32, repeat_down: bool) -> Image {
     image
 }
 
+/// `ridges.png` decoded once: the ridge meshes, their flat colour and the texture all read the same pixels, and on
+/// the web each decode costs startup time (joins are timed from the game's start).
+fn ridge_sheet() -> &'static Image {
+    static SHEET: std::sync::OnceLock<Image> = std::sync::OnceLock::new();
+    SHEET.get_or_init(|| stacked(RIDGES_PNG, RIDGE_LAYERS, false))
+}
+
 /// Texels across one repeat of `ridges.png`, and down one layer.
 const RIDGE_SHEET_WIDTH: usize = 384;
 const RIDGE_SHEET_LAYER_HEIGHT: usize = 224;
@@ -128,7 +135,7 @@ const RIDGE_SHEET_LAYER_HEIGHT: usize = 224;
 /// it, which linear filtering blends in, when `pad` is 1; `threshold` is the alpha that counts as paint) reaches. `level.rs` builds each ridge's mesh from these so the transparent
 /// sky above the spires is never rasterised. Reads the lit layer's alpha, as `ridge.wgsl` does.
 pub fn ridge_tops(ridge: usize, groups: usize, threshold: f32, pad: usize) -> Vec<usize> {
-    let image = stacked(RIDGES_PNG, RIDGE_LAYERS, false);
+    let image = ridge_sheet();
     let data = image.data.as_deref().unwrap_or(&[]);
     let (w, h) = (RIDGE_SHEET_WIDTH, RIDGE_SHEET_LAYER_HEIGHT);
     let layer = ridge * 2;
@@ -158,7 +165,7 @@ pub fn ridge_tops(ridge: usize, groups: usize, threshold: f32, pad: usize) -> Ve
 /// The lit layer's alpha (0 to 1) of ridge `ridge`, row by row, for tests.
 #[cfg(test)]
 pub fn ridge_alpha(ridge: usize) -> Vec<f32> {
-    let image = stacked(RIDGES_PNG, RIDGE_LAYERS, false);
+    let image = ridge_sheet();
     let data = image.data.as_deref().unwrap_or(&[]);
     let rows = RIDGE_SHEET_LAYER_HEIGHT * RIDGE_SHEET_WIDTH;
     (0..rows)
@@ -205,7 +212,7 @@ impl Material2d for RidgeMaterial {
 
 /// The mean colour (linear) of ridge `ridge`'s lit and its unlit paint over the texels that are mostly opaque.
 pub fn ridge_mean_colours(ridge: usize) -> (Vec3, Vec3) {
-    let image = stacked(RIDGES_PNG, RIDGE_LAYERS, false);
+    let image = ridge_sheet();
     let data = image.data.as_deref().unwrap_or(&[]);
     let rows = RIDGE_SHEET_LAYER_HEIGHT * RIDGE_SHEET_WIDTH;
     let linear = |b: u8| {
@@ -279,7 +286,7 @@ impl Plugin for PaintedWorldPlugin {
         if let Some(mut images) = app.world_mut().get_resource_mut::<Assets<Image>>() {
             let painted = PaintedWorld {
                 tiles: images.add(stacked(TILES_PNG, TILE_LAYERS, true)),
-                ridges: images.add(stacked(RIDGES_PNG, RIDGE_LAYERS, false)),
+                ridges: images.add(ridge_sheet().clone()),
             };
             app.insert_resource(painted);
         }
