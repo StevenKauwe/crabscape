@@ -42,7 +42,7 @@ copy_game() {
   for item in "$from"/* "$from"/.[!.]*; do
     [ -e "$item" ] || continue
     name=${item##*/}
-    case "$name" in crabbridge|branches|builds|pr-*|build.txt) continue;; esac
+    case "$name" in CNAME|crabbridge|branches|builds|pr-*|build.txt) continue;; esac
     cp -R "$item" "$to/"
   done
 }
@@ -59,7 +59,7 @@ if [ "$GAME_SELECTED" = true ]; then
   mkdir -p "$dest"
   for item in "$dest"/* "$dest"/.[!.]*; do
     [ -e "$item" ] || continue
-    case "${item##*/}" in crabbridge|branches|builds|pr-*|build.txt) continue;; esac
+    case "${item##*/}" in CNAME|crabbridge|branches|builds|pr-*|build.txt) continue;; esac
     rm -rf "$item"
   done
   copy_game "$game" "$dest"

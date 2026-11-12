@@ -28,7 +28,9 @@ test "$(cat site/pkg/commit.txt)" = "$A"
 test "$(cat site/crabbridge/build-commit.txt)" = "$B"
 test "$(cat site/CNAME)" = preserved
 test "$(cat site/pr-7/index.html)" = preview
-build "$C"; compose true false "$C"
+build "$C"; printf unexpected-domain > artifacts/game/CNAME; compose true false "$C"
+test "$(cat site/CNAME)" = preserved
+rm artifacts/game/CNAME
 test "$(cat site/pkg/commit.txt)" = "$C"
 test "$(cat site/crabbridge/build-commit.txt)" = "$B"
 build "$A"; reject compose false true "$A"

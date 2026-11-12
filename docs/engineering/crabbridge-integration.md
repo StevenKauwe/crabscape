@@ -67,10 +67,14 @@ command was executed during implementation. Host access remains separate from st
 New bridge publication is gated by the repository Actions variable
 `CRABBRIDGE_PUBLISH_ENABLED` being exactly the string `true`. Missing, empty or `false` leaves
 bridge artifacts private to CI: bridge-only changes cannot enter a publisher, and mixed/game builds
-do not download or select the bridge artifact. Game publication still preserves any existing stored
+do not download or select the bridge artifact. This is not an automatic unpublish switch: existing
+bridge content can remain at main and be preserved in preview baselines. Game publication still preserves any existing stored
 bridge rather than deleting it. The normal protected checks continue to run regardless of this switch.
 
 Only after explicit deployment approval should a repository administrator set that Actions variable
 to `true` and initiate the intended checked workflow. This code change does not set the variable,
 change repository permissions, or authorize a deployment. `test-bridge-publish-policy.sh` checks
 job admission, artifact selection and artifact-download guards for both publishers.
+
+The root `CNAME` is hosting-owned configuration, not a component artifact. Composition preserves it
+even during a game-only update and never overwrites it from game or bridge build output.
