@@ -78,7 +78,7 @@ pub const MARKERS: &[Marker] = &[
         name: "octopus lair door",
         at: [1340.0, -11150.0],
         kind: MarkerKind::BossDoor {
-            arena: [1520.0, -11200.0, 3600.0, -10900.0],
+            arena: [1280.0, -11200.0, 3600.0, -10900.0],
         },
     },
 ];
