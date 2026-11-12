@@ -390,6 +390,16 @@ impl Memory {
             || c.y < level.floor_height(c.x) - t.cell * 0.5
     }
 
+    /// [`sample_solid`](Self::sample_solid) with the rocks that can matter
+    /// already picked out (those reaching the sight window).
+    fn sample_solid_among(&self, i: u64, near: &[Rect], level: &Level, t: &MemoryTuning) -> bool {
+        let c = self.centre(i, t);
+        c.x < level.min_x
+            || c.x > level.max_x
+            || near.iter().any(|r| r.contains(c))
+            || c.y < level.floor_height(c.x) - t.cell * 0.5
+    }
+
     /// Capture only changed pages. Clock advancement does not dirty distant pages.
     pub fn dirty_chunks(&self) -> Vec<MemoryChunk> {
         self.dirty
@@ -528,8 +538,27 @@ impl Memory {
             self.obstruction.y = (first / u64::from(self.cols)) as u32;
             self.obstruction.width = (last % u64::from(self.cols)) as u32 - self.obstruction.x + 1;
             self.obstruction.height = (last / u64::from(self.cols)) as u32 - self.obstruction.y + 1;
+            // The rocks, secrets and royal walls that reach the window: the
+            // few that matter, found once, not once for every cell.
+            let window = Rect::from_corners(
+                self.centre(first, t).min(self.centre(last, t)) - Vec2::splat(t.cell),
+                self.centre(first, t).max(self.centre(last, t)) + Vec2::splat(t.cell),
+            );
+            let near: Vec<Rect> = level
+                .rocks
+                .iter()
+                .chain(&level.secrets)
+                .copied()
+                .chain(crate::level::royal::solids())
+                .filter(|r| {
+                    r.min.x <= window.max.x
+                        && r.max.x >= window.min.x
+                        && r.min.y <= window.max.y
+                        && r.max.y >= window.min.y
+                })
+                .collect();
             for &i in &cells {
-                let solid = self.sample_solid(i, level, t);
+                let solid = self.sample_solid_among(i, &near, level, t);
                 self.obstruction.cells.push(solid);
             }
         }
