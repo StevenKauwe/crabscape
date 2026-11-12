@@ -108,7 +108,7 @@ fn light_amount(p: vec2<f32>) -> f32 {
 // ---- painted ground: the same text in cellular.wgsl and memory.wgsl (a test keeps them equal) ----
 // Six materials painted by our oil painter (tools/paint-world.sh), each a seamless tile, lit by the lantern in
 // layers 0..5 and unlit in 6..11. They are read in world space, so a material looks the same wherever it is cut.
-// Cheap on purpose (software rendering and phones pay per pixel): ONE slow noise per pixel, passed in as `patch`,
+// Cheap on purpose (software rendering and phones pay per pixel): ONE slow noise per pixel, passed in as `blot`,
 // bends the reading, tints the ground in broad patches and (in cellular.wgsl) picks silt or clay; one tile
 // fetch where the light is all lit or all dark, two only between.
 const TILE_UNITS: f32 = 104.0;
@@ -126,12 +126,12 @@ fn tile_read(uv: vec2<f32>, layer: i32, lit_amount: f32, lod: f32) -> vec3<f32> 
     return c;
 }
 
-// A material's painted colour at a world position, in the light there. `patch`: a slow noise (0 to 1) at the
+// A material's painted colour at a world position, in the light there. `blot`: a slow noise (0 to 1) at the
 // position. `lod`: how many mips to drop (the pixel's footprint on the tile), so a zoomed-out view sees the tile's
 // average, never sparkle.
-fn painted_ground(p: vec2<f32>, layer: i32, lit_amount: f32, lod: f32, patch: f32) -> vec3<f32> {
-    let uv = vec2<f32>(p.x, -p.y) / TILE_UNITS + (patch - 0.5) * vec2<f32>(0.3, 0.22);
-    return tile_read(uv, layer, lit_amount, lod) * (0.9 + 0.2 * patch);
+fn painted_ground(p: vec2<f32>, layer: i32, lit_amount: f32, lod: f32, blot: f32) -> vec3<f32> {
+    let uv = vec2<f32>(p.x, -p.y) / TILE_UNITS + (blot - 0.5) * vec2<f32>(0.3, 0.22);
+    return tile_read(uv, layer, lit_amount, lod) * (0.9 + 0.2 * blot);
 }
 
 // The shape's own light on its paint: a bright band under its top edge (lit from the top left), then a dark warm

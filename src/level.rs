@@ -433,13 +433,59 @@ fn ridge_mesh(layer: usize, height: f32) -> Mesh {
     )
 }
 
-/// The far ridge's finer silhouette: a quad per texel column (see [`FAR_RIDGE_GROUPS`]).
+/// The far ridge's silhouette, smoothed: the highest paint of each texel column (see [`FAR_RIDGE_GROUPS`]), eased
+/// over its neighbours, joined by sloping edges. A flat-topped quad per column drew a hard staircase (an opaque shape
+/// has no paint alpha to soften its edge).
+fn far_ridge_tops(layer: usize, height: f32) -> Vec<f32> {
+    let raw: Vec<f32> = ridge_strips(layer, height, FAR_RIDGE_GROUPS, 0.5, 0)
+        .iter()
+        .map(|&(_, _, top)| top)
+        .collect();
+    let n = raw.len();
+    let at = |i: isize| raw[i.rem_euclid(n as isize) as usize];
+    (0..n as isize)
+        .map(|i| (at(i - 2) + 2.0 * at(i - 1) + 3.0 * at(i) + 2.0 * at(i + 1) + at(i + 2)) / 9.0)
+        .collect()
+}
+
+/// The far ridge as one smooth strip: for each repeat, a quad between each pair of neighbouring column centres, its
+/// top following the eased silhouette, its bottom at the foot cut ([`FAR_FOOT_CUT`]).
 fn far_ridge_mesh(layer: usize, height: f32) -> Mesh {
-    strip_mesh(
-        &ridge_strips(layer, height, FAR_RIDGE_GROUPS, 0.5, 0),
-        height,
-        FAR_FOOT_CUT * height,
+    let tops = far_ridge_tops(layer, height);
+    let n = tops.len();
+    let wide = RIDGE_PERIOD / n as f32;
+    let bottom = FAR_FOOT_CUT * height;
+    let reach = (RIDGE_HALF_LENGTH / RIDGE_PERIOD).ceil() as i32 + 1;
+    let uv = |x: f32, y: f32| [x / RIDGE_PERIOD, (height - y) / height];
+    let (mut positions, mut uvs, mut indices) = (Vec::new(), Vec::new(), Vec::new());
+    for repeat in -reach..reach {
+        let origin = repeat as f32 * RIDGE_PERIOD;
+        for i in 0..n {
+            let (l, r) = (
+                origin + (i as f32 + 0.5) * wide,
+                origin + (i as f32 + 1.5) * wide,
+            );
+            let (tl, tr) = (tops[i].max(bottom), tops[(i + 1) % n].max(bottom));
+            let first = positions.len() as u32;
+            positions.extend([
+                [l, tl, 0.0],
+                [r, tr, 0.0],
+                [r, bottom, 0.0],
+                [l, bottom, 0.0],
+            ]);
+            uvs.extend([uv(l, tl), uv(r, tr), uv(r, bottom), uv(l, bottom)]);
+            indices.extend([first, first + 3, first + 2, first, first + 2, first + 1]);
+        }
+    }
+    let count = positions.len();
+    Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::RENDER_WORLD,
     )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 0.0, 1.0]; count])
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
+    .with_inserted_indices(Indices::U32(indices))
 }
 
 fn strip_mesh(strips: &[(f32, f32, f32)], height: f32, bottom: f32) -> Mesh {
@@ -1160,6 +1206,39 @@ mod streamed_floor_tests {
 mod ridge_mesh_tests {
     use super::*;
     use crate::painted_world::ridge_alpha;
+
+    /// The far ridge's edge has no staircase: neighbouring columns' tops differ by little (the raw silhouette's
+    /// steps are eased), and the eased line stays near the paint (it is the same ridge, only softened).
+    #[test]
+    fn the_far_ridge_edge_is_smooth_and_follows_its_paint() {
+        let ridge = &RIDGES[0];
+        let raw: Vec<f32> = ridge_strips(0, ridge.height, FAR_RIDGE_GROUPS, 0.5, 0)
+            .iter()
+            .map(|&(_, _, top)| top)
+            .collect();
+        let eased = far_ridge_tops(0, ridge.height);
+        let steepest = |v: &[f32]| {
+            (0..v.len())
+                .map(|i| (v[i] - v[(i + 1) % v.len()]).abs())
+                .fold(0.0, f32::max)
+        };
+        println!(
+            "far ridge: steepest step {:.1} raw, {:.1} eased",
+            steepest(&raw),
+            steepest(&eased)
+        );
+        assert!(steepest(&eased) < 0.6 * steepest(&raw));
+        let off = raw
+            .iter()
+            .zip(&eased)
+            .map(|(a, b)| (a - b).abs())
+            .sum::<f32>()
+            / raw.len() as f32;
+        assert!(
+            off < 0.05 * ridge.height,
+            "eased line is {off} off its paint on average"
+        );
+    }
 
     /// The tight strip covers every painted texel (alpha above 0.01), and takes a small share of the old quad.
     #[test]
