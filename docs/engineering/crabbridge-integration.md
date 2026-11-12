@@ -28,8 +28,8 @@ its game lockfile or silently install a different binding-generator version.
   new refs, missing commits, unknown or empty change lists select everything; classifier failures fail the protected gate.
 - The existing protected `fmt, clippy (native + wasm32), tests` name is retained as an always-running
   gate over game checks and bridge checks. Branch protection is unchanged.
-- Bridge assets are a separate CI artifact. Publishing/preview assembly must explicitly merge that
-  artifact; this change does not deploy a public host service or modify existing publishing behavior.
+- Bridge assets are a separate CI artifact. Publishing/preview assembly explicitly composes that artifact with the preserved game component.
+  This does not deploy a public host service or change the game introducer.
 
 ## Remaining publication boundary
 
@@ -41,3 +41,23 @@ when hosting under the game origin; review that before public use with real host
 The generated static directory does not inherit the local host server's CSP, frame restrictions,
 cache policy or other security headers. Equivalent reviewed hosting policy must be configured before
 public use; successful local asset loading is not proof that the production origin enforces it.
+
+## Component artifact composition
+
+Publishing jobs download selected artifacts into `artifacts/game` and `artifacts/bridge`, not into
+checkout source files. `compose-web.sh` runs inside the existing gh-pages force-with-lease transaction:
+
+- Verify all selected artifacts are regular trees with an index and the exact workflow SHA stamp.
+- Preserve unselected components from the current store; bridge-only cannot create an empty game root.
+- A new preview seeds the unselected component from the published main root, excluding all preview folders.
+  `pkg/commit.txt` and `crabbridge/build-commit.txt` retain each component's actual source revision; a preview
+  can intentionally contain a newer baseline component than its branch. `build.txt` identifies preview head.
+- Reject main component rollback/divergence and stale preview heads. A force-pushed/divergent preview must
+  be explicitly removed before republishing, rather than silently replacing an incomparable revision.
+- Store lease conflicts restart composition against the latest store snapshot; they never reuse a stale
+  composed tree. Existing shared publication concurrency still serializes the entire publish transaction.
+
+`test-compose-web.sh` exercises preservation, stamp mismatch, missing baseline/artifacts, symlink rejection,
+ancestry failures and a real local bare-git store roundtrip. `test-previews.sh` retains existing store tests.
+These changes describe executable publishing code, not evidence of a deployment: no production publishing
+command was executed during implementation. Host access remains separate from static frontend publication.

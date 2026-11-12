@@ -33,6 +33,7 @@ for file in remote.html remote.js matchbox.js; do
   mv "$out/$file.tmp" "$out/$file"
 done
 cp "$out/remote.html" "$out/index.html"
+printf '%s' "${GITHUB_SHA:-$(git rev-parse HEAD)}" > "$out/build-commit.txt"
 rm -rf web/crabbridge
 mv "$out" web/crabbridge
 trap - EXIT
