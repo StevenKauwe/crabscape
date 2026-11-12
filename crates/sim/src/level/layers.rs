@@ -15,7 +15,7 @@
 //! The map is *derived* from a [`Level`] on demand and never stored in it
 //! (`Level` derives `PartialEq` and serde; see `world-plan.md`).
 
-use super::{Level, silt_galleries};
+use super::{Level, deep_galleries, silt_galleries};
 use crate::underwater::{Cell, GAME_BOTTOM, GAME_CELL};
 use bevy_math::{Rect, Vec2};
 use std::sync::Arc;
@@ -311,6 +311,7 @@ impl LayerMap {
         // Authored decoration of new regions that must beat the rocks (a plug
         // of soil in a frame's wall, say).
         shapes.extend(silt_galleries::after_rocks());
+        shapes.extend(deep_galleries::after_rocks());
         LayerMap { shapes, rocks_from }
     }
 
@@ -441,7 +442,9 @@ fn bedrock_and_sediment(level: &Level) -> Vec<Shape> {
 /// New regions' soil and cavities, painted after the strata and before the
 /// rocks. Empty on a level that lacks the regions' bedrock.
 fn overlay(level: &Level) -> Vec<Shape> {
-    silt_galleries::shapes(level)
+    let mut shapes = silt_galleries::shapes(level);
+    shapes.extend(deep_galleries::shapes(level));
+    shapes
 }
 
 #[cfg(test)]

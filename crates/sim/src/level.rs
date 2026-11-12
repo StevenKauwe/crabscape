@@ -20,6 +20,7 @@ pub mod bands;
 mod bestiary;
 mod circulation;
 pub(crate) mod coral_rise;
+pub mod deep_galleries;
 mod exploration;
 mod hub;
 pub mod landmarks;
@@ -380,6 +381,7 @@ impl Level {
     pub fn test_level() -> Self {
         let mut level = Self::before_galleries();
         silt_galleries::shape(&mut level);
+        deep_galleries::shape(&mut level);
         // Last, so every place a creature anchors to (landmarks, refuges, the
         // lower canyon, the galleries) exists.
         bestiary::place(&mut level);

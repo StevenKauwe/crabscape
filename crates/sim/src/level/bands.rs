@@ -212,7 +212,21 @@ fn exact_bed(name: &str) -> Option<Declared> {
         | "drop cavern"
         | "drop ledge"
         | "silt mouth rest"
-        | "moray hall door rest" => Depth,
+        | "moray hall door rest"
+        | "plug shaft ledge"
+        // The Drop and the Deep Galleries (`level/deep_galleries.rs`).
+        | "drop approach"
+        | "drop shaft"
+        | "drop coral"
+        | "drop top ledge"
+        | "lanternfish hall"
+        | "nodule hall"
+        | "whale-fall hall"
+        | "whale fall"
+        | "octopus lair"
+        | "octopus lair door"
+        | "lair passage"
+        | "breach shaft" => Depth,
         _ => return None,
     })
 }
