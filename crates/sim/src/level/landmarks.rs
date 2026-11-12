@@ -105,6 +105,8 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
         add(
             if *climb == super::lower_canyon::HANGING_GARDEN {
                 "hanging garden".into()
+            } else if let Some(name) = super::open_canyon::climb_name(level, climb) {
+                name
             } else if let Some(n) = gallery {
                 format!("gallery coral {n}")
             } else if let Some(n) = deep {
@@ -280,5 +282,6 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
     }
     landmarks.extend(super::silt_galleries::landmarks(level));
     landmarks.extend(super::deep_galleries::landmarks(level));
+    landmarks.extend(super::open_canyon::landmarks(level));
     landmarks
 }
