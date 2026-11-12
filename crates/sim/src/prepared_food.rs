@@ -116,13 +116,13 @@ impl PreparedFood {
         SLOTS - self.free_slots()
     }
 
-    /// Put a batch of `n` (at most 2) portions of `kind` in free slots, all
+    /// Put a batch of `n` (at most 3: a cook's perk makes the third) portions of `kind` in free slots, all
     /// or nothing.
     pub fn add_batch(&mut self, kind: PortionKind, n: u8) -> bool {
         let Some(next) = self.next_batch.checked_add(1) else {
             return false;
         };
-        if n > 2 || self.free_slots() < usize::from(n) {
+        if n > 3 || self.free_slots() < usize::from(n) {
             return false;
         }
         let batch = self.next_batch;

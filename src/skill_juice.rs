@@ -272,7 +272,7 @@ mod tests {
         assert!(lines.len() > 1, "clams open at Prying 15: {lines:?}");
         assert_eq!(
             level_up_lines(&sim, id, Skill::Prying, 2),
-            ["Prying level 2!"]
+            ["Prying level 2!", "You pry 2% quicker than at level 1."]
         );
     }
 

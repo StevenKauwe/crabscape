@@ -22,6 +22,14 @@ pub enum Food {
     JellySalad,
     InkedKelp,
     ShrimpPasteFeast,
+    // The first hours' dishes, from tier 1 and half-tier finds (appended).
+    KelpWrappedMussel,
+    SnailHalfShell,
+    ShrimpStrips,
+    BarnacleChowder,
+    BrittleStarStew,
+    EelgrassSalad,
+    PurpleFilmPaste,
 }
 
 /// A timed buff from eating (one at a time; a new one replaces it).
@@ -85,7 +93,7 @@ impl Buff {
 }
 
 impl Food {
-    pub const ALL: [Food; 15] = [
+    pub const ALL: [Food; 22] = [
         Food::ShellFood,
         Food::ReserveFood,
         Food::ShuckedMussels,
@@ -101,6 +109,13 @@ impl Food {
         Food::JellySalad,
         Food::InkedKelp,
         Food::ShrimpPasteFeast,
+        Food::KelpWrappedMussel,
+        Food::SnailHalfShell,
+        Food::ShrimpStrips,
+        Food::BarnacleChowder,
+        Food::BrittleStarStew,
+        Food::EelgrassSalad,
+        Food::PurpleFilmPaste,
     ];
 
     pub fn name(self) -> &'static str {
@@ -120,6 +135,13 @@ impl Food {
             Food::JellySalad => "Jelly salad",
             Food::InkedKelp => "Inked kelp",
             Food::ShrimpPasteFeast => "Shrimp-paste feast",
+            Food::KelpWrappedMussel => "Kelp-wrapped mussel",
+            Food::SnailHalfShell => "Snail on the half shell",
+            Food::ShrimpStrips => "Shrimp-tail strips",
+            Food::BarnacleChowder => "Barnacle chowder",
+            Food::BrittleStarStew => "Brittle-star stew",
+            Food::EelgrassSalad => "Eelgrass salad",
+            Food::PurpleFilmPaste => "Purple-film paste",
         }
     }
 
@@ -134,6 +156,8 @@ impl Food {
             Food::VentClamFeast => Some((Buff::Feast, FEAST_TICKS)),
             Food::AmphipodBroth => Some((Buff::Pressure20, BUFF_TICKS)),
             Food::ShrimpPasteFeast => Some((Buff::Gather15, BUFF_TICKS)),
+            Food::BarnacleChowder | Food::PurpleFilmPaste => Some((Buff::Gather10, BUFF_TICKS)),
+            Food::BrittleStarStew => Some((Buff::ReserveQuick, BUFF_TICKS)),
             _ => None,
         }
     }
@@ -148,6 +172,11 @@ impl Food {
             Food::Broth => 25,
             Food::JellySalad => 10,
             Food::ShrimpPasteFeast => 35,
+            Food::KelpWrappedMussel => 20,
+            Food::ShrimpStrips => 25,
+            Food::BarnacleChowder => 25,
+            Food::EelgrassSalad => 10,
+            Food::PurpleFilmPaste => 10,
             _ => 0,
         }
     }
@@ -158,7 +187,8 @@ impl Food {
         match self {
             Food::ReserveFood => 3,
             Food::SnailWrap | Food::AmphipodBroth | Food::JellySalad => 1,
-            Food::InkedKelp => 2,
+            Food::InkedKelp | Food::SnailHalfShell => 2,
+            Food::EelgrassSalad => 1,
             Food::VentPoachedSeepMussels | Food::VentClamFeast => u8::MAX,
             _ => 0,
         }

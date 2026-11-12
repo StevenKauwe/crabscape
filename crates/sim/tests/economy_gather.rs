@@ -143,9 +143,10 @@ fn holding_gather_gives_the_item_the_xp_and_wears_the_tool() {
     }
     let done_at = done_at.expect("it finished");
     assert!((need..=need + 2).contains(&done_at), "{done_at} for {need}");
-    assert_eq!(gathered, Some((Item::Mussel, 10)));
+    // Tier 1 pays 110% below level 15 (the first hours).
+    assert_eq!(gathered, Some((Item::Mussel, 11)));
     assert_eq!(count(&sim, P0, Item::Mussel), 1);
-    assert_eq!(xp_of(&sim, Skill::Prying), 10);
+    assert_eq!(xp_of(&sim, Skill::Prying), 11);
     let crab = sim.crab(P0).unwrap();
     assert_eq!(crab.econ.tool(ToolKind::Pry).uses_left, 59);
     assert_eq!(crab.econ.gathers_done, 1);
@@ -342,7 +343,9 @@ fn coop_game(at: Vec2) -> Game {
     guest.add_crab(GUEST, at);
     guest.go_online(false);
     for (sim, id) in [(&mut host, HOST), (&mut guest, GUEST)] {
-        skill_at(sim, id, Skill::Prying, 50);
+        // Level 2: quick enough, and below the first second-item perk (Prying 3),
+        // so the count of items stays the count of charges taken.
+        skill_at(sim, id, Skill::Prying, 2);
     }
     Game {
         host,
@@ -400,8 +403,8 @@ fn a_guests_gather_goes_through_the_host_and_two_crabs_never_get_more_than_the_c
     // XP is each crab's own, on its own device.
     let xp_h = g.host.crab(HOST).unwrap().econ.skills.get(Skill::Prying);
     let xp_u = g.guest.crab(GUEST).unwrap().econ.skills.get(Skill::Prying);
-    assert!(xp_h >= xp::xp_for_level(50) + 10 * h as u32);
-    assert!(xp_u >= xp::xp_for_level(50) + 10 * u as u32);
+    assert!(xp_h >= xp::xp_for_level(2) + 11 * h as u32);
+    assert!(xp_u >= xp::xp_for_level(2) + 11 * u as u32);
     // The host's clock grows it back for both.
     g.host.set_controls(HOST, Controls::default());
     g.guest.set_controls(GUEST, Controls::default());
@@ -589,13 +592,14 @@ fn survival_experience_comes_only_from_deep_water() {
         shallow.tick();
     }
     assert_eq!(xp_of(&shallow, Skill::Survival), 0);
-    // Deep: (band - 1) a second.
+    // Deep: (band - 1) a second, 160% early.
     let mut deep = Sim::with_one_crab(pos);
     for _ in 0..1200 {
         deep.tick();
     }
     let got = xp_of(&deep, Skill::Survival);
-    let wanted = (band - 1) as u32 * 10;
+    // (The first hours pay Survival 160% below level 15.)
+    let wanted = (band - 1) as u32 * 16;
     assert!(
         got + 2 >= wanted && got <= wanted + 2,
         "{got} for band {band}: {wanted}"

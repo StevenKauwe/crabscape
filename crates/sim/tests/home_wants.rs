@@ -506,7 +506,7 @@ fn a_replay_reproduces_pins_and_pieces() {
 fn piece_rows_are_well_formed() {
     let mut words = BTreeSet::new();
     let mut last = 0;
-    assert_eq!(PIECES.len(), 8);
+    assert_eq!(PIECES.len(), 20);
     for d in PIECES {
         assert!(words.insert(d.word), "duplicate {}", d.word);
         assert!(
@@ -521,7 +521,9 @@ fn piece_rows_are_well_formed() {
         assert_eq!(d.piece.xp(), piece_xp(d.level));
         assert!(d.piece.xp() >= 40);
     }
-    assert_eq!(piece_xp(3), 40);
+    // From level 2 to 15 a piece pays a level and a fifth of Building.
+    assert_eq!(piece_xp(3), 122);
+    assert_eq!(piece_xp(16), 128);
     assert_eq!(piece_xp(35), 280);
     assert_eq!(piece_xp(70), 560);
     assert_eq!(Piece::GlassLamp.level(), 8);
@@ -550,7 +552,8 @@ fn building_a_piece_solo_pays_from_the_bank_and_earns_experience() {
     let c = sim.crab(P0).unwrap();
     assert_eq!(c.stash.count(Item::Kelp), 1);
     assert_eq!(c.stash.count(Item::KelpCord), 0);
-    assert_eq!(building_xp(&sim, P0) - before, 40);
+    // Building 3 pays a level and a fifth (122).
+    assert_eq!(building_xp(&sim, P0) - before, 122);
     assert!(sim.home_pieces().contains(&Piece::KelpCurtain));
     // Once only.
     give(&mut sim, P0, &bank);
@@ -699,7 +702,7 @@ fn a_guest_builds_through_the_host_and_pays_only_when_it_is_confirmed() {
     assert!(g.guest.home_pieces().contains(&Piece::KelpCurtain));
     let c = g.guest.crab(GUEST).unwrap();
     assert_eq!(c.stash.count(Item::Kelp), 0);
-    assert_eq!(building_xp(&g.guest, GUEST) - before, 40);
+    assert_eq!(building_xp(&g.guest, GUEST) - before, 122);
     // The host's own bank, the host's copy of the guest and its xp: untouched.
     assert_eq!(g.host.crab(HOST).unwrap().stash.count(Item::Kelp), 0);
     let remote = g.host.crab(GUEST).unwrap();

@@ -199,7 +199,7 @@ Making is a command through the sim exactly like today's `Sim::make` (only its o
 | Home stages (exists) | 1 / 3 / 5 grit built | Grit | unchanged; each grit built gives 20 Building XP |
 | Whelk room / hall / keep | 30 / 45 / 62 | whelk shell 1 + Clay 4 / whelk shell 2 + Clay 6 + octopus ink 1 + braided cord 2 / whelk shell 3 + Nodule 2 + black coral 2 | home stage 1 / 2 / 3, in order |
 
-Building XP per station = 40 × its level requirement / 5 (minimum 40).
+Building XP per station = 40 × its level requirement / 5 (minimum 40), above Building 15; from 2 to 15, the XP from its level to the next plus 20% (L15).
 
 **Processing chains** (raw → processed → finished), XP to the recipe's skill:
 
@@ -489,18 +489,18 @@ The home asks "what do you want to make?" before it asks anything else (`core-lo
   home needs no word). Making the recipe unpins it.
 
 ## Home pieces (data: `economy/home.rs`; H1 of #617)
-Pieces built into the home change it for everyone in that home's world. Eight, each built once per world:
+Pieces built into the home change it for everyone in that home's world. Twenty, each built once per world. Twelve early pieces (Building 2 to 15, all from tier-1 items: L15) are listed in the first-hours section below; the rest:
 | Piece | Building | Needs | Does |
 |---|---|---|---|
 | Kelp curtain | 3 | Kelp x22, Kelp cord x2 | a swaying curtain (looks) |
 | Glass lamp | 8 | Glass x16, Kelp cord x2 | a warm glow (looks) |
-| Shell mosaic | 15 | Valve x8, Grit x4, Pearl x1 | a pattern on the wall (looks) |
+| Shell mosaic | 17 (was 15: its pearl and teeth are past a new crab) | Valve x8, Grit x4, Pearl x1, Tooth x4 | a pattern on the wall (looks) |
 | Whelk door | 20 | Whelk shell x1, Clay x2 | a door for the doorway (looks) |
 | Bone arch | 35 | Whale bone x2, Clay x3, Mantis club x2 | ribs over the home (looks) |
 | Photophore string | 40 | Photophore x3, Slime thread x2 | cold light on the roof (looks) |
 | Coral garden | 55 | Black coral x2, Bamboo coral x1, Clay x4 | beside the door (looks) |
 | Nodule hearth | 70 | Nodule x4, Scale plate x1, Clay x4 | warm vent-stone, no fire: the shell mends in half the wait |
-- Every piece gives the builder Building XP: `40 x level / 5`, at least 40. The builder pays from its **own** bank;
+- Every piece gives the builder Building XP: `40 x level / 5`, at least 40 (above Building 15; from 2 to 15 a piece or station pays the XP from its level to the next, plus 20%: L15). The builder pays from its **own** bank;
   the piece is shared. It is built tucked in at home (`can_build_piece` / `build_piece`; a replay writes
   `craft=<piece word>`). Every piece draws on at least two activities from Building 10 up (tested).
 - **Shared state.** `Shared::home_pieces`, host-authoritative exactly like a taken clam: it is a `Thing::Piece`, so a guest's
@@ -544,7 +544,116 @@ A scripted tunnel from the home burrow's silt shaft pays 206 XP/min (tier 1 gath
   native game for 20 s before pushing UI changes.
 - CI flake: `cell_save::native` on Linux (#482): rerun the failed job.
 
+## The first hours: levels 1–15 (owner, 2026-11-12)
+The owner's ask: levels 1 to 15 in **all 13 skills** must be a joy for a brand-new crab. The 20-minute loop was tuned for a level-30 crab, so a new player had no designed first session. This section is the contract for that first session. The tests in `crates/sim/tests/first_hours.rs` hold it.
+
+**What we learned from others** (design reading, not verified quotes)
+- **RuneScape:**
+  - Level 2 needs only 83 XP, so the first level-ups pop within a minute.
+  - Tutorial Island has the player touch each skill once, in about 20 minutes, through a guide with one clear next step at a time.
+  - Every early level opens something visible: a new tree, ore or recipe.
+- **Stardew Valley:** the first days are a short list of clear, small goals. Clear the farm, plant parsnips, sell and buy seeds: each goal pays at once and points at the next. Nothing is locked behind tedium.
+- **Valheim:** the first hour is a chain in which each craft opens the next. Wood makes a workbench, which makes an axe, which opens a new material. A new item is the reward and the key at once.
+- **Reward schedules:**
+  - Fixed, frequent early rewards (levels every minute or two) teach the loop.
+  - Variable rewards (rare finds) keep it alive.
+  - Spacing stretches gradually, never in a cliff.
+- **Juice:**
+  - The level-up says what it opened, with a sound and a flash.
+  - A rare find gets its own moment.
+  - The next goal is always on screen.
+
+**Measured before any change** (M1 bot, 3 hours of mixed play on real ticks, starting from level 1 with no kit)
+- **Climbing, Swimming and Fighting** never reached 15. Fighting was stuck at 4: only two snappers stand near home, and they respawn every 3 minutes.
+- **Harvesting** was the only skill to reach 15, at minute 126. The other nine economy skills ended at 11 to 13.
+- **A focused prying crab** reached 15 at minute 28.
+- **161 of the 182 level-ups (levels 2–15) were silent.**
+- **Stalls:**
+  - Building, Shellcraft, Culturing and Weaving stall on materials with no tier-1 source (clay, quills and glass).
+  - Fighting has too few creatures near home.
+
+**Targets** (`first_hours_targets`)
+- Focused play: the main skill reaches 15 at about minute 20, within 15 to 25 minutes.
+- Mixed play: all 13 skills reach 15 within the first 3 hours.
+- Early pace: in the first 15 minutes, every 5-minute window has at least 2 level-ups. After that the windows stretch, smoothly.
+- Variety:
+  - Several distinct activities in every 5-minute window.
+  - No stretch longer than 3 minutes on one node or recipe while anything else is available.
+- **No silent level** from 2 to 15 in any of the 13 skills. Each says what it opened.
+- **Guardrail:** no padding. Costs stay at one trip, gathers never get slower, and the pace comes from what there is to do.
+
+**How we get there**
+1. **XP where a new crab works.** Tier-1 nodes and tier-1 recipes pay more: the M1 measurement sets the factor, roughly ×1.4 for focused play to reach 15 near minute 20. The physical skills get a steeper early curve on their own steps. The RuneScape table above 15 is untouched.
+2. **Cross-skill loops, so one trip levels several skills.**
+   - One outing: pry mussels (Prying), cut kelp (Harvesting), scoop grit (Excavating) and climb the kelp home (Climbing).
+   - At home the haul feeds the processing skills:
+     - mussels are shucked and cooked (Cooking), and the valves become shell blanks (Shellcraft);
+     - kelp becomes cord (Weaving);
+     - grit, valves and cord build home pieces (Building);
+     - a shell tool opens the next node.
+   - Every processing skill gets recipes from tier-1 inputs at levels 1 to 15, so none stalls for want of clay, quill or glass.
+3. **A dense unlock ladder.**
+   - Every level from 2 to 15 in every skill opens something. One table, `economy/ladder.rs`, lists for each skill and level what that level opens. `unlocks()` reads it, and a test fails on any silent level.
+   - Openings are, in order of preference: a new recipe, a new node kind, a home piece, a tool, or a perk.
+   - A perk is a real rule with a number the line states. Examples:
+     - "You pry 8% quicker than at level 1" (the gather-time formula).
+     - "A rare find comes one gather in 48 instead of 64".
+     - "Your shucked mussels make 3 portions".
+     - "Your strokes come 4% quicker".
+4. **Half-tier nodes at level 8.** Each gathering skill gets a new tier-1½ node kind near home, giving a goal halfway to 15 and a new item for the recipes. The world lane places the sites near home; the node data lives here.
+5. **Early wants a new crab can do.**
+   - Tier-1 and tier-2 home pieces and recipes appear on the Wants board from level 1, all from items within one trip of home.
+   - The shell mosaic's pearl and teeth move above 15.
+6. **The first-hour board.** A guided chain of small goals, one at a time, which a player can skip.
+   - It runs: pry, cut, twist a cord, shuck and eat, make a pry tip, climb the kelp, build the curtain, and so on.
+   - Each goal pays at once and names the next.
+   - It is personal, saved and co-op safe: each crab has its own board.
+**Built (L15, `economy/ladder.rs`), measured after**
+- **Ladder:** `LADDER` lists, for every level from 2 to 15 in all 13 skills, what it opens. `unlocks()` reads it, and the perk rules read their numbers from it. A test checks that each line states the real number. Per skill:
+  - **Gathering skills:** quicker gathers, a second-item chance on tier 1 (a personal roll that leaves the node charges alone), a half-tier node at 8 and tier 2 at 15. Prying also raises the pearl chance, from 1 in 64 to 1 in 40 by level 15.
+  - **Physical skills:** Climbing climbs 8% faster per level. Swimming strokes come 5% quicker per level to 10, and the paddle legs rest faster after that. Fighting claws get 5% stronger per level to 10, and 2% after.
+  - **Culturing:** broths, a starter and a seed, and beds that grow 10%, 20% and 30% quicker.
+  - **Cooking:** a new or existing dish at most levels, and 3-portion batches.
+  - **Shellcraft and Weaving:** recipes, plus chances to double blanks, cord, rope and mats, and tools that last longer.
+  - **Building:** a piece or station at every level.
+  - **Survival:** pressure strain eases by 2% at level 2, then by one more point per level, to 15% at 15.
+- **Half-tier nodes at level 8** (tier 1, 56 XP, 2 charges, 150 s regrowth):
+  - barnacle rock (Prying), brittle-star crevice (Foraging), sand-dollar bed (Excavating), eelgrass bed (Harvesting), purple film (Culturing);
+  - the organisms are real; what a crab does with each is not verified;
+  - the spots are provisional, in the home pockets and on the plateau, until the world lane's `shallows::SITES` are wired.
+- **New items, recipes and pieces:**
+  - **Items (9):** barnacle, brittle star, sand dollar, eelgrass blade, purple film, polished valve, shell cement, kelp rope, kelp mat.
+  - **Recipes (21)**, all from tier-1 inputs:
+    - Cooking: kelp-wrapped mussel, snail on the half shell, shrimp-tail strips, barnacle chowder, brittle-star stew, eelgrass salad, purple-film paste;
+    - Shellcraft: polished valve, shell cement, sand-dollar polish, barnacle cement, a sand-dollar plating mend;
+    - Weaving: kelp rope, kelp mat, quick twist, eelgrass cord, eelgrass mat, rope coil;
+    - Culturing: shore broth, mussel broth, purple starter.
+  - **Early home pieces (12),** at Building levels: valve step (2), snail-shell cairn (4), grit path (6), glow jar (7), valve chime (8), rope rail (9), kelp garden (10), claw rack (11), valve shelf (12), sand-dollar sill (13), eelgrass thatch (14), barnacle wall (15).
+- **XP below 15** (tier 2 and above, and the RuneScape table, are unchanged):
+  - tier-1 gathers ×1.10, fading to ×1.00 by level 30;
+  - tier-1 recipes ×3;
+  - Climbing and Swimming ×2.2;
+  - Survival ×1.6;
+  - Fighting ×12 at levels 1 to 4, ×9 at 5 to 9, ×7 at 10 to 14. This stands in for creatures the world doesn't have yet near home; see item 7.
+- **Measured after** (bot, 3 h mixed, real ticks):
+
+  | Measure | Before | After |
+  |---|---|---|
+  | Focused Prying reaches 15 | minute 28.2 | minute 16.9 |
+  | Skills at 15 within 3 h | 1 of 13 | 13 of 13 (Culturing first at 67.5 min; Fighting last at 178.0, Excavating 171.6, Prying 168.6) |
+  | Silent levels | 161 of 182 | 0 of 182 |
+  | Level-ups in the first three 5-minute windows | 4, 5, 3 | 13, 9, 8 |
+  | Stretches over 3 min on one node or recipe | none | none |
+
+  `first_hours_targets` passes, but the mixed-play margin is thin.
+
+7. **Fighting near home.** The first-hour world adds a few weak creatures near home. That is the world lane's part; this lane owns the XP and the ladder lines.
+
 ## Where things stand
+- **Levels 1-15 (2026-11-12):** the measuring bot (M1) and the ladder, XP and early content (L15) are in, and every target passes ("The first hours: levels 1–15"). Next:
+  - wire the world lane's `shallows::SITES` (#664) for the tier-1 and half-tier spots, and its weak creatures near home, then drop the Fighting multiplier toward real fights;
+  - the first-hour board;
+  - region 6's node sites.
 - **#638 (also):** the Deep Galleries' nine node sites are wired in. The black coral hall holds black coral, and the nodule field (-10,200, deep band) holds tier-5 nodules. Region 5's shelf tops are wired in as well: glass and scallops (tier 3), plus a sea-pen field and a clam bed on the kelp ledge (tier 2). Wants name the place nearest home.
 - **#638:** the lamp's glass grows in the Silt Galleries' sponge galleries. The loop measures 2.63 min (22 s out, 12 s home), down from 5.62, so the galleries are a near loop and the world lane owns the gap. The Deep Galleries' `NODE_SITES` (#637) get wired in once #637 lands.
 - **#633:** death wakes the crab at the nearest rest point it has reached (`level/rest.rs`, `rest_points.rs`). A boss-arena death keeps the load (no cast-off), so a fight for a far part never costs the trip's haul. The grouper is beatable (fair bot 67-70%), so a grouper drop could become a want; none asks for one yet. The Silt Galleries glass hookup is #638.

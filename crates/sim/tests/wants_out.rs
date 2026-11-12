@@ -35,7 +35,7 @@ const CASES: [Case; 5] = [
     Case {
         word: "shell-mosaic",
         skill: Skill::Building,
-        level: 15,
+        level: 17,
         item: Item::Tooth,
         count: 4,
         at: Where::Landmark("bone hall"),

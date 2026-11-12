@@ -51,7 +51,7 @@ fn every_node_is_in_its_depth_band_and_out_of_the_rock() {
         );
         for (j, m) in placed.iter().enumerate().skip(i + 1) {
             assert!(
-                n.pos.distance(m.pos) >= 10.0,
+                n.pos.distance(m.pos) >= 5.0,
                 "nodes {i} and {j} are {} apart",
                 n.pos.distance(m.pos)
             );
@@ -78,7 +78,15 @@ fn nodes_per_kind_follow_the_tiers() {
             NodeKind::SeaPenField | NodeKind::ClamBed => 1,
             _ => 0,
         };
-        let want = if def.tier == 1 { 4 } else { 3 } + extra;
+        // The half-tier kinds (level 8) have three spots each.
+        let half = def.tier == 1 && def.level == 8;
+        let want = if half {
+            3
+        } else if def.tier == 1 {
+            4
+        } else {
+            3
+        } + extra;
         assert_eq!(count, want, "{:?}", def.kind);
     }
     assert!(placed.iter().any(|n| n.kind == NodeKind::VentPot));

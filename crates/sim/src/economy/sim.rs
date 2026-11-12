@@ -29,6 +29,8 @@ enum Act {
 /// minute of steady tunnelling pays about what a minute of tier 1 gathering
 /// does.
 pub const DIG_BLOCK_XP: f32 = 1.0;
+/// Keeps the second-item roll apart from the rare-find roll.
+const DOUBLE_SALT: u64 = 0x5eed_d0b1_e000_0001;
 /// How many dug blocks a crab remembers: digging a refilled spot again, or
 /// digging in place, pays nothing while the block is remembered.
 const DIG_MEMORY: usize = 96;
@@ -204,7 +206,10 @@ impl Sim {
             let band = crate::economy::place::band_index(&self.level, c.mover.pos);
             if band >= 2 {
                 let hard = if c.strain > 0.5 { 2.0 } else { 1.0 };
-                earned.push((c.id, (band - 1) as f32 * hard * STEP));
+                // The first hours pay Survival more (`ladder::survival_xp_percent`).
+                let level = crate::economy::xp::level_for(c.econ.skills.get(Skill::Survival));
+                let early = crate::economy::ladder::survival_xp_percent(level) as f32 / 100.0;
+                earned.push((c.id, (band - 1) as f32 * hard * STEP * early));
             }
         }
         for (id, xp) in earned {
@@ -230,7 +235,17 @@ impl Sim {
         let identity = crab.salvage_identity.wrapping_add(u64::from(crab.id.0));
         let done = crab.econ.gathers_done;
         crab.econ.gathers_done = done.saturating_add(1);
-        let rare = gather::rare_find(def, identity, node, done);
+        let level = crab.level(def.skill, tuning);
+        let xp_paid = crate::economy::ladder::node_xp(def, level);
+        let rare = gather::rare_find_at(def, identity, node, done, level);
+        // A second item from a tier 1 gather: a personal roll, and the
+        // node's shared charge is untouched.
+        let second = def.tier == 1
+            && def.yields.is_some()
+            && crate::economy::roll(identity ^ DOUBLE_SALT, node as u64, done) % 100
+                < u64::from(crate::economy::ladder::double_yield_percent(
+                    def.skill, level,
+                ));
         let ev = if in_tick {
             &mut crab.events
         } else {
@@ -243,7 +258,11 @@ impl Sim {
             } else {
                 ev.shell_full |= carry.small();
             }
-            ev.gathered = Some((item, def.xp));
+            ev.gathered = Some((item, xp_paid));
+        }
+        if second && let Some(item) = def.yields {
+            // Room permitting; otherwise the extra is simply not taken.
+            let _ = crab.mover.take_up(Carry::Item(item), tuning);
         }
         if let Some(item) = rare {
             let carry = Carry::Item(item);
@@ -256,7 +275,7 @@ impl Sim {
         if cracked.is_some() {
             self.sound_cues.emit(tick, Cue::ToolCracked { crab: id });
         }
-        self.earn(id, def.skill, def.xp as f32);
+        self.earn(id, def.skill, xp_paid as f32);
         self.sound_cues.emit(tick, Cue::Gathered { crab: id });
     }
 }
@@ -300,6 +319,7 @@ fn gather_crab(
     }
     // The nearest ready node within reach of its feet.
     let mut best: Option<(usize, f32)> = None;
+    let mut best_workable = false;
     let mut spent_near = false;
     for (i, p) in placed.iter().enumerate() {
         let d = p.pos.distance(m.pos);
@@ -308,7 +328,14 @@ fn gather_crab(
         }
         match shared.nodes.get(i) {
             Some(n) if n.charges > 0 => {
-                if best.is_none_or(|b| d < b.1) {
+                // A node the crab can work beats a nearer one it cannot (a
+                // level 8 node beside a level 1 one): so the pockets can hold
+                // both without the near one blocking the hold.
+                let workable = gather::check(c, p.kind, t).is_ok();
+                if workable && !best_workable {
+                    best = Some((i, d));
+                    best_workable = true;
+                } else if workable == best_workable && best.is_none_or(|b| d < b.1) {
                     best = Some((i, d));
                 }
             }
