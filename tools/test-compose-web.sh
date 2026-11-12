@@ -2,7 +2,16 @@
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
+cleanup() {
+  local status=$?
+  if (( status != 0 )); then
+    for log in "$tmp/game-writer.log" "$tmp/bridge-writer.log"; do
+      if [[ -f "$log" ]]; then printf '\n--- %s ---\n' "${log##*/}" >&2; cat "$log" >&2; fi
+    done
+  fi
+  rm -rf "$tmp"
+}
+trap cleanup EXIT
 cd "$tmp"
 git init -q; git config user.name fixture; git config user.email fixture@example.invalid
 git commit --allow-empty -qm A; A=$(git rev-parse HEAD)
@@ -78,12 +87,43 @@ bash tools/previews.sh snapshot preview-snapshot
 test "$(cat preview-snapshot/pr-9/pkg/commit.txt)" = "$C"
 test "$(cat preview-snapshot/pr-9/crabbridge/build-commit.txt)" = "$C"
 printf 'Local git-store component publication roundtrip passed\n'
-# Independent component writers overlap; the force-with-lease retry must retain both.
-GAME_SELECTED=true BRIDGE_SELECTED=false GITHUB_SHA="$C" bash tools/previews.sh publish-main > "$tmp/game-writer.log" 2>&1 & game_pid=$!
-GAME_SELECTED=false BRIDGE_SELECTED=true GITHUB_SHA="$C" bash tools/previews.sh publish-main > "$tmp/bridge-writer.log" 2>&1 & bridge_pid=$!
-wait "$game_pid"
-wait "$bridge_pid"
+# Real CI jobs have independent checkouts. Sharing FETCH_HEAD/shallow.lock here
+# makes one fetch fail and falsely looks like an empty store, before lease retry.
+# A per-checkout first-push barrier forces both writers to use the same old tip,
+# so this tests an actual stale-lease retry instead of relying on scheduler timing.
+for product in game bridge; do
+  writer="$tmp/writer-$product"
+  git -c advice.detachedHead=false clone --quiet --no-local "$tmp" "$writer"
+  git -C "$writer" remote set-url origin "$tmp/origin.git"
+  cp -R "$tmp/tools" "$writer/tools"
+  cp -R "$tmp/artifacts" "$writer/artifacts"
+  other=game; [[ "$product" == game ]] && other=bridge
+  cat > "$writer/.git/hooks/pre-push" <<HOOK
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ ! -e "$tmp/$product-first-push" ]]; then
+  touch "$tmp/$product-first-push"
+  for attempt in {1..500}; do
+    [[ ! -e "$tmp/$other-first-push" ]] || exit 0
+    sleep 0.02
+  done
+  echo 'Other component writer never reached first-push barrier' >&2
+  exit 1
+fi
+HOOK
+  chmod +x "$writer/.git/hooks/pre-push"
+done
+GAME_SELECTED=true BRIDGE_SELECTED=false GITHUB_SHA="$C" bash "$tmp/writer-game/tools/previews.sh" publish-main > "$tmp/game-writer.log" 2>&1 & game_pid=$!
+GAME_SELECTED=false BRIDGE_SELECTED=true GITHUB_SHA="$C" bash "$tmp/writer-bridge/tools/previews.sh" publish-main > "$tmp/bridge-writer.log" 2>&1 & bridge_pid=$!
+# Always reap both writers, even if one fails, before the cleanup trap removes files.
+failed=0
+wait "$game_pid" || failed=1
+wait "$bridge_pid" || failed=1
+[[ "$failed" == 0 ]]
+test -e "$tmp/game-first-push"
+test -e "$tmp/bridge-first-push"
+grep -Eq 'stale info|cannot lock ref|\[rejected\]|\[remote rejected\]' "$tmp/game-writer.log" "$tmp/bridge-writer.log"
 bash tools/previews.sh snapshot concurrent-snapshot
 test "$(cat concurrent-snapshot/pkg/commit.txt)" = "$C"
 test "$(cat concurrent-snapshot/crabbridge/build-commit.txt)" = "$C"
-printf 'Concurrent local component writers preserve both products\n'
+printf 'Concurrent independent checkouts exercise lease retry and preserve both products\n'
