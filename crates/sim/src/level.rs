@@ -26,6 +26,7 @@ mod hub;
 pub mod landmarks;
 pub mod layers;
 mod lower_canyon;
+pub mod open_canyon;
 mod plate_d;
 pub mod refuges;
 pub mod rest;
@@ -494,6 +495,7 @@ impl Level {
         let mut level = Self::before_galleries();
         silt_galleries::shape(&mut level);
         deep_galleries::shape(&mut level);
+        open_canyon::shape(&mut level);
         // Last, so every place a creature anchors to (landmarks, refuges, the
         // lower canyon, the galleries) exists.
         bestiary::place(&mut level);

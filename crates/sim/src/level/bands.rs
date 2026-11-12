@@ -231,7 +231,18 @@ fn exact_bed(name: &str) -> Option<Declared> {
         | "bone far shaft"
         | "bone far passage"
         | "bone far step"
-        | "bone far ledge" => Depth,
+        | "bone far ledge"
+        // The open canyon (`level/open_canyon.rs`).
+        | "kelp column"
+        | "kelp column foot"
+        | "kelp ledge"
+        | "tower shelf"
+        | "first arch"
+        | "second arch"
+        | "sponge garden kelp ledge"
+        | "sponge garden tower shelf"
+        | "sponge garden first arch"
+        | "sponge garden second arch" => Depth,
         _ => return None,
     })
 }
