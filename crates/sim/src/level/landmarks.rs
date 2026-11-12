@@ -53,9 +53,10 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
     add("home".into(), level.home, Kind::Refuge);
     // The existing rim is a broad, level landing outside the octopus's
     // doorway. A crab can stop here after backing out of the den.
+    let rim = level.den.min.y;
     add(
         "far-rim landing".into(),
-        Rect::new(7940.0, -1900.0, level.den.min.x, -1840.0),
+        Rect::new(7940.0, rim, level.den.min.x, rim + 60.0),
         Kind::Refuge,
     );
     // The four existing return ledges on the cliff's basin face are real
@@ -88,7 +89,11 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
             ),
         };
         add(
-            format!("{name} {i}"),
+            if *climb == super::lower_canyon::HANGING_GARDEN {
+                "hanging garden".into()
+            } else {
+                format!("{name} {i}")
+            },
             Rect::new(climb.x - 60.0, climb.bottom, climb.x + 60.0, climb.top),
             kind,
         );
@@ -125,31 +130,30 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
 
     // The first tide column is the canyon. Widen it to each wall, stepping
     // inward below the shelf and far rim so these boxes stay out of bedrock.
-    let tide = level.currents[0];
-    for (name, rect) in [
-        (
-            "canyon doorstep crossing",
-            Rect::new(5901.0, -1900.0, level.den.min.x, tide.max.y),
-        ),
-        (
-            "canyon shelf crossing",
-            Rect::new(5901.0, -3400.0, 7700.0, -1900.0),
-        ),
-        (
-            "canyon deep water",
-            Rect::new(6151.0, tide.min.y, 7700.0, -3400.0),
-        ),
-        ("basin", Rect::new(2801.0, -700.0, 3300.0, 860.0)),
-        ("far basin", Rect::new(4490.0, -700.0, 5370.0, 560.0)),
-    ] {
-        add(name.into(), rect, Kind::OpenWater);
+    if let Some(&tide) = level.currents.first() {
+        for (name, rect) in [
+            (
+                "canyon doorstep crossing",
+                Rect::new(5901.0, -1900.0, level.den.min.x, tide.max.y),
+            ),
+            // From the shelf to the far rim's (lower) landing.
+            (
+                "canyon shelf crossing",
+                Rect::new(5901.0, level.den.min.y, level.den.min.x, -1900.0),
+            ),
+            (
+                "canyon deep water",
+                Rect::new(6151.0, tide.min.y, 7700.0, -3400.0),
+            ),
+            ("basin", Rect::new(2801.0, -700.0, 3300.0, 860.0)),
+            // The filled pit's stretch of the basin: its doors are the
+            // mantis mouth's and the seep shaft's.
+            ("basin floor", Rect::new(3300.0, -700.0, 4300.0, -450.0)),
+            ("far basin", Rect::new(4370.0, -700.0, 5370.0, 560.0)),
+        ] {
+            add(name.into(), rect, Kind::OpenWater);
+        }
     }
-    let (left, right, bottom) = level.pit();
-    add(
-        "pit open water".into(),
-        Rect::new(left, bottom, right, -700.0),
-        Kind::OpenWater,
-    );
     add(
         "crack chimney".into(),
         Rect::new(5371.0, -1500.0, 5500.0, level.crack.y),
@@ -161,25 +165,40 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
         Kind::Mouth,
     );
 
-    let (_, octopus_den) = level
+    // The octopus's den and the far-wall cave (a missing part is skipped:
+    // other lanes call this on synthetic levels).
+    let octopus_den = level
         .foes
         .iter()
         .find(|(kind, _)| *kind == enemy::Kind::Octopus)
-        .expect("the authored level has an octopus den");
-    // The pickup uses the octopus's home position plus four units (world.rs).
-    let midden = *octopus_den + Vec2::new(0.0, 4.0);
-    let egg = level.eggs[4];
-    let cave = *level
-        .secrets
-        .iter()
-        .find(|rect| rect.contains(egg))
-        .expect("the fifth egg is inside the far-wall cave");
-    for (name, rect, prize) in [
-        ("octopus den", level.den, midden),
-        ("far-wall cave", cave, egg),
-    ] {
-        let door = Rect::new(rect.min.x, rect.min.y, rect.min.x + 20.0, rect.max.y);
-        add(name.into(), rect, Kind::Chamber { door, prize });
+        .map(|(_, den)| *den);
+    if let Some(den) = octopus_den {
+        // The pickup uses the octopus's home position plus four units (world.rs).
+        let midden = den + Vec2::new(0.0, 4.0);
+        let door = Rect::new(
+            level.den.min.x,
+            level.den.min.y,
+            level.den.min.x + 20.0,
+            level.den.max.y,
+        );
+        add(
+            "octopus den".into(),
+            level.den,
+            Kind::Chamber {
+                door,
+                prize: midden,
+            },
+        );
+    }
+    if let Some(&egg) = level.eggs.get(4)
+        && let Some(&cave) = level.secrets.iter().find(|rect| rect.contains(egg))
+    {
+        let door = Rect::new(cave.min.x, cave.min.y, cave.min.x + 20.0, cave.max.y);
+        add(
+            "far-wall cave".into(),
+            cave,
+            Kind::Chamber { door, prize: egg },
+        );
     }
     for (name, rect, kind) in [
         ("slump dam", super::lower_canyon::DAM, Kind::Drop),
@@ -191,37 +210,49 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
             kind,
         });
     }
-    for (name, rect) in super::lower_canyon::frames() {
-        let pocket = level.pocket_refs().find(|p| p.name == name);
-        let opened = pocket.is_some();
+    for spec in super::lower_canyon::specs() {
+        let pocket = level.pocket_refs().find(|p| p.name == spec.name);
         landmarks.push(Landmark {
-            name: name.into(),
-            rect,
+            name: spec.name.into(),
+            rect: spec.rect,
             kind: match pocket.map(|p| p.kind) {
                 Some(super::strata::PocketKind::Tunnel) => Kind::Tunnel,
-                Some(super::strata::PocketKind::Chamber) => Kind::Chamber {
-                    // Encounter authoring marker; W3.3 supplies the find and
-                    // its excavated sightline/retreat in the cellular chamber.
-                    door: Rect::new(4810.0, -2160.0, 4910.0, -2140.0),
-                    prize: Vec2::new(5000.0, -2400.0),
-                },
-                _ => Kind::Frame,
+                Some(super::strata::PocketKind::Chamber) => {
+                    let (door, prize) = spec.chamber.unwrap_or((spec.rect, spec.rect.center()));
+                    Kind::Chamber { door, prize }
+                }
+                None => Kind::Frame,
             },
         });
-        for (i, rect) in super::lower_canyon::plugs(name, rect)
-            .into_iter()
-            .enumerate()
-        {
+        // A pocket's mouths are its doors; any other frame lists its gaps
+        // (open ones as mouths, sealed ones as plugs).
+        let doors: Vec<(Rect, bool)> = match pocket {
+            Some(p) => p.mouths.iter().map(|m| (*m, true)).collect(),
+            None => spec.gaps.iter().map(|g| (g.rect, g.open)).collect(),
+        };
+        for (i, (rect, open)) in doors.into_iter().enumerate() {
+            let crust = spec.name == "long chimney" && i == 0;
             landmarks.push(Landmark {
-                name: if name == "long chimney" && i == 0 {
+                name: if crust {
                     "long chimney crust plug".into()
-                } else if opened {
-                    format!("{name} mouth {i}")
+                } else if open {
+                    format!("{} mouth {i}", spec.name)
                 } else {
-                    format!("{name} plug {i}")
+                    format!("{} plug {i}", spec.name)
                 },
-                rect,
-                kind: if opened { Kind::Mouth } else { Kind::Plug },
+                // A door on the ground reaches up out of it, so a hunted
+                // crab in the open water above sees it.
+                rect: if open && rect.max.y + 30.0 >= level.floor_height(rect.center().x) {
+                    Rect::new(
+                        rect.min.x,
+                        rect.min.y,
+                        rect.max.x,
+                        rect.max.y.max(level.floor_height(rect.center().x)) + 40.0,
+                    )
+                } else {
+                    rect
+                },
+                kind: if open { Kind::Mouth } else { Kind::Plug },
             });
         }
     }

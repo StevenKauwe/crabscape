@@ -55,6 +55,7 @@ pub mod alarm_jelly;
 #[cfg(feature = "terrain-bake")]
 pub mod seed_compact;
 
+pub mod bone_hall;
 pub mod canyon_drift;
 pub mod cell_codec;
 pub mod chimney;
@@ -74,6 +75,7 @@ pub mod net;
 pub mod octopus;
 pub mod page_cache;
 pub mod physics;
+pub mod plunge;
 pub mod prepared_food;
 pub mod progress;
 pub mod replay;
@@ -83,6 +85,7 @@ pub mod royal;
 pub mod salvage;
 pub mod save_data;
 pub mod shared;
+pub mod sixgill;
 pub mod skills;
 pub mod triggerfish;
 pub mod tuning;

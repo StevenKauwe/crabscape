@@ -48,8 +48,8 @@ fn on_climb(x: f32, y: f32) -> Sim {
 }
 
 #[test]
-fn climbing_out_of_the_pit_in_one_go_makes_the_feat_ready_long_before_the_level() {
-    let mut sim = on_climb(3500.0, pit_floor());
+fn climbing_the_kelp_in_one_go_makes_the_feat_ready_long_before_the_level() {
+    let mut sim = on_climb(KELP, floor(KELP));
     let t = sim.tuning.clone();
     let proven = play(&mut sim, 120 * 60, climb_up);
     assert_eq!(proven, vec![Skill::Climbing], "said once");
@@ -66,7 +66,7 @@ fn climbing_out_of_the_pit_in_one_go_makes_the_feat_ready_long_before_the_level(
 fn a_short_climb_or_one_broken_by_letting_go_proves_nothing() {
     // The far-basin crack and the shorter coral shaft cannot prove a 5,000-unit climb.
     // Home's kelp now continues into the castle rope, so that route is genuinely long.
-    for x in [5440.0, 4420.0] {
+    for x in [5440.0, SHELF_CORAL] {
         let mut sim = on_climb(x, floor(x));
         let mut top = f32::MIN;
         for _ in 0..120 * 40 {
@@ -75,8 +75,8 @@ fn a_short_climb_or_one_broken_by_letting_go_proves_nothing() {
         }
         assert!(top > floor(x) + 800.0, "it climbed at {x}: {top}");
     }
-    // Up the pit's coral in two halves, letting go between.
-    let mut sim = on_climb(3500.0, pit_floor());
+    // Up the kelp in two halves, letting go between.
+    let mut sim = on_climb(KELP, floor(KELP));
     let need = sim.tuning.moult.proving_climb;
     let start = mover(&sim).pos.y;
     let mut i = 0;
@@ -139,7 +139,7 @@ fn sim_tuning() -> crabsim::Tuning {
 
 #[test]
 fn a_proven_skill_is_kept_through_death_and_the_save() {
-    let mut sim = on_climb(3500.0, pit_floor());
+    let mut sim = on_climb(KELP, floor(KELP));
     play(&mut sim, 120 * 60, climb_up);
     let progress = sim.progress(P0).unwrap();
     assert_eq!(progress.proven, vec![Skill::Climbing]);
@@ -167,14 +167,17 @@ fn floor(x: f32) -> f32 {
     Sim::with_one_crab(Vec2::ZERO).level.floor_height(x)
 }
 
-fn pit_floor() -> f32 {
-    floor(3500.0)
-}
+/// Home's kelp (the foot of the long climb into the castle rope: the world
+/// has no pit to climb out of since the basin floor was filled).
+const KELP: f32 = 280.0;
+
+/// The shelf's coral, a short climb up to the doorstep.
+const SHELF_CORAL: f32 = 6000.0;
 
 #[test]
-fn the_pit_climb_proves_the_climber_in_the_cellular_world_too() {
+fn the_kelp_climb_proves_the_climber_in_the_cellular_world_too() {
     let mut sim = Sim::new(crabsim::Tuning::default(), crabsim::Level::test_level());
-    sim.add_crab(P0, Vec2::new(3500.0, pit_floor() + 40.0));
+    sim.add_crab(P0, Vec2::new(KELP, floor(KELP) + 40.0));
     sim.enable_underwater_cells();
     play(&mut sim, 120 * 2, |_| Controls::default());
     play(&mut sim, 40, |i| Controls {
@@ -182,7 +185,7 @@ fn the_pit_climb_proves_the_climber_in_the_cellular_world_too() {
         jump_held: !(24..36).contains(&i),
         ..Controls::default()
     });
-    assert!(mover(&sim).climbing, "it grips the pit's coral");
+    assert!(mover(&sim).climbing, "it grips the kelp");
     let proven = play(&mut sim, 120 * 60, climb_up);
     assert_eq!(proven, vec![Skill::Climbing]);
 }

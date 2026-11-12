@@ -478,6 +478,7 @@ fn ghost_colour(kind: Kind) -> Color {
         Kind::GiantIsopod => Color::srgb(0.72, 0.70, 0.62),
         Kind::Hagfish => Color::srgb(0.66, 0.58, 0.60),
         Kind::AmphipodSwarm => Color::srgb(0.80, 0.62, 0.52),
+        Kind::Sixgill => Color::srgb(0.22, 0.34, 0.38),
     }
 }
 
@@ -721,7 +722,7 @@ fn show_scent_directions(
     let Some(sight) = known.sight else { return };
     let cultures = crab.single().map_or(0, |m| m.lantern_glow());
     let band = sim.level.band_at(sight.eye);
-    let colour = smell_colour(band.smell);
+    let colour = smell_colour(sim.level.bed_at(sight.eye).smell);
     let factor = crab.single().map_or(1.0, |m| m.lantern_light_factor());
     let cue_radius = crate::lantern::band_light_reach(&view_tuning, cultures, band) * 0.9 * factor;
     for (entity, wisp, mut at, mut shown, mut sprite) in &mut wisps {

@@ -176,13 +176,15 @@ fn a_glass_sponge_lies_on_the_canyon_floor_and_makes_glass_grips_at_home() {
 #[test]
 fn bare_rock_is_gripped_only_with_glass_grips() {
     // Up the canyon's near wall from its floor, in still water.
-    let up = climb(6175.0, -9400.0, "left");
+    let up = climb(6175.0, -6000.0, "left");
     let bare = run_with(still_water(), &up, 30.0, Kit::default());
     assert_eq!(bare.count("gripped"), 0, "it slides off bare rock");
-    assert!(bare.stood.iter().all(|p| p.y == -9400.0));
+    assert!(bare.stood.iter().all(|p| p.y == -6000.0));
     // Release after clearing the wall to land on its shelf. Keeping jump
-    // held now intentionally catches the next coral while steering left.
-    let glass = run_with(still_water(), &format!("{up}; t=14.4 release"), 30.0, GLASS);
+    // held now intentionally catches the next coral while steering left (the
+    // climb from the raised floor takes 8.2 s; 8.25 s clears the wall for
+    // both the usual and the biggest crab).
+    let glass = run_with(still_water(), &format!("{up}; t=6.4 release"), 30.0, GLASS);
     assert_eq!(glass.count("gripped"), 1);
     assert!(
         glass.stood_on(SHELF.0, SHELF.1, SHELF.2),
@@ -231,7 +233,7 @@ fn nothing_else_reaches_the_notch() {
     );
     assert!(r.highest < NOTCH.2 - 300.0, "highest {}", r.highest);
     // Nor riding the flood to its top and swimming on up, at the wall.
-    let mut ride = String::from("start x=6900 y=-9400\nt=2.5 jump; t=2.7 release; t=22 walk=left");
+    let mut ride = String::from("start x=6900 y=-6000\nt=2.5 jump; t=2.7 release; t=22 walk=left");
     for k in 0..5 {
         ride += &format!("; t={} jump", 22.5 + 0.31 * f64::from(k));
     }

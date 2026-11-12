@@ -80,24 +80,26 @@ fn sink_from_the_cave(guard: bool) -> (usize, Vec2) {
 
 #[test]
 fn sinking_home_from_the_cave_past_the_jelly_with_claws_up_is_safe() {
-    // Claws down, the tentacle finds it on the way: the jelly is a real
-    // hazard on the descent...
+    // Claws up, the way home is safe.
+    let (guarded, landed) = sink_from_the_cave(true);
+    assert_eq!(guarded, 0, "claws up block every sting");
+    assert!(landed.y < -5900.0, "down on the canyon floor: {landed}");
+}
+
+#[test]
+fn sinking_home_from_the_cave_claws_down_meets_the_jelly() {
     let (bare, landed) = sink_from_the_cave(false);
     assert!(
         bare > 0,
         "the tentacle hangs across the way down ({landed})"
     );
-    // ...and claws up, the way home is safe.
-    let (guarded, landed) = sink_from_the_cave(true);
-    assert_eq!(guarded, 0, "claws up block every sting");
-    assert!(landed.y < -9000.0, "down on the canyon floor: {landed}");
 }
 
 #[test]
 fn the_flood_still_carries_a_crab_past_the_jelly_to_the_fifth_egg() {
     let eaten = (0..60).any(|k| {
         let steer = 4.0 + f64::from(k) * 0.25;
-        let mut sim = populated(Vec2::new(7200.0, -9400.0));
+        let mut sim = populated(Vec2::new(7200.0, -6000.0));
         for i in 0..120 * 40u32 {
             let t = f64::from(i) / 120.0;
             sim.set_controls(

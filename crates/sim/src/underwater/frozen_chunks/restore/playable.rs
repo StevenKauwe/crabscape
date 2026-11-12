@@ -530,7 +530,7 @@ mod tests {
 
     #[test]
     fn saved_open_passages_are_checked_after_restoring_obstacles() {
-        for (x, y, rock) in [(5042.0, -690.0, true), (4308.0, -4360.0, false)] {
+        for (x, y, rock) in [(5042.0, -690.0, true), (4362.0, -500.0, false)] {
             for opened in [false, true] {
                 let level = Level::test_level();
                 let mut world = World::from_level_settled(&level);

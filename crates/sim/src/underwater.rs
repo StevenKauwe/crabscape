@@ -7395,7 +7395,7 @@ mod strata_tests {
     fn strata_layers_fill_each_frame_in_order() {
         let level = crate::Level::test_level();
         let bodies = level.strata();
-        assert_eq!(bodies.len(), 4);
+        assert_eq!(bodies.len(), 19);
         for body in bodies {
             let mut top = body.frame.max.y;
             for (material, thickness) in body.layers {
@@ -7404,9 +7404,35 @@ mod strata_tests {
                     for x in 0..(body.frame.width() / GAME_CELL) as i32 {
                         let gx = (body.frame.min.x / GAME_CELL) as i32 + x;
                         let gy = ((wy - GAME_BOTTOM) / GAME_CELL).floor() as i32;
+                        let wx = (gx as f32 + 0.5) * GAME_CELL;
+                        // Half-open, like the generator.
+                        let inside = |r: &bevy_math::Rect| {
+                            wx >= r.min.x && wx < r.max.x && wy >= r.min.y && wy < r.max.y
+                        };
+                        // Silt shafts and water cavities override the layers.
+                        let expected = if body.shafts.iter().any(inside) {
+                            Cell::Sand
+                        } else if body.voids.iter().any(inside) {
+                            Cell::Water
+                        } else {
+                            material
+                        };
+                        // Skip cells whose own centre sits on a frame, void or
+                        // shaft edge (the layer walk and the generator round
+                        // differently there).
+                        let cy = GAME_BOTTOM + (gy as f32 + 0.5) * GAME_CELL;
+                        let on_edge = body
+                            .shafts
+                            .iter()
+                            .chain(body.voids.iter())
+                            .chain(std::iter::once(&body.frame))
+                            .any(|r| (cy - r.min.y).abs() < 0.01 || (cy - r.max.y).abs() < 0.01);
+                        if on_edge {
+                            continue;
+                        }
                         let column = TerrainColumn::new(&level, gx);
-                        assert_eq!(column.cell(gy), material, "at {gx}, {gy}");
-                        assert_eq!(authored_terrain_cell(&level, gx, gy), material);
+                        assert_eq!(column.cell(gy), expected, "at {gx}, {gy}");
+                        assert_eq!(authored_terrain_cell(&level, gx, gy), expected);
                     }
                 }
                 top -= thickness;

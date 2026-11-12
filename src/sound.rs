@@ -47,6 +47,10 @@ pub enum Sfx {
     Bone,
     /// Rock groaning somewhere unseen, on D2.
     Rock,
+    /// A carcass piece knocking the seep shaft's wall: a soft bone knock.
+    Knock,
+    /// The odd tunnel's cold draught: a thin low moan on D.
+    Moan,
     /// A goliath grouper's boom: a very low swell and thump on D1 and D2,
     /// felt more than heard.
     Throb,
@@ -60,7 +64,7 @@ pub enum Sfx {
     Crack,
 }
 
-const ALL: [Sfx; 16] = [
+const ALL: [Sfx; 18] = [
     Sfx::Swish,
     Sfx::Crunch,
     Sfx::Click,
@@ -72,6 +76,8 @@ const ALL: [Sfx; 16] = [
     Sfx::Shell,
     Sfx::Bone,
     Sfx::Rock,
+    Sfx::Knock,
+    Sfx::Moan,
     Sfx::Throb,
     Sfx::Chime,
     Sfx::Chord,
@@ -176,11 +182,20 @@ pub const DEPTH_GLIDE: f32 = 1.5;
 pub const WATCH_GLIDE: f32 = 1.2;
 
 pub fn mix_at(ambience: f32, watched: bool) -> Mix {
+    mix_in(ambience, watched, 1.0)
+}
+
+/// [`mix_at`] with the outside world heard through `mute` (1 in the open,
+/// `POCKET_MUTE` inside a pocket): walls take the top off the world's sounds
+/// only. The crab's own body and the deep's rumble are not muted, and the
+/// world is never shut out.
+pub fn mix_in(ambience: f32, watched: bool, mute: f32) -> Mix {
     let ambience = ambience.clamp(0.0, 1.0);
     let deep = 1.0 - ambience;
+    let mute = mute.clamp(0.0, 1.0);
     Mix {
         rumble: 0.03 * deep.powf(1.5) + if watched { 0.01 } else { 0.0 },
-        world_cutoff: 320.0 + 2200.0 * ambience,
+        world_cutoff: (320.0 + 2200.0 * ambience) * mute.max(0.3),
         body_cutoff: 1500.0 + 4500.0 * ambience,
     }
 }
@@ -204,8 +219,14 @@ fn atmosphere(sim: Res<crabsim::Sim>, me: Res<crate::coop::LocalId>, mut last: L
         return;
     };
     let at = crab.mover.pos;
-    let busy = crabsim::level::bands::band_at(at).ambience;
-    backend::atmosphere(mix_at(busy, sim.watched(me.0)));
+    // The bed the crab is in (a pocket is the ground's own bed), and what
+    // its walls let through of the outside world.
+    let bed = sim.level.bed_at(at);
+    let mute = sim.level.pocket_mute(at);
+    let busy = bed.ambience;
+    backend::atmosphere(mix_in(busy, sim.watched(me.0), mute));
+    // The deepest ground's one low hum is the bed itself, found by ear.
+    let mut vent = bed.hum * mute;
     if sim.tick_count() < *last {
         *last = 0;
     }
@@ -227,7 +248,7 @@ fn atmosphere(sim: Res<crabsim::Sim>, me: Res<crate::coop::LocalId>, mut last: L
                 backend::tell(swell_rise(strike_tick.saturating_sub(event.tick)));
             }
             Cue::Groan { at: source, kind } => {
-                let gain = 0.12 * (1.0 - source.distance(at) / 1800.0).max(0.0);
+                let gain = mute * 0.12 * (1.0 - source.distance(at) / 1800.0).max(0.0);
                 let sfx = if kind == GroanKind::Bone {
                     Sfx::Bone
                 } else {
@@ -241,7 +262,15 @@ fn atmosphere(sim: Res<crabsim::Sim>, me: Res<crate::coop::LocalId>, mut last: L
                 backend::spatial(Sfx::Throb, gain, 1.0, pan(source), Route::World);
             }
             Cue::VentHum { at: source } => {
-                backend::vent(0.025 * (1.0 - source.distance(at) / 1600.0).max(0.0));
+                vent = vent.max(mute * 0.025 * (1.0 - source.distance(at) / 1600.0).max(0.0));
+            }
+            // Quiet and unexplained: the Plunge's hints, heard from far off.
+            Cue::BoneKnock { at: source } => {
+                let gain = mute * 0.07 * (1.0 - source.distance(at) / 1100.0).max(0.0);
+                backend::spatial(Sfx::Knock, gain, 1.0, pan(source), Route::World);
+            }
+            Cue::Draught { crab, strength } if own(crab) => {
+                backend::spatial(Sfx::Moan, 0.06 * strength, 1.0, 0.0, Route::World);
             }
             // The crab's own work: a scrape per stroke, a click when it
             // gives, a ring for a made thing, a crack for a broken tool.
@@ -266,8 +295,14 @@ fn atmosphere(sim: Res<crabsim::Sim>, me: Res<crate::coop::LocalId>, mut last: L
                 };
                 backend::play(sfx, 0.5, 1.0);
             }
+            Cue::Seep { at: source } => {
+                backend::vent(0.03 * (1.0 - source.distance(at) / 1600.0).max(0.0));
+            }
             _ => {}
         }
+    }
+    if vent > 0.0 {
+        backend::vent(vent);
     }
     *last = sim.tick_count();
 }
@@ -314,6 +349,12 @@ pub fn synth(sfx: Sfx, rate: f32) -> Vec<f32> {
             ),
             crack(&mut noise, rate, 0.8, 140.0, 0.25),
         ]),
+        Sfx::Knock => mix(&[
+            thump(rate, 170.0, 85.0, 0.12, 1.0),
+            muffled(crack(&mut noise, rate, 0.02, 700.0, 0.4), 900.0, rate),
+        ]),
+        // Thin (its weight is in the second and third partials) and low.
+        Sfx::Moan => groan(rate, d(-1), &[(1.0, 0.3), (2.0, 1.0), (3.0, 0.4)], 0.9, 1.8),
         Sfx::Throb => mix(&[
             // D1 and D2, swelling in over 0.5 s and dying over 1.8 s.
             groan(rate, d(-2), &[(1.0, 1.0), (2.0, 0.6)], 0.5, 1.8),
@@ -1301,7 +1342,15 @@ mod tests {
         let rate = 44100.0;
         // v1 measured -33.7 dB (shell) and -35.4 dB (grit): white-noise
         // crackle, the hiss at depth. The blows' swish is -31.9 dB.
-        for sfx in [Sfx::Grit, Sfx::Shell, Sfx::Bone, Sfx::Rock, Sfx::Throb] {
+        for sfx in [
+            Sfx::Grit,
+            Sfx::Shell,
+            Sfx::Bone,
+            Sfx::Rock,
+            Sfx::Knock,
+            Sfx::Moan,
+            Sfx::Throb,
+        ] {
             let top = top_db(&synth(sfx, rate), rate, 3000.0);
             eprintln!("{sfx:?}: top at {top:.1} dB");
             assert!(top < -50.0, "{sfx:?} hisses: {top} dB");
@@ -1321,6 +1370,35 @@ mod tests {
             assert!(down.body_cutoff < up.body_cutoff);
             assert!(down.rumble > up.rumble, "the rumble grows with depth");
             assert!(body_gain(pair[1].ambience) > body_gain(pair[0].ambience));
+        }
+    }
+
+    #[test]
+    fn the_plunges_hints_are_on_d_and_quiet() {
+        let rate = 22050.0;
+        let hz = loudest_hz(&synth(Sfx::Moan, rate), rate);
+        assert!(is_d(hz) && hz >= 30.0, "the moan: {hz} Hz");
+        // Thin and low: no weight in the first partial, nothing above 400 Hz.
+        assert!(hz > d(-1), "thin: its loudest partial is above D2");
+        let knock = synth(Sfx::Knock, rate);
+        assert!(knock.len() as f32 / rate < 0.4, "a knock is short");
+    }
+
+    #[test]
+    fn walls_mute_the_world_but_never_the_body_or_the_rumble() {
+        for band in crabsim::level::bands::BANDS {
+            let (open, shut) = (
+                mix_in(band.ambience, false, 1.0),
+                mix_in(band.ambience, false, 0.4),
+            );
+            assert!(shut.world_cutoff < open.world_cutoff, "muffled");
+            assert!(shut.world_cutoff >= 90.0, "never silence");
+            assert_eq!(
+                shut.body_cutoff, open.body_cutoff,
+                "the crab's own body is not muted"
+            );
+            assert_eq!(shut.rumble, open.rumble);
+            assert_eq!(mix_at(band.ambience, false), open);
         }
     }
 
@@ -1391,7 +1469,10 @@ mod tests {
         for sfx in ALL {
             let s = synth(sfx, 44100.0);
             let secs = s.len() as f32 / 44100.0;
-            let longest = if matches!(sfx, Sfx::Bone | Sfx::Rock | Sfx::Throb | Sfx::Chord) {
+            let longest = if matches!(
+                sfx,
+                Sfx::Bone | Sfx::Rock | Sfx::Moan | Sfx::Throb | Sfx::Chord
+            ) {
                 2.0
             } else {
                 0.7

@@ -38,3 +38,15 @@ pub(crate) fn step(crab: &mut SimCrab, tuning: &StrainTuning) {
         crab.strain = (before - STEP / tuning.ease_seconds).max(0.0);
     }
 }
+
+/// Raise a crab's strain to at least `level` at once (the Plunge's fall),
+/// cracking its shell at each quarter it passes, as the slow way does.
+pub(crate) fn raise_to(crab: &mut SimCrab, level: f32) {
+    let before = crab.strain;
+    crab.strain = before.max(level).min(1.0);
+    for threshold in [0.25, 0.5, 0.75, 1.0] {
+        if before < threshold && crab.strain >= threshold {
+            crab.scars = crab.scars.saturating_add(1).min(8);
+        }
+    }
+}

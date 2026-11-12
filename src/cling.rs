@@ -75,6 +75,24 @@ pub fn spawn_small(
             )],
             CLAM_SCALE,
         ),
+        // A small wild light: a blue-green bead with a soft ring.
+        Carry::Item(crabsim::Item::WildLight) => (
+            vec![
+                (
+                    Mesh::from(Circle::new(11.0)),
+                    Color::srgba(0.20, 0.80, 0.70, 0.35),
+                    Vec3::ZERO,
+                    0.0,
+                ),
+                (
+                    Mesh::from(Circle::new(5.0)),
+                    Color::srgb(0.45, 0.98, 0.86),
+                    Vec3::new(0.0, 0.0, 0.01),
+                    0.0,
+                ),
+            ],
+            CLAM_SCALE,
+        ),
         // A placeholder for the economy's items: grit, tinted by tier.
         Carry::Item(item) => {
             let [r, g, b] = item.tint();
@@ -153,7 +171,12 @@ fn attach(
     for (shell, of) in &shells {
         commands.entity(shell).with_children(|parent| {
             for slot in 0..most_carried(&sim.tuning) {
-                for kind in [Carry::Clam, Carry::Grit, Carry::Valve] {
+                for kind in [
+                    Carry::Clam,
+                    Carry::Grit,
+                    Carry::Valve,
+                    Carry::Item(crabsim::Item::WildLight),
+                ] {
                     let thing = Clinging {
                         crab: of.0,
                         slot,
@@ -217,7 +240,9 @@ fn show(
         let on = crabs.get(thing.crab).is_ok_and(|m| {
             m.tucked < OUT_OF_SIGHT
                 && match (thing.tier, m.clinging.get(thing.slot)) {
-                    (Some(tier), Some(Carry::Item(item))) => item.tier() == tier,
+                    (Some(tier), Some(Carry::Item(item))) => {
+                        item.tier() == tier && *item != crabsim::Item::WildLight
+                    }
                     (None, Some(held)) => *held == thing.kind,
                     _ => false,
                 }

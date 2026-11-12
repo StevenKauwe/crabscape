@@ -19,8 +19,16 @@ fn roof(s: &Sim) -> usize {
     s.level
         .brittle
         .iter()
-        .position(|b| b.rect.contains(Vec2::new(17010.0, -2100.0)))
+        .position(|b| b.rect.contains(Vec2::new(17010.0, -4100.0)))
         .expect("the roof cache's brittle rock")
+}
+/// The roof cache's sealed culture, found by place (Plate D appended more).
+fn cache(s: &Sim) -> usize {
+    s.level
+        .cultures
+        .iter()
+        .position(|c| c.distance(Vec2::new(17010.0, -4170.0)) < 40.0)
+        .expect("the roof cache's culture")
 }
 fn tick(s: &mut Sim, c: Controls) {
     s.set_controls(P, c);
@@ -60,7 +68,7 @@ fn smash(s: &mut Sim, full: bool) {
 #[test]
 fn coral_approach_full_smash_collection_and_exit_work_at_both_sizes() {
     for size in [0, 100] {
-        let mut s = setup(size, true, 16460.0, -3000.0);
+        let mut s = setup(size, true, 16460.0, -5000.0);
         s.populate();
         travel(
             &mut s,
@@ -70,7 +78,7 @@ fn coral_approach_full_smash_collection_and_exit_work_at_both_sizes() {
                 jump_pressed: n % 60 == 0,
                 ..Default::default()
             },
-            |p| p.y > -2545.0,
+            |p| p.y > -4545.0,
         );
         travel(
             &mut s,
@@ -78,10 +86,10 @@ fn coral_approach_full_smash_collection_and_exit_work_at_both_sizes() {
             |n, p| Controls {
                 walk: 1.0,
                 jump_held: true,
-                jump_pressed: n == 0 || (p.y < -2140.0 && n % 60 == 0),
+                jump_pressed: n == 0 || (p.y < -4140.0 && n % 60 == 0),
                 ..Default::default()
             },
-            |p| p.x > 16700.0 && p.y > -2200.0,
+            |p| p.x > 16700.0 && p.y > -4200.0,
         );
         for _ in 0..250 {
             tick(&mut s, Controls::default());
@@ -105,7 +113,7 @@ fn coral_approach_full_smash_collection_and_exit_work_at_both_sizes() {
             );
         }
         assert!(!s.level.brittle[roof(&s)].cracked);
-        assert!(!s.level.culture_unsealed(*s.level.cultures.last().unwrap()));
+        assert!(!s.level.culture_unsealed(s.level.cultures[cache(&s)]));
         smash(&mut s, true);
         assert!(s.level.brittle[roof(&s)].cracked);
         travel(
@@ -118,7 +126,7 @@ fn coral_approach_full_smash_collection_and_exit_work_at_both_sizes() {
             |p| p.x > 17020.0,
         );
         assert_eq!(s.crab(P).unwrap().mover.carrying, Some(Carry::Culture));
-        assert!(*s.crab(P).unwrap().cultures_taken.last().unwrap());
+        assert!(s.crab(P).unwrap().cultures_taken[cache(&s)]);
         travel(
             &mut s,
             1000,
@@ -128,13 +136,13 @@ fn coral_approach_full_smash_collection_and_exit_work_at_both_sizes() {
             },
             |p| p.x < 16420.0,
         );
-        travel(&mut s, 1000, |_, _| Controls::default(), |p| p.y < -2950.0);
+        travel(&mut s, 1000, |_, _| Controls::default(), |p| p.y < -4950.0);
     }
 }
 #[test]
 fn intact_cache_rejects_taps_and_crabs_without_the_feat() {
     for (feat, full) in [(false, false), (false, true), (true, false)] {
-        let mut s = setup(0, feat, 16855.0, -2200.0);
+        let mut s = setup(0, feat, 16855.0, -4200.0);
         for _ in 0..90 {
             tick(
                 &mut s,
@@ -146,14 +154,14 @@ fn intact_cache_rejects_taps_and_crabs_without_the_feat() {
         }
         smash(&mut s, full);
         assert!(!s.level.brittle[roof(&s)].cracked);
-        assert!(!*s.crab(P).unwrap().cultures_taken.last().unwrap());
+        assert!(!s.crab(P).unwrap().cultures_taken[cache(&s)]);
         assert!(s.crab(P).unwrap().mover.pos.x < 16920.0);
     }
 }
 #[test]
 fn noncrusher_can_jump_over_and_return_without_taking_the_sealed_find() {
     for size in [0, 100] {
-        let mut s = setup(size, false, 16800.0, -2200.0);
+        let mut s = setup(size, false, 16800.0, -4200.0);
         travel(
             &mut s,
             600,
@@ -177,14 +185,14 @@ fn noncrusher_can_jump_over_and_return_without_taking_the_sealed_find() {
             |p| p.x < 16800.0,
         );
         assert!(!s.level.brittle[roof(&s)].cracked);
-        assert!(!*s.crab(P).unwrap().cultures_taken.last().unwrap());
+        assert!(!s.crab(P).unwrap().cultures_taken[cache(&s)]);
     }
 }
 
 #[test]
 fn shared_break_opens_collision_but_does_not_award_anyones_culture() {
     use crabsim::net::Msg;
-    let mut host = setup(0, true, 16855.0, -2200.0);
+    let mut host = setup(0, true, 16855.0, -4200.0);
     let rock_index = roof(&host);
     let reward_index = host.level.cultures.len() - 1;
     let rect = host.level.brittle[rock_index].rect;
@@ -221,19 +229,19 @@ fn shared_break_opens_collision_but_does_not_award_anyones_culture() {
         .into_iter()
         .find_map(|out| matches!(out.msg,Msg::RockCracked(i) if i==rock_index).then_some(out.msg))
         .expect("actual attack broadcasts the shared break");
-    let mut guest = setup(0, false, 16800.0, -2200.0);
+    let mut guest = setup(0, false, 16800.0, -4200.0);
     guest.go_online(false);
     guest.receive(message);
     assert!(guest.level.brittle[rock_index].cracked);
     assert!(guest.level.culture_unsealed(reward));
     assert!(!guest.crab(P).unwrap().cultures_taken[reward_index]);
     let saved = host.progress(P).unwrap();
-    let mut restored = setup(0, true, 16800.0, -2200.0);
+    let mut restored = setup(0, true, 16800.0, -4200.0);
     restored.restore_progress(P, &saved);
     assert!(restored.level.brittle[rock_index].cracked);
     assert!(!restored.level.solids().any(|r| r == rect));
     assert!(!restored.crab(P).unwrap().cultures_taken[reward_index]);
-    let mut joining = setup(0, false, 16800.0, -2200.0);
+    let mut joining = setup(0, false, 16800.0, -4200.0);
     joining.go_online(false);
     joining.receive(host.world());
     assert!(joining.level.brittle[rock_index].cracked);
@@ -242,15 +250,15 @@ fn shared_break_opens_collision_but_does_not_award_anyones_culture() {
 
 #[test]
 fn sealed_cultures_are_not_collected_even_by_overlapping_reach() {
-    let mut s = setup(0, false, 17010.0, -2170.0);
+    let mut s = setup(0, false, 17010.0, -4170.0);
     tick(&mut s, Controls::default());
-    assert!(!*s.crab(P).unwrap().cultures_taken.last().unwrap());
-    assert!(!s.level.culture_unsealed(*s.level.cultures.last().unwrap()));
+    assert!(!s.crab(P).unwrap().cultures_taken[cache(&s)]);
+    assert!(!s.level.culture_unsealed(s.level.cultures[cache(&s)]));
 }
 
 #[test]
 fn full_smash_and_local_pickup_replay_exactly() {
-    let mut live = setup(0, true, 16855.0, -2200.0);
+    let mut live = setup(0, true, 16855.0, -4200.0);
     live.start_recording();
     for _ in 0..90 {
         tick(
@@ -272,7 +280,7 @@ fn full_smash_and_local_pickup_replay_exactly() {
         );
     }
     assert!(live.level.brittle[roof(&live)].cracked);
-    assert!(*live.crab(P).unwrap().cultures_taken.last().unwrap());
+    assert!(live.crab(P).unwrap().cultures_taken[cache(&live)]);
     let replay = crabsim::Replay::parse(&live.recording().unwrap().to_text()).unwrap();
     let mut again = Sim::with_one_crab(replay.start);
     crabsim::play(&mut again, &replay, replay.end.unwrap(), |_| {});

@@ -30,6 +30,11 @@ pub enum Cue {
     VentHum {
         at: Vec2,
     },
+    /// The bone hall's sulfide hiss: a pulse follows in 1.5 s
+    /// ([`crate::bone_hall`]). Heard by everyone; changes no one.
+    Seep {
+        at: Vec2,
+    },
     /// A goliath grouper starts its boom (the warning before a gulp): a very
     /// low, felt thump at `at`. Once per boom.
     Boom {
@@ -37,6 +42,29 @@ pub enum Cue {
     },
     /// The strained shell creaks, at irregular moments (never a beat).
     ShellTick {
+        crab: PlayerId,
+        strength: f32,
+    },
+    /// Silt trickles into the gap a crab is digging (the Plunge).
+    PlungeSilt {
+        crab: PlayerId,
+    },
+    /// A low roar behind the wall.
+    PlungeRoar {
+        crab: PlayerId,
+    },
+    /// The one low tone under the angler scene.
+    PlungeTone {
+        crab: PlayerId,
+    },
+    /// A rib piece drifting up the seep shaft knocks the shaft's wall: a soft
+    /// bone knock, quiet and unexplained (a hint of the Plunge's carcass).
+    BoneKnock {
+        at: Vec2,
+    },
+    /// The odd tunnel's cold draught: a thin low moan, for a crab that has
+    /// act three and stands in the tunnel's tells (`strength` 0 to 1).
+    Draught {
         crab: PlayerId,
         strength: f32,
     },
@@ -176,7 +204,41 @@ impl Sim {
     }
     pub(super) fn step_cues(&mut self) {
         let tick = self.tick + 1;
+        // The odd tunnel's draught, for each local crab in its tells.
+        let draughts: Vec<(PlayerId, f32)> =
+            if tick.is_multiple_of(crate::plunge::DRAUGHT_SECS * 120) {
+                self.crabs
+                    .iter()
+                    .filter(|c| !c.remote && c.fighter.dead.is_none())
+                    .filter_map(|c| Some((c.id, crate::plunge::tells(self, c.id)?.cold)))
+                    .collect()
+            } else {
+                Vec::new()
+            };
         let cues = &mut self.sound_cues;
+        for (crab, strength) in draughts {
+            cues.emit(tick, Cue::Draught { crab, strength });
+        }
+        // The carcass piece's knock in the seep shaft, if anyone is near.
+        if let Some(shaft) = crate::plunge::seep_shaft() {
+            let run = crate::plunge::rib_run_secs(shaft.height(), crate::plunge::RIB_LENGTH);
+            if crate::plunge::rib_knocks(tick, run)
+                && self
+                    .crabs
+                    .iter()
+                    .any(|c| c.mover.pos.distance(shaft.center()) < crate::plunge::KNOCK_REACH)
+            {
+                let (secs, _) = crate::plunge::rib_phase(tick, run);
+                let y = shaft.min.y - crate::plunge::RIB_LENGTH * 0.25
+                    + crate::chimney::SEEP_SPEED * secs;
+                cues.emit(
+                    tick,
+                    Cue::BoneKnock {
+                        at: Vec2::new(shaft.center().x, y.clamp(shaft.min.y, shaft.max.y)),
+                    },
+                );
+            }
+        }
         cues.events.retain(|e| tick.saturating_sub(e.tick) < 240);
         for c in self
             .crabs

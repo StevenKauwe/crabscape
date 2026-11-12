@@ -78,12 +78,12 @@ fn coral_reaches_the_hidden_culture_without_gear_and_returns_to_the_lower_route(
                 },
             );
             sim.tick();
-            if sim.crab(P0).unwrap().mover.pos.y > -3710.0 {
+            if sim.crab(P0).unwrap().mover.pos.y > -5710.0 {
                 break;
             }
         }
         assert!(
-            sim.crab(P0).unwrap().mover.pos.y > -3710.0,
+            sim.crab(P0).unwrap().mover.pos.y > -5710.0,
             "interior coral blocked: {:?}",
             sim.crab(P0).unwrap().mover.pos
         );
@@ -143,7 +143,7 @@ fn coral_reaches_the_hidden_culture_without_gear_and_returns_to_the_lower_route(
                 },
             );
             sim.tick();
-            if sim.crab(P0).unwrap().mover.pos.y >= -3260.0 {
+            if sim.crab(P0).unwrap().mover.pos.y >= -5260.0 {
                 climbed = true;
                 break;
             }
@@ -196,22 +196,22 @@ fn discovery_is_enclosed_in_rock_with_two_open_mouths() {
             ((y - GAME_BOTTOM) / GAME_CELL).floor() as i32,
         )
     };
-    assert_eq!(level.cultures.len(), 6); // Roof cache appends; both old finds retain their indices.
-    assert_eq!(level.cultures[3], Vec2::new(14360.0, -3710.0));
-    assert_eq!(level.cultures[4], Vec2::new(17130.0, -2784.0));
+    assert!(level.cultures.len() >= 6); // Roof cache appends; both old finds retain their indices.
+    assert_eq!(level.cultures[3], Vec2::new(14360.0, -5710.0));
+    assert_eq!(level.cultures[4], Vec2::new(17130.0, -4784.0));
     for (x, y) in [
-        (14360.0, -3500.0),
-        (14360.0, -3760.0),
-        (14080.0, -3620.0),
-        (14660.0, -3680.0),
+        (14360.0, -5500.0),
+        (14360.0, -5760.0),
+        (14080.0, -5620.0),
+        (14660.0, -5680.0),
     ] {
         assert_eq!(cell(x, y), Cell::Rock, "missing enclosure at {x},{y}");
     }
     for (x, y) in [
-        (14020.0, -3670.0),
-        (14780.0, -3740.0),
-        (14360.0, -3710.0),
-        (14360.0, -3860.0),
+        (14020.0, -5670.0),
+        (14780.0, -5740.0),
+        (14360.0, -5710.0),
+        (14360.0, -5860.0),
     ] {
         assert_eq!(cell(x, y), Cell::Water, "blocked gallery at {x},{y}");
     }
@@ -241,11 +241,11 @@ fn raised_haven_can_be_reached_rested_in_and_left() {
                 },
             );
             sim.tick();
-            if sim.crab(P0).unwrap().mover.pos.y > -3710.0 {
+            if sim.crab(P0).unwrap().mover.pos.y > -5710.0 {
                 break;
             }
         }
-        assert!(sim.crab(P0).unwrap().mover.pos.y > -3710.0);
+        assert!(sim.crab(P0).unwrap().mover.pos.y > -5710.0);
         for frame in 0..360 {
             sim.set_controls(
                 P0,

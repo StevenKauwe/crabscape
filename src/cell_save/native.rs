@@ -564,7 +564,7 @@ mod tests {
         let _serial = serial();
         for (name, x, y, rock) in [
             ("rock", 5042.0, -690.0, true),
-            ("net", 4308.0, -4360.0, false),
+            ("net", 4362.0, -700.0, false),
         ] {
             for opened in [false, true] {
                 let path = path(&format!("passage-{name}-{opened}"));
