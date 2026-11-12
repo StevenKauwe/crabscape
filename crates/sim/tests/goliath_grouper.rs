@@ -134,7 +134,16 @@ fn the_tell_lasts_1_2_seconds_swells_and_the_gulp_is_12_ticks() {
     let mut swell = None;
     let start = health(&sim);
     for _ in 0..700 {
-        tick(&mut sim, Controls::default());
+        // Backing away through the tell, out of the cone: the gulp then takes
+        // all its 12 ticks (a crab it engulfed would end it in the tenth).
+        let back = sim.enemies()[0].state == State::Tell;
+        tick(
+            &mut sim,
+            Controls {
+                walk: if back { -1.0 } else { 0.0 },
+                ..Default::default()
+            },
+        );
         match sim.enemies()[0].state {
             State::Tell => {
                 tell += 1;
@@ -230,7 +239,7 @@ fn the_pull_happens_only_in_the_cone_and_a_brace_cuts_it() {
 }
 
 #[test]
-fn an_engulfed_crab_is_held_bitten_at_most_30_and_spat_out() {
+fn an_engulfed_crab_is_held_bitten_to_its_cap_and_spat_out() {
     let mut sim = encounter(220.0);
     let start = health(&sim);
     let mut held = 0;
@@ -292,8 +301,9 @@ fn walking_out_of_the_cone_takes_nothing() {
     let mut gulped = false;
     for _ in 0..800 {
         let e = &sim.enemies()[0];
-        // Back away once the aim is locked.
-        let go = e.state == State::Tell && e.phase(&sim.tuning) == "locked";
+        // Back away during the tell: the cone reaches 520 units, so it takes
+        // a few steps, well before the lock.
+        let go = e.state == State::Tell;
         tick(
             &mut sim,
             Controls {
@@ -503,6 +513,7 @@ fn hurt_past_half_it_backs_into_its_cave_and_stops_guarding_for_a_minute() {
     assert_eq!(sim.enemies()[0].state, State::Flee);
     // Walk the crab to where it would be noticed, and wait out the retreat.
     let mut rested = 0;
+    let mut health_at_rest = None;
     for _ in 0..(grouper::REST_TICKS + 900) {
         tick(&mut sim, Controls::default());
         let e = &sim.enemies()[0];
@@ -510,10 +521,11 @@ fn hurt_past_half_it_backs_into_its_cave_and_stops_guarding_for_a_minute() {
             rested += 1;
             assert_eq!(e.state, State::Idle, "it does not guard while backed in");
             assert!(e.target.is_none());
+            // Nothing hurts the crab while it rests.
+            assert_eq!(health(&sim), *health_at_rest.get_or_insert(health(&sim)));
         }
     }
     assert!(rested >= grouper::REST_TICKS - 5, "rested {rested}");
-    assert_eq!(health(&sim), 100.0);
 }
 
 #[test]
@@ -729,7 +741,7 @@ fn co_op_the_guest_defends_once_and_both_devices_agree() {
         engulfed |= local.fighter.grabbed.is_some();
         host_saw |= host.crab(GUEST).unwrap().fighter.grabbed.is_some();
         assert_eq!(host.crab(HOST).unwrap().fighter.vitals.health, full);
-        // The first engulf is over: judged once, by the guest, at most 30.
+        // The first engulf is over: judged once, by the guest, at most its cap.
         if engulfed && local.fighter.grabbed.is_none() {
             spat = true;
             break;
