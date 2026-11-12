@@ -1340,10 +1340,17 @@ impl Test<'_> {
         // Walking left, from the shell's doorstep into the shell: the replay and save checks after this run with
         // the crab at home, out of the snapping shrimp's reach (walking right to it, a snap could knock the crab
         // back between those checks' readings).
-        // (Hidden straight away: it's only 55 units in, and it must still have some way to go when shown again.)
-        self.key("keydown", "KeyA", "a")?;
-        self.hold(0.02, false)?;
-        self.eval(&set_hidden(true))?;
+        // Press and hide in ONE browser task. Separate WebDriver round trips can
+        // let the crab walk most/all of the 55-unit route before hiding (CI saw
+        // x105 -> x95, correctly home, fail the >10-unit resume assertion).
+        // No animation frame can consume that runway between these two events.
+        self.b.js(&format!(
+            "const c = {CANVAS}; c.focus(); \
+             c.dispatchEvent(new KeyboardEvent('keydown', {{ bubbles: true, \
+             cancelable: true, composed: true, code: 'KeyA', key: 'a' }})); \
+             {}; return true;",
+            set_hidden(true)
+        ))?;
         pump(0.2);
         let before = self.crab()?;
         pump(1.5);
