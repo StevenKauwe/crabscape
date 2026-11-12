@@ -101,18 +101,24 @@ fn every_chamber_roof_is_at_least_250_under_the_slope_and_the_reef_is_deep() {
             x += 20.0;
         }
         // The lining is twenty units of that, and it is rock.
-        assert!(least >= 250.0, "{}: only {least} under the slope", room.name);
+        assert!(
+            least >= 250.0,
+            "{}: only {least} under the slope",
+            room.name
+        );
     }
     let reef = sc::reef();
     assert!(reef.min.x >= 11300.0 && reef.max.x <= 15000.0);
     assert!(reef.min.y <= -9000.0 + 1.0 && reef.max.y >= -7300.0);
     // Three roof heights, and mounds at three shelf heights.
-    let roofs: std::collections::BTreeSet<i32> = ["reef west bay", "reef great hall", "reef east bay"]
-        .iter()
-        .map(|n| sc::room_rect(n).max.y as i32)
-        .collect();
+    let roofs: std::collections::BTreeSet<i32> =
+        ["reef west bay", "reef great hall", "reef east bay"]
+            .iter()
+            .map(|n| sc::room_rect(n).max.y as i32)
+            .collect();
     assert_eq!(roofs.len(), 3);
-    let shelves: std::collections::BTreeSet<i32> = sc::MOUNDS.iter().map(|m| m.max.y as i32).collect();
+    let shelves: std::collections::BTreeSet<i32> =
+        sc::MOUNDS.iter().map(|m| m.max.y as i32).collect();
     assert!(shelves.len() >= 3, "{shelves:?}");
 }
 
@@ -192,7 +198,12 @@ fn the_surface_the_coral_stands_and_the_grouper_are_as_they_were() {
             spot.x.clamp(room.rect.min.x, room.rect.max.x),
             spot.y.clamp(room.rect.min.y, room.rect.max.y),
         );
-        assert!(near.distance(spot) > 400.0, "{} is {}", room.name, near.distance(spot));
+        assert!(
+            near.distance(spot) > 400.0,
+            "{} is {}",
+            room.name,
+            near.distance(spot)
+        );
     }
     // The hunters over the slope are where they were.
     let slope: Vec<(Foe, Vec2)> = level
@@ -236,10 +247,7 @@ fn left_the_region(p: Vec2) -> bool {
 
 /// The survey from `start` that stops as soon as every target has been come
 /// to rest at (or at the region's edge): the nodes it found.
-fn survey_until(
-    start: Vec2,
-    targets: &[Box<dyn Fn(Vec2) -> bool>],
-) -> route::Survey {
+fn survey_until(start: Vec2, targets: &[Box<dyn Fn(Vec2) -> bool>]) -> route::Survey {
     let seen = std::cell::RefCell::new(vec![false; targets.len()]);
     let start = route::start_node(KIT, start, false);
     route::survey_from(
@@ -286,7 +294,10 @@ fn from_the_slope_mouth_a_crab_reaches_every_upper_chamber_and_the_pebble_warren
     targets.push(within(warren));
     let s = survey_until(neck_start(), &targets);
     for (i, t) in targets.iter().enumerate() {
-        assert!(s.nodes.iter().any(|n| t(n.mover().pos)), "target {i} never reached");
+        assert!(
+            s.nodes.iter().any(|n| t(n.mover().pos)),
+            "target {i} never reached"
+        );
     }
     let n = first(&s, |p| warren.contains(p)).expect("the warren");
     println!("pebble warren reached after {:.0} s", n.time);
@@ -319,7 +330,7 @@ fn from_the_reef_stairwell_a_crab_walks_the_reef_passage_to_the_whale_fall_hall_
     let hall = dg::hall_rect("whale-fall hall");
     let foot = sc::REEF_STAIR.foot();
     let mut sim = route::world(KIT, Vec2::new(sc::REEF_STAIR.shaft.center().x, foot), false);
-    let mut walk = |sim: &mut crabsim::Sim, dir: f32, done: &dyn Fn(Vec2) -> bool| {
+    let walk = |sim: &mut crabsim::Sim, dir: f32, done: &dyn Fn(Vec2) -> bool| {
         for tick in 0..(240.0 * 120.0) as u32 {
             sim.set_controls(
                 route::ME,
@@ -336,12 +347,23 @@ fn from_the_reef_stairwell_a_crab_walks_the_reef_passage_to_the_whale_fall_hall_
                 return;
             }
         }
-        panic!("never arrived: {:?}", sim.crab(route::ME).expect("the crab").mover.pos);
+        panic!(
+            "never arrived: {:?}",
+            sim.crab(route::ME).expect("the crab").mover.pos
+        );
     };
-    walk(&mut sim, -1.0, &|p| hall.contains(p) && p.x < hall.max.x - 100.0);
+    walk(&mut sim, -1.0, &|p| {
+        hall.contains(p) && p.x < hall.max.x - 100.0
+    });
     let m = &sim.crab(route::ME).expect("the crab").mover;
-    assert!((m.pos.y - hall.min.y).abs() < 10.0, "walked in on the hall's floor: {:?}", m.pos);
-    walk(&mut sim, 1.0, &|p| sc::REEF_STAIR.shaft.contains(p) && p.x > sc::REEF_STAIR.shaft.min.x + 100.0);
+    assert!(
+        (m.pos.y - hall.min.y).abs() < 10.0,
+        "walked in on the hall's floor: {:?}",
+        m.pos
+    );
+    walk(&mut sim, 1.0, &|p| {
+        sc::REEF_STAIR.shaft.contains(p) && p.x > sc::REEF_STAIR.shaft.min.x + 100.0
+    });
 }
 
 #[test]
@@ -387,7 +409,9 @@ fn the_stairwells_have_a_standing_place_at_most_500_apart_and_a_stalk_between() 
         // A stalk through each gap, from the place below to the lip above.
         for c in s.corals() {
             assert!(c.top - c.bottom <= 520.0, "{c:?}");
-            assert!(s.shaft.contains(Vec2::new(c.x, (c.bottom + c.top) / 2.0)) || c.x == s.stalk_x(0));
+            assert!(
+                s.shaft.contains(Vec2::new(c.x, (c.bottom + c.top) / 2.0)) || c.x == s.stalk_x(0)
+            );
         }
     }
     // The reef stairwell ends at the reef door's floor, at the passage's
@@ -418,12 +442,15 @@ fn the_reef_passage_runs_to_the_whale_fall_hall_far_under_the_canyon() {
     assert!(level.solid_at(Vec2::new(hall.max.x + 5.0, -7950.0)));
     for r in &level.rocks {
         assert!(
-            r.intersect(Rect::new(pass.min.x, pass.min.y, pass.max.x, pass.max.y)).is_empty(),
+            r.intersect(Rect::new(pass.min.x, pass.min.y, pass.max.x, pass.max.y))
+                .is_empty(),
             "{r:?} stands in the passage"
         );
     }
     // The ground under it is the passage's floor.
-    let floor = level.ground_below(Vec2::new(8000.0, -8100.0)).expect("a floor");
+    let floor = level
+        .ground_below(Vec2::new(8000.0, -8100.0))
+        .expect("a floor");
     assert!((floor - -8200.0).abs() < 1.0, "{floor}");
 }
 
@@ -442,7 +469,9 @@ fn the_line_has_a_refuge_at_least_every_600_units() {
         let floor = level.ground_below(r.center()).expect("a floor");
         assert!((floor - sc::LINE_FLOOR).abs() <= 45.0, "{r:?} over {floor}");
         assert!(
-            sc::rooms().iter().any(|room| room.rect.contains(r.center())),
+            sc::rooms()
+                .iter()
+                .any(|room| room.rect.contains(r.center())),
             "{r:?}"
         );
     }
@@ -453,7 +482,10 @@ fn the_line_has_a_refuge_at_least_every_600_units() {
         edge = r.max.x;
     }
     worst = worst.max(sc::LINE.1 - edge);
-    println!("refuge gap along the line: at most {worst} units over {} refuges", rects.len());
+    println!(
+        "refuge gap along the line: at most {worst} units over {} refuges",
+        rects.len()
+    );
     assert!(worst <= sc::MAX_GAP, "{worst}");
     // No refuge stands over the lid's gap or on rubble.
     for r in &rects {
@@ -507,7 +539,12 @@ fn envelope(level: &Level, tuning: &Tuning, kind: Foe, home: Vec2, leash_only: b
     } else {
         seabed
     };
-    Rect::new(home.x - reach, bottom - 60.0, home.x + reach, home.y + reach)
+    Rect::new(
+        home.x - reach,
+        bottom - 60.0,
+        home.x + reach,
+        home.y + reach,
+    )
 }
 
 #[test]
@@ -538,7 +575,10 @@ fn no_hunters_reach_touches_a_chamber_a_passage_or_a_gather_site_and_the_ways_up
             );
         }
         for r in sc::line_refuges() {
-            assert!(full.intersect(r).is_empty(), "{kind:?} reaches a refuge {r:?}");
+            assert!(
+                full.intersect(r).is_empty(),
+                "{kind:?} reaches a refuge {r:?}"
+            );
         }
     }
     // No hunter's home is nearer the slope mouth than its own leash, with
@@ -546,12 +586,19 @@ fn no_hunters_reach_touches_a_chamber_a_passage_or_a_gather_site_and_the_ways_up
     for (kind, home) in level.foes.iter().copied() {
         let leash = crabsim::enemy::Enemy::new(0, kind, home, &tuning).home_leash(&tuning);
         let to_neck = (home.x - sc::NECK.center().x).abs();
-        assert!(to_neck > leash, "{kind:?} at {home:?} leashes the neck ({to_neck} vs {leash})");
+        assert!(
+            to_neck > leash,
+            "{kind:?} at {home:?} leashes the neck ({to_neck} vs {leash})"
+        );
     }
     // The line's rooms hold no foe.
     for (kind, home) in level.foes.iter().copied() {
         for room in sc::rooms() {
-            assert!(!room.rect.contains(home), "{kind:?} lives in the {}", room.name);
+            assert!(
+                !room.rect.contains(home),
+                "{kind:?} lives in the {}",
+                room.name
+            );
         }
     }
 }
@@ -587,7 +634,12 @@ fn no_sealed_cavity_in_the_slope_caves() {
     let mut queue = VecDeque::from([start]);
     seen[start.1 * w + start.0] = true;
     while let Some((x, y)) = queue.pop_front() {
-        for (nx, ny) in [(x + 1, y), (x.wrapping_sub(1), y), (x, y + 1), (x, y.wrapping_sub(1))] {
+        for (nx, ny) in [
+            (x + 1, y),
+            (x.wrapping_sub(1), y),
+            (x, y + 1),
+            (x, y.wrapping_sub(1)),
+        ] {
             if nx < w && ny < h && water[ny * w + nx] && !seen[ny * w + nx] {
                 seen[ny * w + nx] = true;
                 queue.push_back((nx, ny));
@@ -629,7 +681,10 @@ fn no_sealed_cavity_in_the_slope_caves() {
         }
     }
     println!("{sealed} water cells in our rooms that no flood reaches");
-    assert!(sealed <= 16, "{sealed} cells of water in a room that no flood reaches");
+    assert!(
+        sealed <= 16,
+        "{sealed} cells of water in a room that no flood reaches"
+    );
 }
 
 #[test]
@@ -672,9 +727,15 @@ fn every_gather_site_is_on_its_rooms_floor() {
     let level = Level::test_level();
     for (room, kind, at) in sc::NODE_SITES {
         let rect = sc::room_rect(room);
-        assert!(rect.contains(at + Vec2::Y * 10.0), "{kind} at {at:?} is in the {room}");
+        assert!(
+            rect.contains(at + Vec2::Y * 10.0),
+            "{kind} at {at:?} is in the {room}"
+        );
         let floor = level.ground_below(at + Vec2::Y * 4.0).expect("a floor");
-        assert!((floor - at.y).abs() <= 12.0, "{kind} at {at:?} lies {floor} above its floor");
+        assert!(
+            (floor - at.y).abs() <= 12.0,
+            "{kind} at {at:?} lies {floor} above its floor"
+        );
     }
     let count = |k: &str| sc::NODE_SITES.iter().filter(|s| s.1 == k).count();
     assert_eq!(count("BambooCoral"), 3);
@@ -689,19 +750,30 @@ fn every_gather_site_is_on_its_rooms_floor() {
     assert!(heights.len() >= 2);
     // The midden is in the cave nearest the far rim's octopus den.
     let den = Vec2::new(8650.0, -3900.0);
-    let (_, _, midden) = sc::NODE_SITES.iter().find(|s| s.1 == "ToothBed").copied().expect("a midden");
+    let (_, _, midden) = sc::NODE_SITES
+        .iter()
+        .find(|s| s.1 == "ToothBed")
+        .copied()
+        .expect("a midden");
     let nearest = sc::rooms()
         .iter()
         .filter(|r| r.part == sc::Part::Cave)
         .min_by(|a, b| {
-            (a.rect.center().x - den.x).abs().total_cmp(&(b.rect.center().x - den.x).abs())
+            (a.rect.center().x - den.x)
+                .abs()
+                .total_cmp(&(b.rect.center().x - den.x).abs())
         })
         .expect("a cave");
     assert!(nearest.rect.contains(midden + Vec2::Y * 10.0));
     // None stands on rubble, a refuge or over the stairwell lid.
     for (_, kind, at) in sc::NODE_SITES {
         for r in sc::line_refuges() {
-            assert!(r.inflate(40.0).intersect(Rect::from_center_size(at, Vec2::splat(2.0))).is_empty(), "{kind}");
+            assert!(
+                r.inflate(40.0)
+                    .intersect(Rect::from_center_size(at, Vec2::splat(2.0)))
+                    .is_empty(),
+                "{kind}"
+            );
         }
     }
 }
@@ -710,7 +782,13 @@ fn every_gather_site_is_on_its_rooms_floor() {
 fn the_caves_keep_clear_of_the_other_frames() {
     let level = Level::test_level();
     let marks = level.landmarks();
-    for other in ["clay cathedral", "cathedral seep", "far-wall cave", "canyon deep water", "chimney return"] {
+    for other in [
+        "clay cathedral",
+        "cathedral seep",
+        "far-wall cave",
+        "canyon deep water",
+        "chimney return",
+    ] {
         let o = named(&marks, other).rect;
         for room in sc::rooms() {
             assert!(
@@ -747,8 +825,17 @@ fn the_slope_mouth_is_a_rest_point_on_the_slope_floor_beside_the_neck() {
         .expect("a rest point at the slope mouth");
     assert_eq!(mouth.kind, RestKind::Entrance);
     let floor = level.floor_height(mouth.at.x);
-    assert!((mouth.at.y - floor).abs() < 50.0, "{:?} over {floor}", mouth.at);
-    assert!(mouth.at.distance(sc::NECK.center() + Vec2::Y * sc::NECK.height() / 2.0) < 120.0);
+    assert!(
+        (mouth.at.y - floor).abs() < 50.0,
+        "{:?} over {floor}",
+        mouth.at
+    );
+    assert!(
+        mouth
+            .at
+            .distance(sc::NECK.center() + Vec2::Y * sc::NECK.height() / 2.0)
+            < 120.0
+    );
     // Out of every hunter's leash.
     let tuning = Tuning::default();
     for (kind, home) in level.foes.iter().copied() {

@@ -334,8 +334,8 @@ const RUBBLE: [(f32, f32, f32); 8] = [
 /// Where a refuge stands (x of its west end) along the line: one niche in the
 /// floor, 120 wide.
 pub const REFUGES: [f32; 14] = [
-    8740.0, 9200.0, 9700.0, 10180.0, 10640.0, 11320.0, 11760.0, 12260.0, 12760.0, 13240.0,
-    13760.0, 14260.0, 14620.0, 15160.0,
+    8740.0, 9200.0, 9700.0, 10180.0, 10640.0, 11320.0, 11760.0, 12260.0, 12760.0, 13240.0, 13760.0,
+    14260.0, 14620.0, 15160.0,
 ];
 /// The last two refuges stand in the east cave and the warren passage.
 const EXTRA_REFUGES: [f32; 2] = [15560.0, 15740.0];
@@ -367,8 +367,14 @@ pub fn lining() -> &'static [Rect] {
             ];
             if r.part == Part::Mouth {
                 // Open at the top: its walls stop where the water begins.
+                let top = if r.name == "warren shaft" {
+                    // The pebble warren's own floor is the wall's end.
+                    WARREN_FLOOR
+                } else {
+                    a.max.y
+                };
                 for b in &mut bands {
-                    b.max.y = a.max.y;
+                    b.max.y = top;
                 }
             } else {
                 bands.push(Rect::new(a.min.x, a.max.y, a.max.x, a.max.y + EDGE));
@@ -448,7 +454,12 @@ pub(super) fn shapes(level: &Level) -> Vec<Shape> {
 pub(super) fn shape(level: &mut Level) {
     let cuts: Vec<Rect> = [
         Rect::new(5800.0, -8200.0, 5800.0 + EDGE, -8040.0),
-        Rect::new(WARREN_X - 60.0, WARREN_FLOOR - EDGE, WARREN_X + 60.0, WARREN_FLOOR),
+        Rect::new(
+            WARREN_X - 60.0,
+            WARREN_FLOOR - EDGE,
+            WARREN_X + 60.0,
+            WARREN_FLOOR,
+        ),
     ]
     .to_vec();
     level.rocks = std::mem::take(&mut level.rocks)
@@ -462,7 +473,9 @@ pub(super) fn shape(level: &mut Level) {
         }
     }
     for s in &STAIRS {
-        level.rocks.extend(s.slab_list().into_iter().map(|(_, r)| r));
+        level
+            .rocks
+            .extend(s.slab_list().into_iter().map(|(_, r)| r));
     }
     for (x0, x1, h) in RUBBLE {
         level
@@ -478,12 +491,32 @@ pub(super) fn shape(level: &mut Level) {
 /// three grit heaps on the upper caves' floors and one midden (a tooth bed) in
 /// the cave nearest the far rim's octopus den.
 pub const NODE_SITES: [(&str, &str, Vec2); 7] = [
-    ("midden cave", "ToothBed", Vec2::new(8950.0, LINE_FLOOR + 6.0)),
-    ("rubble hall", "GritHeap", Vec2::new(11560.0, LINE_FLOOR + 6.0)),
-    ("cobble cave", "GritHeap", Vec2::new(12600.0, LINE_FLOOR + 6.0)),
-    ("pillar cave", "GritHeap", Vec2::new(14160.0, LINE_FLOOR + 6.0)),
+    (
+        "midden cave",
+        "ToothBed",
+        Vec2::new(8950.0, LINE_FLOOR + 6.0),
+    ),
+    (
+        "rubble hall",
+        "GritHeap",
+        Vec2::new(11560.0, LINE_FLOOR + 6.0),
+    ),
+    (
+        "cobble cave",
+        "GritHeap",
+        Vec2::new(12600.0, LINE_FLOOR + 6.0),
+    ),
+    (
+        "pillar cave",
+        "GritHeap",
+        Vec2::new(14160.0, LINE_FLOOR + 6.0),
+    ),
     ("reef west bay", "BambooCoral", Vec2::new(12100.0, -8594.0)),
-    ("reef great hall", "BambooCoral", Vec2::new(13650.0, -8594.0)),
+    (
+        "reef great hall",
+        "BambooCoral",
+        Vec2::new(13650.0, -8594.0),
+    ),
     ("reef east bay", "BambooCoral", Vec2::new(14150.0, -8194.0)),
 ];
 
@@ -506,7 +539,12 @@ pub(super) fn landmarks(level: &Level) -> Vec<Landmark> {
             // water above sees it.
             add(
                 r.name,
-                Rect::new(r.rect.min.x, r.rect.min.y, r.rect.max.x, r.rect.max.y + 40.0),
+                Rect::new(
+                    r.rect.min.x,
+                    r.rect.min.y,
+                    r.rect.max.x,
+                    r.rect.max.y + 40.0,
+                ),
                 Kind::Mouth,
             );
         } else {
