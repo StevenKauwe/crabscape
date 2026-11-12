@@ -332,6 +332,7 @@ fn home_of(kind: NodeKind) -> Option<&'static str> {
     match kind {
         K::FishFall | K::ToothBed => Some("bone hall"),
         K::SeepMusselBed | K::SulfurMatSite => Some("seep garden"),
+        K::GlassSpongeGarden => Some("upper gallery"),
         k if k.def().tier == 5 => Some("vent field"),
         _ => None,
     }
@@ -382,6 +383,8 @@ fn nodes_lie_in_their_places_on_a_floor_and_never_in_a_mouth() {
     assert_eq!(counts.get("bone hall"), Some(&6));
     assert_eq!(counts.get("seep garden"), Some(&6));
     assert_eq!(counts.get("vent field"), Some(&17));
+    // The glass gardens, one in each of the Silt Galleries' sponge galleries.
+    assert_eq!(counts.get("upper gallery"), Some(&3));
 }
 
 #[test]
@@ -391,6 +394,12 @@ fn a_level_without_a_pocket_drops_its_nodes_and_keeps_the_rest() {
     let mut bare = level.clone();
     bare.rocks.clear();
     let left = nodes(&bare);
-    assert_eq!(left.len(), all - 12, "the two pockets' 12 nodes are gone");
+    // The Silt Galleries go with the rocks too (their roofs are rocks), and
+    // with them the three glass gardens.
+    assert_eq!(
+        left.len(),
+        all - 15,
+        "the two pockets' 12 nodes and the galleries' 3 glass gardens are gone"
+    );
     assert!(left.iter().all(|n| home_of(n.kind) != Some("bone hall")));
 }

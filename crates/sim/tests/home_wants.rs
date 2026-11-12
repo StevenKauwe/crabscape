@@ -313,10 +313,12 @@ fn a_home_piece_one_kind_short_is_a_want_and_a_built_one_is_not() {
         .expect("the glass lamp is a want");
     assert_eq!(lamp.piece, Some(Piece::GlassLamp));
     assert_eq!(lamp.missing, vec![(Item::Glass, 4)]);
+    // The lamp's glass grows in the Silt Galleries, and the want says so.
     assert!(lamp.sources.iter().any(|s| matches!(
         s,
         Source::Node {
             node: NodeKind::GlassSpongeGarden,
+            place: Some("upper gallery"),
             ..
         }
     )));

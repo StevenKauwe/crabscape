@@ -427,6 +427,9 @@ fn a_harvest_at_every_node_is_calm_with_the_real_foes_alive() {
             sim.add_crab(id, at.pos);
             sim.enable_underwater_cells();
             sim.crab_mut(id).expect("crab").mover.pos = at.pos;
+        } else if at.pos.y < sim.level.floor_height(at.pos.x) - 20.0 {
+            // A cave under the floor (the Silt Galleries): on the cave's floor.
+            sim.add_crab(id, at.pos);
         } else {
             sim.add_crab(id, Vec2::new(at.pos.x, sim.level.floor_height(at.pos.x)));
         }
