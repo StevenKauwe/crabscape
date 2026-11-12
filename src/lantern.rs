@@ -559,8 +559,14 @@ mod tests {
             assert!(shader.contains("lights: array<Light, 8>"));
             assert!(shader.contains("amount * "));
             assert!(shader.contains("lights[i].luminosity"));
-            assert!(shader.contains("daylight + max(3.0 - daylight, 0.0) * brightness"));
+            // Painted ground blends its lit and unlit tiles by this; the floor's plain colours (kelp, coral)
+            // keep the unclipped exposure.
+            assert!(shader.contains("day + 0.9 * brightness"));
         }
+        assert!(
+            include_str!("memory.wgsl")
+                .contains("daylight + max(3.0 - daylight, 0.0) * brightness")
+        );
     }
 
     #[test]
