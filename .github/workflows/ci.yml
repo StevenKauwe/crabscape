@@ -149,12 +149,19 @@ jobs:
       # Browser automation is confined to this independent terminal tool. No Node dependency enters the game.
       - name: Install pinned browser test dependencies
         working-directory: tools/crabbridge
-        run: npm ci && npx playwright install --with-deps chromium
+        run: |
+          sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends lsof
+          npm ci
+          npx playwright install --with-deps chromium
       - name: Security and real browser regression suite
         working-directory: tools/crabbridge
         run: bash tests/run-proof.sh
       - name: Package public browser assets only
         run: bash tools/build-crabbridge.sh
+      - name: Packaged peer page loads under preview subpath
+        env:
+          NODE_PATH: ${{ github.workspace }}/tools/crabbridge/node_modules
+        run: node tools/test-crabbridge-page.cjs
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: crabbridge-web-${{ github.sha }}
