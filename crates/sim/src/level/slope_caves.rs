@@ -520,11 +520,7 @@ pub const NODE_SITES: [(&str, &str, Vec2); 7] = [
         Vec2::new(14420.0, LINE_FLOOR + 6.0),
     ),
     ("reef west bay", "BlackCoral", Vec2::new(12500.0, -8594.0)),
-    (
-        "reef great hall",
-        "BlackCoral",
-        Vec2::new(13850.0, -8594.0),
-    ),
+    ("reef great hall", "BlackCoral", Vec2::new(13850.0, -8594.0)),
     ("reef east bay", "BlackCoral", Vec2::new(14550.0, -8194.0)),
 ];
 
