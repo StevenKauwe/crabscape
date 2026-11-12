@@ -362,6 +362,21 @@ impl Chrome {
         std::fs::write(path, png).map_err(|e| format!("{}: {e}", path.display()))
     }
 
+    /// Start sampling this page's CPU (`COOPTEST_PROFILE`): every function's
+    /// time from here until [`Self::stop_profile`].
+    pub fn start_profile(&mut self) -> Result<()> {
+        self.call("Profiler.enable", json!({}))?;
+        self.call("Profiler.setSamplingInterval", json!({ "interval": 500 }))?;
+        self.call("Profiler.start", json!({})).map(drop)
+    }
+
+    /// Stop sampling and write the profile (a `.cpuprofile` DevTools opens).
+    pub fn stop_profile(&mut self, path: &Path) -> Result<()> {
+        let got = self.call("Profiler.stop", json!({}))?;
+        std::fs::write(path, got["profile"].to_string())
+            .map_err(|e| format!("{}: {e}", path.display()))
+    }
+
     /// Open `url` (the page loads in the background).
     pub fn go(&mut self, url: &str) -> Result<()> {
         self.call("Page.navigate", json!({ "url": url })).map(drop)
@@ -493,6 +508,16 @@ impl Chrome {
         self.call(
             "Emulation.setDeviceMetricsOverride",
             json!({"width":width,"height":height,"deviceScaleFactor":1,"mobile":width<700}),
+        )
+        .map(drop)
+    }
+
+    /// Emulate a screen `width` x `height` CSS pixels at `dpr` device pixels each (3 on a recent iPhone).
+    #[allow(dead_code)] // Used by the HUD scale check.
+    pub fn device_metrics(&mut self, width: u32, height: u32, dpr: f64) -> Result<()> {
+        self.call(
+            "Emulation.setDeviceMetricsOverride",
+            json!({"width":width,"height":height,"deviceScaleFactor":dpr,"mobile":width<700}),
         )
         .map(drop)
     }

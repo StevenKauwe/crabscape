@@ -177,7 +177,9 @@ struct CrabArt {
     /// shell just after a moult, faded in over the lit layer; rim a band just
     /// inside each part's edge (white, at half size), for the lantern's light
     /// round the edges from behind.
-    layers: Option<[[Handle<Image>; 4]; 2]>,
+    /// (Each style's set is made on a frame of its own, the style shown first: one long frame fewer
+    /// while the game starts and a co-op join is being set up between frames.)
+    layers: [Option<[Handle<Image>; 4]>; 2],
     /// Where each piece is on the pizza crab's pictures (by name), once wanted.
     pizza_rects: HashMap<String, [f32; 4]>,
     /// The pizza crab's pictures, loading from the first time a crab is pizza, then its layers as above.
@@ -195,7 +197,7 @@ struct Skin {
 
 impl CrabArt {
     fn layer(&self, style: ArtStyle, layer: ArtLayer) -> Option<Handle<Image>> {
-        let set = &self.layers.as_ref()?[style_index(style)];
+        let set = self.layers[style_index(style)].as_ref()?;
         Some(set[layer as usize].clone())
     }
 }
@@ -552,7 +554,7 @@ fn load_art(mut commands: Commands, assets: Res<AssetServer>) {
     commands.insert_resource(CrabArt {
         file: PartsFile::parse(),
         sources: [assets.load(ATLAS_INK), assets.load(ATLAS_OIL)],
-        layers: None,
+        layers: [None, None],
         pizza_rects: pizza_rects(),
         pizza_sources: None,
         pizza_layers: None,
@@ -566,43 +568,52 @@ fn make_layers(
     ok: [bool; 2],
     images: &mut Assets<Image>,
 ) -> Option<[[Handle<Image>; 4]; 2]> {
-    let mut layers: [[Handle<Image>; 4]; 2] = Default::default();
-    for i in 0..2 {
-        let from = if ok[i] { i } else { 1 - i };
-        if !ok[i] {
-            warn!("crab picture {i} failed to load; using the other style's");
-        }
-        let lit = sources[from].clone();
-        let image = images.get(&lit)?;
-        if image.texture_descriptor.format != TextureFormat::Rgba8UnormSrgb {
-            warn!("crab atlas is not RGBA sRGB; the dark layer may look wrong");
-        }
-        let mut unlit = image.clone();
-        if let Some(pixels) = unlit.data.as_mut() {
-            make_unlit(pixels);
-        }
-        let mut pale = image.clone();
-        if let Some(pixels) = pale.data.as_mut() {
-            make_pale(pixels);
-        }
-        let size = image.texture_descriptor.size;
-        let rim = image.data.as_deref().map_or_else(Image::default, |pixels| {
-            let (w, h) = (size.width as usize / 2, size.height as usize / 2);
-            Image::new(
-                Extent3d {
-                    width: w as u32,
-                    height: h as u32,
-                    depth_or_array_layers: 1,
-                },
-                TextureDimension::D2,
-                make_rim(pixels, w * 2, h * 2),
-                TextureFormat::Rgba8UnormSrgb,
-                RenderAssetUsages::RENDER_WORLD,
-            )
-        });
-        layers[i] = [lit, images.add(unlit), images.add(pale), images.add(rim)];
+    Some([
+        make_style_layers(sources, ok, 0, images)?,
+        make_style_layers(sources, ok, 1, images)?,
+    ])
+}
+
+/// [`make_layers`] for style `i` alone.
+fn make_style_layers(
+    sources: &[Handle<Image>; 2],
+    ok: [bool; 2],
+    i: usize,
+    images: &mut Assets<Image>,
+) -> Option<[Handle<Image>; 4]> {
+    let from = if ok[i] { i } else { 1 - i };
+    if !ok[i] {
+        warn!("crab picture {i} failed to load; using the other style's");
     }
-    Some(layers)
+    let lit = sources[from].clone();
+    let image = images.get(&lit)?;
+    if image.texture_descriptor.format != TextureFormat::Rgba8UnormSrgb {
+        warn!("crab atlas is not RGBA sRGB; the dark layer may look wrong");
+    }
+    let mut unlit = image.clone();
+    if let Some(pixels) = unlit.data.as_mut() {
+        make_unlit(pixels);
+    }
+    let mut pale = image.clone();
+    if let Some(pixels) = pale.data.as_mut() {
+        make_pale(pixels);
+    }
+    let size = image.texture_descriptor.size;
+    let rim = image.data.as_deref().map_or_else(Image::default, |pixels| {
+        let (w, h) = (size.width as usize / 2, size.height as usize / 2);
+        Image::new(
+            Extent3d {
+                width: w as u32,
+                height: h as u32,
+                depth_or_array_layers: 1,
+            },
+            TextureDimension::D2,
+            make_rim(pixels, w * 2, h * 2),
+            TextureFormat::Rgba8UnormSrgb,
+            RenderAssetUsages::RENDER_WORLD,
+        )
+    });
+    Some([lit, images.add(unlit), images.add(pale), images.add(rim)])
 }
 
 /// The first time a crab turns to pizza, start loading the pizza crab's pictures; once they are in, make their
@@ -641,9 +652,10 @@ fn prepare_pizza(
 fn prepare_art(
     mut art: ResMut<CrabArt>,
     assets: Res<AssetServer>,
+    style: Res<ArtStyle>,
     mut images: ResMut<Assets<Image>>,
 ) {
-    if art.layers.is_some() {
+    if art.layers.iter().all(Option::is_some) {
         return;
     }
     let states = art.sources.clone().map(|h| assets.load_state(&h));
@@ -656,17 +668,25 @@ fn prepare_art(
     let ok = states.map(|s| s.is_loaded());
     if !ok[0] && !ok[1] {
         error!("neither crab picture could be loaded ({ATLAS_INK}, {ATLAS_OIL})");
-        art.layers = Some(std::array::from_fn(|_| Default::default()));
+        art.layers = std::array::from_fn(|_| Some(Default::default()));
         return;
     }
-    let Some(layers) = make_layers(&art.sources, ok, &mut images) else {
+    // The style shown first; the other on a later frame.
+    let shown = style_index(*style);
+    let i = if art.layers[shown].is_none() {
+        shown
+    } else {
+        1 - shown
+    };
+    let Some(set) = make_style_layers(&art.sources, ok, i, &mut images) else {
         return;
     };
-    art.layers = Some(layers);
+    art.layers[i] = Some(set);
     #[cfg(target_arch = "wasm32")]
-    if let Some(canvas) = web_sys::window()
-        .and_then(|w| w.document())
-        .and_then(|d| d.get_element_by_id("crabscape"))
+    if art.layers.iter().all(Option::is_some)
+        && let Some(canvas) = web_sys::window()
+            .and_then(|w| w.document())
+            .and_then(|d| d.get_element_by_id("crabscape"))
     {
         let loaded = format!("ink:{} oil:{}", u8::from(ok[0]), u8::from(ok[1]));
         let _ = canvas.set_attribute("data-art", &loaded);

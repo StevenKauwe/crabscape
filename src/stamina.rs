@@ -5,15 +5,15 @@
 //! solid. The rings only show while one is spent (or just after an egg), and
 //! fade away once they're all full again.
 //!
-//! Resting draws on the body's reserve, shown as a small bar in the top-left
-//! corner (one segment per stroke it holds). It empties as the rings refill
-//! and comes back by itself, slowly. Well fed, it holds a few more (gold
-//! segments, the bar the same length), and a small "Well fed" sign under the
-//! shell bar counts down the time left.
+//! Resting draws on the body's reserve, shown as a row of amber segments in the
+//! top-left corner, under the shell bar (one segment per stroke it holds). It
+//! empties as the rings refill and comes back by itself, slowly. Well fed, it
+//! holds a few more (gold segments, the row the same length), and a small
+//! "Well fed" sign beside it counts down the time left.
 
 use bevy::prelude::*;
 use crabsim::physics::Mover;
-use crabsim::{Sim, Skill, TICKS_PER_SECOND};
+use crabsim::{Sim, TICKS_PER_SECOND};
 
 use crate::effects::SoftTextures;
 use crate::player::{FrameEvents, GameSet, LocalPlayer};
@@ -39,14 +39,11 @@ pub struct StaminaPlugin;
 
 impl Plugin for StaminaPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            Startup,
-            (spawn_rings, spawn_reserve_bar, spawn_skill, spawn_well_fed),
-        )
-        .add_systems(
-            Update,
-            (show_rings, show_reserve, show_skill, show_well_fed).in_set(GameSet::Present),
-        );
+        app.add_systems(Startup, (spawn_rings, spawn_reserve_bar, spawn_well_fed))
+            .add_systems(
+                Update,
+                (show_rings, show_reserve, show_well_fed).in_set(GameSet::Present),
+            );
     }
 }
 
@@ -133,7 +130,7 @@ struct ReserveFill(u32);
 struct ReserveSegment(u32);
 
 /// The reserve bar's length: its segments share it, however many there are.
-const RESERVE_BAR: f32 = 111.0;
+const RESERVE_BAR: f32 = crate::ui_theme::VITALS_W;
 const RESERVE_GAP: f32 = 3.0;
 /// The well-fed segments and sign: pale gold, apart from the plain reserve.
 const FED: Color = Color::srgb(0.98, 0.93, 0.70);
@@ -144,8 +141,8 @@ fn spawn_reserve_bar(mut commands: Commands, sim: Res<Sim>) {
     commands
         .spawn(Node {
             position_type: PositionType::Absolute,
-            top: px(76),
-            left: px(12),
+            top: px(crate::ui_theme::RESERVE_TOP),
+            left: px(crate::ui_theme::EDGE),
             column_gap: px(RESERVE_GAP),
             ..default()
         })
@@ -159,11 +156,12 @@ fn spawn_reserve_bar(mut commands: Commands, sim: Res<Sim>) {
                         width: px(16),
                         height: px(7),
                         border: UiRect::all(px(1)),
-                        border_radius: BorderRadius::all(px(3)),
+                        border_radius: BorderRadius::all(px(3.5)),
                         overflow: Overflow::clip(),
                         ..default()
                     },
-                    BorderColor::all(colour.with_alpha(0.45)),
+                    BorderColor::all(colour.with_alpha(0.5)),
+                    BackgroundColor(crate::ui_theme::BAR_BACK),
                 ))
                 .with_child((
                     ReserveFill(segment),
@@ -212,130 +210,7 @@ fn show_reserve(
     }
 }
 
-/// The skills' readout under the reserve bar: one small row per skill the
-/// crab has any experience in (its name and level, and a thin bar for the way
-/// to the next level). Hidden until the crab first earns some.
-#[derive(Component)]
-struct SkillRow(Skill);
-
-#[derive(Component)]
-struct SkillFill(Skill);
-
-fn spawn_skill(mut commands: Commands) {
-    commands
-        .spawn(Node {
-            position_type: PositionType::Absolute,
-            top: px(90),
-            left: px(12),
-            flex_direction: FlexDirection::Column,
-            row_gap: px(4),
-            ..default()
-        })
-        .with_children(|column| {
-            for skill in Skill::ALL {
-                column
-                    .spawn((
-                        Node {
-                            display: Display::None,
-                            flex_direction: FlexDirection::Column,
-                            row_gap: px(2),
-                            ..default()
-                        },
-                        SkillRow(skill),
-                    ))
-                    .with_children(|row| {
-                        row.spawn((
-                            Text::new(""),
-                            TextFont {
-                                font_size: FontSize::Px(11.0),
-                                ..default()
-                            },
-                            TextColor(Color::srgba(0.85, 0.92, 0.95, 0.75)),
-                        ));
-                        row.spawn((
-                            Node {
-                                width: px(70),
-                                height: px(2),
-                                ..default()
-                            },
-                            BackgroundColor(Color::srgba(1.0, 0.88, 0.55, 0.2)),
-                        ))
-                        .with_child((
-                            SkillFill(skill),
-                            Node {
-                                width: percent(0),
-                                height: percent(100),
-                                ..default()
-                            },
-                            BackgroundColor(Color::srgba(1.0, 0.88, 0.55, 0.8)),
-                        ));
-                    });
-            }
-            // The pinned goal, last (`wants_ui.rs`): hidden until there is one.
-            column.spawn((
-                crate::wants_ui::GoalLine,
-                Node {
-                    display: Display::None,
-                    ..default()
-                },
-                Text::new(""),
-                TextFont {
-                    font_size: FontSize::Px(11.0),
-                    ..default()
-                },
-                TextColor(Color::srgba(0.85, 0.92, 0.95, 0.75)),
-            ));
-        });
-}
-
-fn show_skill(
-    sim: Res<Sim>,
-    crab: Query<&Mover, With<LocalPlayer>>,
-    mut rows: Query<(&SkillRow, &mut Node, &Children), Without<SkillFill>>,
-    mut texts: Query<&mut Text>,
-    mut fills: Query<(&SkillFill, &mut Node), Without<SkillRow>>,
-) {
-    let Ok(mover) = crab.single() else {
-        return;
-    };
-    for (row, mut node, children) in &mut rows {
-        let earned = mover.xp(row.0) > 0.0;
-        let display = if earned { Display::Flex } else { Display::None };
-        if node.display != display {
-            node.display = display;
-        }
-        if !earned {
-            continue;
-        }
-        let level = mover.level(row.0, &sim.tuning);
-        if let Some(mut text) = children.first().and_then(|c| texts.get_mut(*c).ok()) {
-            // A feat ready to grow at a moult, growing, or grown (short: the
-            // row sits beside the well-fed sign).
-            let feat = crabsim::Feat::of(row.0);
-            let mark = if feat.is_some() && mover.growing == feat {
-                ": growing"
-            } else if feat.is_some_and(|f| mover.has(f)) {
-                ": feat"
-            } else if mover.feat_ready(row.0, &sim.tuning) {
-                ": moult"
-            } else {
-                ""
-            };
-            let line = format!("{} {level}{mark}", row.0.name());
-            if text.0 != line {
-                text.0 = line;
-            }
-        }
-    }
-    for (fill, mut node) in &mut fills {
-        let width = percent(100.0 * mover.progress(fill.0, &sim.tuning));
-        if node.width != width {
-            node.width = width;
-        }
-    }
-}
-
-/// The well-fed sign under the shell bar: hidden unless well fed.
+/// The well-fed sign beside the reserve: hidden unless well fed.
 #[derive(Component)]
 struct WellFed;
 
@@ -344,14 +219,14 @@ fn spawn_well_fed(mut commands: Commands) {
         WellFed,
         Text::new(""),
         TextFont {
-            font_size: FontSize::Px(12.0),
+            font_size: FontSize::Px(crate::ui_theme::CAPTION),
             ..default()
         },
-        TextColor(FED.with_alpha(0.9)),
+        TextColor(FED.with_alpha(0.95)),
         Node {
             position_type: PositionType::Absolute,
-            top: px(93),
-            left: px(140),
+            top: px(crate::ui_theme::RESERVE_TOP - 4.0),
+            left: px(crate::ui_theme::EDGE + crate::ui_theme::VITALS_W + 8.0),
             ..default()
         },
         Visibility::Hidden,

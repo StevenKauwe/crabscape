@@ -2,13 +2,11 @@
 //! `crabsim`'s: `Sim::earn` raises the levels and `Cue::LevelUp` sounds
 //! them; `SimCrab::econ` holds the skills and what is worn).
 //!
-//! - **Level gained** (the local crab only): the HUD line "Prying level 15!"
-//!   and what the level opens hold for four seconds (the notes system), a warm
-//!   ring pulses out from the carapace for 0.6 s (crab-sized, never
-//!   full-screen), and the claws lift for 0.8 s (`puppet.rs`: `cheer`). The
-//!   chime is in `sound.rs`.
-//! - **Experience drops:** a tiny "+25 Prying" floats up from the crab and
-//!   fades in a second, one per skill per frame.
+//! - **Level gained** (the local crab only): the HUD's level card says it and
+//!   what it opens (`hud.rs`); on the crab a warm ring pulses out from the
+//!   carapace for 0.6 s (crab-sized, never full-screen), and the claws lift for
+//!   0.8 s (`puppet.rs`: `cheer`). The chime is in `sound.rs`.
+//! - **Experience drops** are the HUD's tracker (`hud.rs`).
 //! - **Gear:** a sack on the shell's back when a bag is worn, and a tinted
 //!   plating over the carapace when body plating is fitted (a cracked plating
 //!   comes off). Both are children of the carapace, so they turn and bob with
@@ -20,24 +18,16 @@ use crabsim::{Sim, Skill};
 
 use crate::effects::SoftTextures;
 use crate::home::OUT_OF_SIGHT;
-use crate::notes::say_for;
 use crate::player::{FrameEvents, GameSet, LocalPlayer, PlayerId};
 use crate::puppet::{ShellOf, carapace_middle};
 
 const WARM: Color = Color::srgb(1.0, 0.78, 0.32);
-const GOLD: Color = Color::srgb(1.0, 0.88, 0.55);
-const PALE: Color = Color::srgb(0.80, 0.90, 0.92);
-/// Where the first level-up line starts, above the crab's feet.
-const ABOVE: f32 = 160.0;
-/// How long the level-up lines hold, and the ring's pulse.
-const HOLD: f32 = 4.0;
+/// How long the ring's pulse takes.
 const PULSE: f32 = 0.6;
 /// The ring's size at the start and the end of its pulse (the crab is about
 /// 100 units across).
 const RING_FROM: f32 = 70.0;
 const RING_TO: f32 = 190.0;
-/// An experience drop's life (seconds), speed and text size.
-const DROP: (f32, f32, f32) = (1.0, 42.0, 11.0);
 const ON_SHELL: f32 = 0.04;
 
 pub struct SkillJuicePlugin;
@@ -46,7 +36,7 @@ impl Plugin for SkillJuicePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (level_up, pulse, xp_drops, attach_gear, show_gear)
+            (level_up, pulse, attach_gear, show_gear)
                 .chain()
                 .in_set(GameSet::Present),
         );
@@ -68,33 +58,18 @@ pub fn level_up_lines(sim: &Sim, id: PlayerId, skill: Skill, level: u32) -> Vec<
     lines
 }
 
-/// The local crab went up a level: the notice and the ring.
+/// The local crab went up a level: the ring.
 fn level_up(
     mut commands: Commands,
     soft: Res<SoftTextures>,
-    sim: Res<Sim>,
-    crab: Query<(Entity, &FrameEvents, &Transform, &PlayerId), With<LocalPlayer>>,
+    crab: Query<(Entity, &FrameEvents, &Transform), With<LocalPlayer>>,
 ) {
-    let Ok((entity, events, at, id)) = crab.single() else {
+    let Ok((entity, events, at)) = crab.single() else {
         return;
     };
     let ev = events.0;
-    let Some(up) = ev.level_up else {
+    if ev.level_up.is_none() && ev.levelled.is_none() {
         return;
-    };
-    // A physical skill's level has its own note (`notes.rs`).
-    if ev.levelled == Some(up.skill) {
-        return;
-    }
-    let lines = level_up_lines(&sim, *id, up.skill, up.level);
-    let count = lines.len();
-    let z = (at.translation.z + 11.0).max(21.0);
-    for (i, line) in lines.into_iter().enumerate() {
-        let lift = ABOVE + 20.0 * (count - 1 - i) as f32;
-        let colour = if i == 0 { GOLD } else { PALE };
-        let size = if i == 0 { 16.0 } else { 13.0 };
-        let spot = (at.translation + Vec3::Y * lift).with_z(z);
-        say_for(&mut commands, &line, spot, colour, (HOLD, 12.0, size));
     }
     commands.spawn((
         Pulse {
@@ -133,49 +108,6 @@ fn pulse(
         sprite.custom_size = Some(Vec2::splat(RING_FROM + (RING_TO - RING_FROM) * grow));
         sprite.color = WARM.with_alpha(0.85 * (1.0 - k));
     }
-}
-
-/// The experience each economy skill had last frame.
-#[derive(Default)]
-struct Seen {
-    crab: Option<PlayerId>,
-    xp: [u32; 10],
-}
-
-/// "+25 Prying" over the crab when a skill's experience rises, one line per
-/// skill per frame (so a gather that pays two skills shows two).
-fn xp_drops(
-    mut commands: Commands,
-    sim: Res<Sim>,
-    mut seen: Local<Seen>,
-    crab: Query<(&PlayerId, &Transform), With<LocalPlayer>>,
-) {
-    let Ok((id, at)) = crab.single() else {
-        return;
-    };
-    let Some(me) = sim.crab(*id) else {
-        return;
-    };
-    let now: [u32; 10] = std::array::from_fn(|i| me.econ.skills.xp[i]);
-    // First look, or a different crab (a loaded save, a typed code): start
-    // from where it stands, with no drop.
-    if seen.crab != Some(*id) {
-        seen.crab = Some(*id);
-        seen.xp = now;
-        return;
-    }
-    let mut shown = 0;
-    for (i, skill) in Skill::ECONOMY.into_iter().enumerate() {
-        let gained = now[i].saturating_sub(seen.xp[i]);
-        if gained > 0 {
-            let spot = at.translation + Vec3::new(0.0, 100.0 + 14.0 * shown as f32, 0.0);
-            let spot = spot.with_z((at.translation.z + 11.0).max(21.0));
-            let line = format!("+{gained} {}", skill.name());
-            say_for(&mut commands, &line, spot, GOLD, DROP);
-            shown += 1;
-        }
-    }
-    seen.xp = now;
 }
 
 /// One piece of worn gear on a carapace, shown while its crab wears it.

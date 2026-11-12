@@ -257,7 +257,7 @@ fn spawn_box(mut commands: Commands) {
                 border_radius: BorderRadius::all(px(12.0)),
                 ..default()
             },
-            BorderColor::all(Color::srgba(1.0, 0.85, 0.55, 0.35)),
+            BorderColor::all(crate::ui_theme::RIM),
             BackgroundColor(Color::srgba(0.03, 0.08, 0.10, 0.88)),
             Visibility::Hidden,
             GlobalZIndex(20),

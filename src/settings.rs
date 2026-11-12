@@ -39,11 +39,6 @@ use crate::music::Track;
 
 /// Gap between buttons.
 const GAP: f32 = 8.0;
-/// The corner buttons' height, the settings button's width, and the margin
-/// from the window's edge.
-const BUTTON_H: f32 = 34.0;
-const BUTTON_W: f32 = 104.0;
-const MARGIN: f32 = 10.0;
 /// How far a nearby voice carries, in world units: the slider's ends and
 /// where it starts (a crab is 72 wide).
 pub const RANGE_MIN: f32 = 250.0;
@@ -230,22 +225,9 @@ pub fn narrow(window: Vec2) -> bool {
 }
 
 /// The settings button's box, in logical pixels from the window's top-left
-/// corner: the top-right corner.
+/// corner: the right end of the corner row (`corner.rs`).
 pub fn button_rect(window: Vec2) -> Rect {
-    let top = if narrow(window) { 58.0 } else { MARGIN };
-    Rect::new(
-        window.x - MARGIN - BUTTON_W,
-        top,
-        window.x - MARGIN,
-        top + BUTTON_H,
-    )
-}
-
-/// The same box `rows` rows lower (the feel lab's buttons stack there).
-pub fn below(window: Vec2, rows: f32) -> Rect {
-    let r = button_rect(window);
-    let down = Vec2::Y * (BUTTON_H + GAP) * rows;
-    Rect::from_corners(r.min + down, r.max + down)
+    crate::corner::rect(window, crate::corner::Slot::Settings)
 }
 
 /// Which build this is, for the panel's last line: the commit and its date,
@@ -851,7 +833,7 @@ pub(crate) mod panel {
                 font_size: FontSize::Px(size),
                 ..default()
             },
-            TextColor(Color::srgba(1.0, 0.9, 0.7, 0.8)),
+            TextColor(crate::ui_theme::TEXT),
         )
     }
 
@@ -870,36 +852,25 @@ pub(crate) mod panel {
                 border_radius: BorderRadius::all(px(r.height() / 2.0)),
                 ..default()
             },
-            BorderColor::all(Color::srgba(1.0, 0.85, 0.55, 0.25)),
-            BackgroundColor(Color::srgba(0.05, 0.12, 0.14, 0.45)),
+            BorderColor::all(crate::ui_theme::RIM_FAINT),
+            BackgroundColor(crate::ui_theme::BUTTON),
         )
     }
 
-    fn spawn_button(mut commands: Commands, window: Single<&Window>) {
-        let size = window.size();
-        let r = button_rect(size);
+    fn spawn_button(
+        mut commands: Commands,
+        window: Single<&Window>,
+        icons: Res<crate::corner::Icons>,
+    ) {
         commands
             .spawn((
-                crate::input::PointerUi,
+                crate::corner::button(window.size(), crate::corner::Slot::Settings),
                 SettingsButton,
-                Node {
-                    position_type: PositionType::Absolute,
-                    top: px(r.min.y),
-                    right: px(size.x - r.max.x),
-                    width: px(r.width()),
-                    height: px(r.height()),
-                    justify_content: JustifyContent::Center,
-                    align_items: AlignItems::Center,
-                    border: UiRect::all(px(1.5)),
-                    border_radius: BorderRadius::all(px(r.height() / 2.0)),
-                    ..default()
-                },
-                BorderColor::all(Color::srgba(1.0, 0.85, 0.55, 0.35)),
-                BackgroundColor(Color::srgba(0.05, 0.12, 0.14, 0.45)),
             ))
-            .with_children(|b| {
-                b.spawn(text("Settings", 14.0));
-            });
+            .with_child(crate::corner::icon(
+                icons.gear.clone(),
+                crate::ui_theme::TEXT,
+            ));
     }
 
     /// The panel, laid out for the window's size, and laid out afresh when
@@ -938,8 +909,9 @@ pub(crate) mod panel {
                     border_radius: BorderRadius::all(px(12.0)),
                     ..default()
                 },
-                BorderColor::all(Color::srgba(1.0, 0.85, 0.55, 0.25)),
-                BackgroundColor(Color::srgba(0.03, 0.08, 0.10, 0.85)),
+                BorderColor::all(crate::ui_theme::RIM),
+                BackgroundColor(crate::ui_theme::PANEL),
+                crate::ui_theme::panel_shadow(),
                 Visibility::Hidden,
             ))
             .with_children(|p| {
@@ -1139,7 +1111,7 @@ pub(crate) mod panel {
         let before = *settings;
         let mut tab = open.tab;
         for p in &taps {
-            if l.button.inflate(6.0).contains(*p) {
+            if l.button.inflate(crate::corner::REACH).contains(*p) {
                 open.open = !open.open;
                 open.armed = 0.0;
                 continue;
@@ -1331,8 +1303,8 @@ pub(crate) mod panel {
             };
             let colour = match (choice.asks_first(), picked) {
                 (true, true) => Color::srgba(0.55, 0.22, 0.12, 0.8),
-                (_, true) => Color::srgba(0.35, 0.55, 0.6, 0.75),
-                (_, false) => Color::srgba(0.05, 0.12, 0.14, 0.45),
+                (_, true) => crate::ui_theme::BUTTON_ON,
+                (_, false) => crate::ui_theme::BUTTON,
             };
             bg.set_if_neq(BackgroundColor(colour));
         }
@@ -1343,7 +1315,7 @@ pub(crate) mod panel {
                     Color::srgba(1.0, 0.8, 0.6, 1.0),
                 )
             } else {
-                (label.0.words().into(), Color::srgba(1.0, 0.9, 0.7, 0.8))
+                (label.0.words().into(), crate::ui_theme::TEXT)
             };
             if text.0 != words {
                 text.0 = words;
@@ -1427,14 +1399,11 @@ pub(crate) mod panel {
         for (tab, mut bg, mut border) in &mut tabs {
             let (fill, edge) = if tab.0 == open.tab {
                 (
-                    Color::srgba(0.55, 0.40, 0.20, 0.85),
+                    crate::ui_theme::BUTTON_ON,
                     Color::srgba(1.0, 0.85, 0.55, 0.9),
                 )
             } else {
-                (
-                    Color::srgba(0.05, 0.12, 0.14, 0.45),
-                    Color::srgba(1.0, 0.85, 0.55, 0.2),
-                )
+                (crate::ui_theme::BUTTON, Color::srgba(1.0, 0.85, 0.55, 0.2))
             };
             bg.set_if_neq(BackgroundColor(fill));
             border.set_if_neq(BorderColor::all(edge));
@@ -1449,11 +1418,19 @@ pub(crate) mod panel {
     }
 
     /// Keep the button in place as the window changes.
-    fn place(window: Single<&Window>, mut button: Single<&mut Node, With<SettingsButton>>) {
-        let top = px(button_rect(window.size()).min.y);
-        if button.top != top {
-            button.top = top;
-        }
+    /// Lit while the panel is open.
+    fn place(
+        window: Single<&Window>,
+        open: Res<Open>,
+        mut button: Single<(&mut Node, &mut BackgroundColor), With<SettingsButton>>,
+    ) {
+        let (node, bg) = &mut *button;
+        crate::corner::place(node, window.size(), crate::corner::Slot::Settings);
+        bg.set_if_neq(BackgroundColor(if open.is_open() {
+            crate::ui_theme::BUTTON_ON
+        } else {
+            crate::ui_theme::BUTTON
+        }));
     }
 
     /// The ripple follows the crab, as wide as its hearing, while the slider
@@ -1526,7 +1503,7 @@ pub(crate) mod panel {
                 assert_eq!(l.choices.len(), if web { 17 } else { 5 }, "{at}");
                 // On screen without scrolling, under the button.
                 assert!(
-                    l.panel.min.x >= 0.0 && l.panel.max.y <= window.y - super::super::MARGIN,
+                    l.panel.min.x >= 0.0 && l.panel.max.y <= window.y - 10.0,
                     "{at}"
                 );
                 assert!(l.panel.min.y > button_rect(window).max.y, "{at}");
@@ -1807,7 +1784,7 @@ mod tests {
     #[test]
     fn the_settings_button_sits_in_the_top_right_corner() {
         let r = button_rect(Vec2::new(390.0, 844.0));
-        assert!(r.max.x <= 390.0 && r.min.x > 195.0 && r.min.y >= 50.0 && r.max.y < 100.0);
+        assert!(r.max.x <= 390.0 && r.min.x > 300.0 && r.min.y >= 50.0 && r.max.y < 100.0);
         let r = button_rect(Vec2::new(1024.0, 700.0));
         assert!(r.max.x <= 1024.0 && r.min.y < 20.0);
     }

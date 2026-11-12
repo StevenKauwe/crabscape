@@ -163,13 +163,16 @@ fn sleep(secs: f64) {
 
 /// Taps, in the 1200 x 800 window every player has.
 mod tap {
-    pub const INVITE: (f64, f64) = (1016.0, 27.0);
-    pub const MIC: (f64, f64) = (914.0, 27.0);
-    pub const SETTINGS: (f64, f64) = (1138.0, 27.0);
-    pub const GAME_TAB: (f64, f64) = (945.0, 96.0);
-    pub const COOP_TAB: (f64, f64) = (1151.0, 96.0);
-    pub const START_OVER: (f64, f64) = (1050.0, 304.0);
-    pub const NEW_LINK: (f64, f64) = (1050.0, 345.0);
+    // The corner row (src/corner.rs: 40 square, 8 apart, 10 from the right and top), right to left Settings,
+    // Home, Skills, Invite, Mic; the settings panel opens under it.
+    pub const INVITE: (f64, f64) = (1026.0, 30.0);
+    pub const MIC: (f64, f64) = (978.0, 30.0);
+    pub const SETTINGS: (f64, f64) = (1170.0, 30.0);
+    pub const HOME: (f64, f64) = (1122.0, 30.0);
+    pub const GAME_TAB: (f64, f64) = (945.0, 102.0);
+    pub const COOP_TAB: (f64, f64) = (1151.0, 102.0);
+    pub const START_OVER: (f64, f64) = (1050.0, 310.0);
+    pub const NEW_LINK: (f64, f64) = (1050.0, 351.0);
 }
 
 /// One player: a browser, and what this run expects of it.
@@ -465,6 +468,16 @@ fn together(players: &mut [&mut Player], secs: f64) -> Result<f64> {
         sleep(0.25);
     };
     voices(players)?;
+    // `COOPTEST_TIMELINE=1`: each player's "co-op" lines (with page times),
+    // to see where a join spends its seconds.
+    if std::env::var_os("COOPTEST_TIMELINE").is_some() {
+        for p in players.iter_mut() {
+            println!("     timeline of {}:", p.name());
+            for line in p.b.coop_log() {
+                println!("       {line}");
+            }
+        }
+    }
     Ok(met)
 }
 
@@ -586,8 +599,15 @@ fn stands_in(players: &mut [&mut Player]) -> Result<()> {
 fn meet(site: &Site, host: &mut Player, guest: &mut Player, setup: f64) -> Result<String> {
     host.open(&site.url(""))?;
     let code = host.invite()?;
+    let profile = std::env::var_os("COOPTEST_PROFILE").map(PathBuf::from);
+    if profile.is_some() {
+        guest.b.start_profile()?;
+    }
     guest.open(&site.url(&format!("join={code}")))?;
     together(&mut [host, guest], setup)?;
+    if let Some(path) = profile {
+        guest.b.stop_profile(&path)?;
+    }
     Ok(code)
 }
 
@@ -2630,8 +2650,15 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             })?;
             found.push(format!("lobby open {t:.1} s after Invite"));
             let invite = host.copied_invite(&code, "boring")?;
+            let profile = std::env::var_os("COOPTEST_PROFILE").map(PathBuf::from);
+            if profile.is_some() {
+                guest.b.start_profile()?;
+            }
             guest.open(&invite)?;
             let t = together(&mut [&mut host, &mut guest], limit::MEET)?;
+            if let Some(path) = profile {
+                guest.b.stop_profile(&path)?;
+            }
             found.push(format!("met {t:.1} s after the friend's game started"));
             found.push(sees_name(&mut host, &mut guest)?);
             found.push(sees_name(&mut guest, &mut host)?);

@@ -6,20 +6,16 @@
 //! (`crabsim::home::may_go_home`: any time, for now, even mid-fight); this
 //! only asks for it, like any other command, and shows the button.
 //!
-//! The button sits under Settings, the same size, so it is with the other
-//! buttons in the top corner on phones and desktop alike, clear of the touch
-//! buttons at the bottom and of the crab, which the camera keeps in the
-//! middle. It hides when there is nothing to do (tucked in at home already,
-//! or dead: waking takes it home anyway) and while the settings panel is
-//! open over it.
+//! The button sits in the corner row, left of Settings (`corner.rs`), on
+//! phones and desktop alike, clear of the touch buttons at the bottom and of
+//! the crab, which the camera keeps in the middle. It fades when there is
+//! nothing to do (tucked in at home already, or dead: waking takes it home
+//! anyway) and while the settings panel is open.
 
 use bevy::prelude::*;
 use crabsim::Sim;
 
 use crate::player::{GameSet, LocalPlayer, PlayerId};
-
-/// What the button says.
-const LABEL: &str = "Home";
 
 /// H belongs to the lantern; Home still asks before returning.
 const KEYS: [KeyCode; 1] = [KeyCode::Home];
@@ -45,6 +41,9 @@ impl Plugin for GoHomePlugin {
 #[derive(Component)]
 struct HomeButton;
 
+#[derive(Component)]
+struct HomeIcon;
+
 /// "Go home? Y / N" is waiting for its answer.
 #[derive(Resource, Default)]
 struct Asking(bool);
@@ -53,50 +52,26 @@ struct Asking(bool);
 struct Question;
 
 /// The button's box, in logical pixels from the window's top-left corner:
-/// the same as Settings', one row lower.
+/// in the corner row, left of Settings.
 pub fn button_rect(window: Vec2) -> Rect {
-    crate::settings::below(window, 1.0)
+    crate::corner::rect(window, crate::corner::Slot::Home)
 }
 
-/// Where a finger or the mouse counts as on the button: a pixel round it
-/// (no more: the buttons next to it are a gap of 8 away and reach 6 into it).
+/// Where a finger or the mouse counts as on the button.
 fn hit_area(window: Vec2) -> Rect {
-    button_rect(window).inflate(1.0)
+    button_rect(window).inflate(crate::corner::REACH)
 }
 
-fn spawn_button(mut commands: Commands, window: Single<&Window>) {
-    let size = window.size();
-    let r = button_rect(size);
+fn spawn_button(mut commands: Commands, window: Single<&Window>, icons: Res<crate::corner::Icons>) {
     commands
         .spawn((
-            crate::input::PointerUi,
+            crate::corner::button(window.size(), crate::corner::Slot::Home),
             HomeButton,
-            Node {
-                position_type: PositionType::Absolute,
-                top: px(r.min.y),
-                right: px(size.x - r.max.x),
-                width: px(r.width()),
-                height: px(r.height()),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                border: UiRect::all(px(1.5)),
-                border_radius: BorderRadius::all(px(r.height() / 2.0)),
-                ..default()
-            },
-            BorderColor::all(Color::srgba(1.0, 0.85, 0.55, 0.25)),
-            BackgroundColor(Color::srgba(0.05, 0.12, 0.14, 0.45)),
-            Visibility::Hidden,
         ))
-        .with_children(|b| {
-            b.spawn((
-                Text::new(LABEL),
-                TextFont {
-                    font_size: FontSize::Px(13.0),
-                    ..default()
-                },
-                TextColor(Color::srgba(1.0, 0.9, 0.7, 0.7)),
-            ));
-        });
+        .with_child((
+            HomeIcon,
+            crate::corner::icon(icons.house.clone(), crate::ui_theme::TEXT),
+        ));
 }
 
 /// The question, centred across the window; hidden until a key asks it.
@@ -134,7 +109,7 @@ fn spawn_question(mut commands: Commands) {
                     border_radius: BorderRadius::all(px(12.0)),
                     ..default()
                 },
-                BorderColor::all(Color::srgba(1.0, 0.85, 0.55, 0.35)),
+                BorderColor::all(crate::ui_theme::RIM),
                 BackgroundColor(Color::srgba(0.03, 0.08, 0.10, 0.85)),
             ))
             .with_children(|card| {
@@ -212,7 +187,8 @@ fn show(
     settings: Res<crate::settings::panel::Open>,
     asking: Res<Asking>,
     crab: Single<&PlayerId, With<LocalPlayer>>,
-    mut button: Single<&mut Visibility, (With<HomeButton>, Without<Question>)>,
+    mut button: Single<&mut BackgroundColor, With<HomeButton>>,
+    mut icon: Single<&mut ImageNode, With<HomeIcon>>,
     mut question: Single<&mut Visibility, (With<Question>, Without<HomeButton>)>,
 ) {
     let shown = |yes: bool| {
@@ -222,21 +198,27 @@ fn show(
             Visibility::Hidden
         }
     };
-    button.set_if_neq(shown(sim.can_go_home(**crab) && !settings.is_open()));
+    // Faded, not hidden, when there is nothing to do: the row keeps its shape.
+    let live = sim.can_go_home(**crab) && !settings.is_open();
+    button.set_if_neq(BackgroundColor(if live {
+        crate::ui_theme::BUTTON
+    } else {
+        crate::ui_theme::BUTTON.with_alpha(0.35)
+    }));
+    let colour = if live {
+        crate::ui_theme::TEXT
+    } else {
+        crate::ui_theme::MUTED.with_alpha(0.35)
+    };
+    if icon.color != colour {
+        icon.color = colour;
+    }
     question.set_if_neq(shown(asking.0));
 }
 
 /// Keep the button in place as the window changes (or the phone turns).
 fn place(window: Single<&Window>, mut node: Single<&mut Node, With<HomeButton>>) {
-    let size = window.size();
-    let r = button_rect(size);
-    let (top, right) = (px(r.min.y), px(size.x - r.max.x));
-    if node.top != top {
-        node.top = top;
-    }
-    if node.right != right {
-        node.right = right;
-    }
+    crate::corner::place(&mut node, window.size(), crate::corner::Slot::Home);
 }
 
 #[cfg(test)]
@@ -364,27 +346,33 @@ mod tests {
     ];
 
     #[test]
-    fn the_home_button_sits_under_settings_clear_of_every_other_button_and_the_crab() {
+    fn the_home_button_sits_beside_settings_clear_of_every_other_button_and_the_crab() {
         for window in WINDOWS {
             let r = button_rect(window);
             let screen = Rect::from_corners(Vec2::ZERO, window);
             assert!(screen.contains(r.min) && screen.contains(r.max), "{window}");
             assert!(
-                r.height() >= 34.0 && r.width() >= 100.0,
+                r.height() >= 40.0 && r.width() >= 40.0,
                 "finger-sized {window}"
             );
-            // Under Settings, in the top corner: the crab is drawn in the
+            // Beside Settings, in the top corner: the crab is drawn in the
             // middle of the screen, the touch buttons along the bottom.
             let settings = crate::settings::button_rect(window);
-            assert_eq!((r.min.x, r.max.x), (settings.min.x, settings.max.x));
-            assert!(r.min.y > settings.max.y, "{window}");
+            assert_eq!((r.min.y, r.max.y), (settings.min.y, settings.max.y));
+            assert!(r.max.x < settings.min.x, "{window}");
             assert!(r.max.y < window.y * 0.35, "out of the crab's way {window}");
             // Where a finger counts as on it, it is on nothing else.
             let hit = hit_area(window);
             let others = [
-                ("Settings", settings.inflate(6.0)),
-                ("Invite", crate::coop::invite_rect(window).inflate(6.0)),
-                ("Mic", crate::voice::mic_rect(window).inflate(6.0)),
+                ("Settings", settings.inflate(crate::corner::REACH)),
+                (
+                    "Invite",
+                    crate::coop::invite_rect(window).inflate(crate::corner::REACH),
+                ),
+                (
+                    "Mic",
+                    crate::voice::mic_rect(window).inflate(crate::corner::REACH),
+                ),
             ];
             for (name, other) in others {
                 assert!(hit.intersect(other).is_empty(), "{name} {window}");

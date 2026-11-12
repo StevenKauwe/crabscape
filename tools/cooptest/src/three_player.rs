@@ -590,10 +590,10 @@ fn scenario(
     capacity_sample(&mut players[..1], "solo")?;
     let viewport = players[0].eval("({width:innerWidth,height:innerHeight,canvas:[document.getElementById('crabscape').width,document.getElementById('crabscape').height]})")?;
     println!("multiplayer protocol viewport={viewport}");
-    // invite_rect: settings' left edge minus 8px gap and half of its 124px width.
+    // invite_rect: the corner row's fourth place, three 40px buttons and 8px gaps from the right margin.
     let invite_x =
-        viewport["width"].as_f64().ok_or("missing viewport width")? - 10.0 - 104.0 - 8.0 - 62.0;
-    players[0].click(invite_x, 10.0 + 34.0 / 2.0)?;
+        viewport["width"].as_f64().ok_or("missing viewport width")? - 10.0 - 3.0 * 48.0 - 20.0;
+    players[0].click(invite_x, 10.0 + 40.0 / 2.0)?;
     let mut invite = String::new();
     wait(|| {
         invite = players[0]

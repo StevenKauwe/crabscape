@@ -998,6 +998,9 @@ impl Ears {
 /// Hear where the crab is, what's after it and what just happened, and keep
 /// the browser a beat or two ahead.
 #[allow(clippy::too_many_arguments)]
+/// Seconds after the game starts before the music does.
+const MUSIC_WAITS: f32 = 4.0;
+
 fn play(
     time: Res<Time>,
     sim: Res<Sim>,
@@ -1007,6 +1010,12 @@ fn play(
     mut cues: MessageReader<Cue>,
     mut ears: Local<Ears>,
 ) {
+    // The first seconds belong to starting the game and meeting a friend:
+    // writing the score and its first beats is a long frame that a co-op
+    // join (whose connection is set up between frames) would wait behind.
+    if time.elapsed_secs() < MUSIC_WAITS {
+        return;
+    }
     let Ok((at, events, fighter, mover)) = crab.single() else {
         return;
     };
