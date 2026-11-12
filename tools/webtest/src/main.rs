@@ -624,11 +624,8 @@ impl Test<'_> {
         if !started {
             return Ok(()); // nothing else can work
         }
-        let (inventory_x, inventory_y) = if w > h {
-            ((w - 258.0) * 0.5 + 50.0, 90.0)
-        } else {
-            (58.0, 142.0)
-        };
+        // The cargo chip, top-left under the vitals (mirrors EDGE and CARGO_TOP in src/ui_theme.rs).
+        let (inventory_x, inventory_y) = (12.0 + 50.0, 48.0);
         self.tap(inventory_x, inventory_y + 18.0, 2, true)?;
         if let Some(prefix) = &self.o.shots {
             self.shot(PathBuf::from(format!("{prefix}-inventory.png")), true)?;

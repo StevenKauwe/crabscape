@@ -67,7 +67,6 @@ bevy = { version = "0.20.0", default-features = false, features = [
     "bevy_text",
     "bevy_ui",
     "bevy_ui_render",    # the HUD text
-    "default_font",      # a small font baked into the binary, so no font file to load
     "keyboard",
     "mouse",
     "touch",

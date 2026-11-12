@@ -70,32 +70,6 @@ pub fn say(commands: &mut Commands, text: &str, above: Vec2, colour: Color) {
     say_at(commands, text, above.extend(21.0), colour);
 }
 
-/// [`say`], but holding for `life` seconds and rising `rise` units a second
-/// (a level-up line stays 4 s; an experience drop is smaller and quicker).
-pub fn say_for(
-    commands: &mut Commands,
-    text: &str,
-    at: Vec3,
-    colour: Color,
-    (life, rise, size): (f32, f32, f32),
-) {
-    commands.spawn((
-        Note {
-            age: 0.0,
-            colour,
-            life,
-            rise,
-        },
-        Text2d::new(text),
-        TextFont {
-            font_size: FontSize::Px(size),
-            ..default()
-        },
-        TextColor(colour),
-        Transform::from_translation(at),
-    ));
-}
-
 /// [`say`], at a depth: in front of whatever is drawn at `at.z` (the home's
 /// cut-away is drawn in front of the level).
 fn say_at(commands: &mut Commands, text: &str, at: Vec3, colour: Color) {
@@ -126,7 +100,7 @@ fn note_events(
     mut last_soft: Local<f32>,
     crab: Query<(&FrameEvents, &Mover, &Transform, &PlayerId), With<LocalPlayer>>,
 ) {
-    let Ok((events, mover, at, id)) = crab.single() else {
+    let Ok((events, _, at, id)) = crab.single() else {
         return;
     };
     let ev = events.0;
@@ -145,18 +119,7 @@ fn note_events(
         notes.push((format!("{first}!"), GOLD));
         notes.push((then.into(), GOLD));
     }
-    if let Some(skill) = ev.levelled.filter(|&s| ev.proven != Some(s)) {
-        let level = mover.level(skill, &sim.tuning);
-        if mover.feat_ready(skill, &sim.tuning) {
-            // "Climbing level 5! A feat is ready: moult to grow it.", in two.
-            let note = moult::ready_note(skill, level);
-            let (first, then) = note.split_once("! ").unwrap_or((&note, ""));
-            notes.push((format!("{first}!"), GOLD));
-            notes.push((then.into(), GOLD));
-        } else {
-            notes.push((format!("{} level {level}!", skill.name()), GOLD));
-        }
-    }
+    // A level gained is the HUD's level card (`hud.rs`).
     if ev.moulted {
         notes.push(("Moulted: soft for a while.".into(), PALE));
         notes.push(("Rest tucked in to harden.".into(), PALE));

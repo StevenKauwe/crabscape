@@ -15,8 +15,8 @@ use crate::feel::FeelLab;
 use crate::notes;
 use crate::player::{FrameEvents, GameSet, LocalPlayer};
 
-const SHELL: Color = Color::srgb(0.92, 0.42, 0.26);
-const POISE: Color = Color::srgb(0.95, 0.9, 0.8);
+const SHELL: Color = crate::ui_theme::CORAL;
+const POISE: Color = crate::ui_theme::POISE;
 const GOLD: Color = Color::srgb(1.0, 0.85, 0.4);
 const PALE: Color = Color::srgb(0.85, 0.92, 0.95);
 
@@ -42,7 +42,7 @@ struct ShellFill;
 struct ShellBack;
 
 /// The shell bar's length for a plain shell.
-const SHELL_BAR: f32 = 120.0;
+const SHELL_BAR: f32 = crate::ui_theme::VITALS_W;
 
 #[derive(Component)]
 struct PoiseFill;
@@ -55,11 +55,12 @@ fn spawn_bars(mut commands: Commands) {
                 width: px(SHELL_BAR),
                 height: px(height),
                 border: UiRect::all(px(1)),
-                border_radius: BorderRadius::all(px(3)),
+                border_radius: BorderRadius::all(px(height / 2.0)),
                 overflow: Overflow::clip(),
                 ..default()
             },
-            BorderColor::all(colour.with_alpha(0.45)),
+            BorderColor::all(colour.with_alpha(0.5)),
+            BackgroundColor(crate::ui_theme::BAR_BACK),
         ));
         if fill {
             back.insert(ShellBack);
@@ -80,14 +81,14 @@ fn spawn_bars(mut commands: Commands) {
     commands
         .spawn(Node {
             position_type: PositionType::Absolute,
-            top: px(76),
-            left: px(140),
+            top: px(crate::ui_theme::SHELL_TOP),
+            left: px(crate::ui_theme::EDGE),
             flex_direction: FlexDirection::Column,
             row_gap: px(2),
             ..default()
         })
         .with_children(|c| {
-            bar(c, 7.0, SHELL, true);
+            bar(c, 10.0, SHELL, true);
             bar(c, 4.0, POISE, false);
         });
 }

@@ -851,7 +851,7 @@ pub(crate) mod panel {
                 font_size: FontSize::Px(size),
                 ..default()
             },
-            TextColor(Color::srgba(1.0, 0.9, 0.7, 0.8)),
+            TextColor(crate::ui_theme::TEXT),
         )
     }
 
@@ -870,8 +870,8 @@ pub(crate) mod panel {
                 border_radius: BorderRadius::all(px(r.height() / 2.0)),
                 ..default()
             },
-            BorderColor::all(Color::srgba(1.0, 0.85, 0.55, 0.25)),
-            BackgroundColor(Color::srgba(0.05, 0.12, 0.14, 0.45)),
+            BorderColor::all(crate::ui_theme::RIM_FAINT),
+            BackgroundColor(crate::ui_theme::BUTTON),
         )
     }
 
@@ -894,8 +894,8 @@ pub(crate) mod panel {
                     border_radius: BorderRadius::all(px(r.height() / 2.0)),
                     ..default()
                 },
-                BorderColor::all(Color::srgba(1.0, 0.85, 0.55, 0.35)),
-                BackgroundColor(Color::srgba(0.05, 0.12, 0.14, 0.45)),
+                BorderColor::all(crate::ui_theme::RIM),
+                BackgroundColor(crate::ui_theme::BUTTON),
             ))
             .with_children(|b| {
                 b.spawn(text("Settings", 14.0));
@@ -938,8 +938,9 @@ pub(crate) mod panel {
                     border_radius: BorderRadius::all(px(12.0)),
                     ..default()
                 },
-                BorderColor::all(Color::srgba(1.0, 0.85, 0.55, 0.25)),
-                BackgroundColor(Color::srgba(0.03, 0.08, 0.10, 0.85)),
+                BorderColor::all(crate::ui_theme::RIM),
+                BackgroundColor(crate::ui_theme::PANEL),
+                crate::ui_theme::panel_shadow(),
                 Visibility::Hidden,
             ))
             .with_children(|p| {
@@ -1331,8 +1332,8 @@ pub(crate) mod panel {
             };
             let colour = match (choice.asks_first(), picked) {
                 (true, true) => Color::srgba(0.55, 0.22, 0.12, 0.8),
-                (_, true) => Color::srgba(0.35, 0.55, 0.6, 0.75),
-                (_, false) => Color::srgba(0.05, 0.12, 0.14, 0.45),
+                (_, true) => crate::ui_theme::BUTTON_ON,
+                (_, false) => crate::ui_theme::BUTTON,
             };
             bg.set_if_neq(BackgroundColor(colour));
         }
@@ -1343,7 +1344,7 @@ pub(crate) mod panel {
                     Color::srgba(1.0, 0.8, 0.6, 1.0),
                 )
             } else {
-                (label.0.words().into(), Color::srgba(1.0, 0.9, 0.7, 0.8))
+                (label.0.words().into(), crate::ui_theme::TEXT)
             };
             if text.0 != words {
                 text.0 = words;
@@ -1427,14 +1428,11 @@ pub(crate) mod panel {
         for (tab, mut bg, mut border) in &mut tabs {
             let (fill, edge) = if tab.0 == open.tab {
                 (
-                    Color::srgba(0.55, 0.40, 0.20, 0.85),
+                    crate::ui_theme::BUTTON_ON,
                     Color::srgba(1.0, 0.85, 0.55, 0.9),
                 )
             } else {
-                (
-                    Color::srgba(0.05, 0.12, 0.14, 0.45),
-                    Color::srgba(1.0, 0.85, 0.55, 0.2),
-                )
+                (crate::ui_theme::BUTTON, Color::srgba(1.0, 0.85, 0.55, 0.2))
             };
             bg.set_if_neq(BackgroundColor(fill));
             border.set_if_neq(BorderColor::all(edge));

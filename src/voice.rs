@@ -733,8 +733,8 @@ mod web {
                     border_radius: BorderRadius::all(px(r.height() / 2.0)),
                     ..default()
                 },
-                BorderColor::all(Color::srgba(1.0, 0.85, 0.55, 0.25)),
-                BackgroundColor(Color::srgba(0.05, 0.12, 0.14, 0.45)),
+                BorderColor::all(crate::ui_theme::RIM_FAINT),
+                BackgroundColor(crate::ui_theme::BUTTON),
                 Visibility::Hidden,
             ))
             .with_children(|b| {
@@ -745,7 +745,7 @@ mod web {
                         font_size: FontSize::Px(13.0),
                         ..default()
                     },
-                    TextColor(Color::srgba(1.0, 0.9, 0.7, 0.7)),
+                    TextColor(crate::ui_theme::TEXT),
                 ));
                 // A little pencil leaning on the button's top-right edge: a
                 // pale wooden body with a dark lead tip.
@@ -852,9 +852,9 @@ mod web {
         });
         let (words, colour) = with(|v| match (&v.mic, v.asking, v.refused) {
             (Some(_), _, _) => ("Mic on", Color::srgba(0.7, 1.0, 0.8, 1.0)),
-            (None, true, _) => ("Mic...", Color::srgba(1.0, 0.9, 0.7, 0.7)),
+            (None, true, _) => ("Mic...", crate::ui_theme::TEXT),
             (None, false, Some(trouble)) => (trouble.short(), Color::srgba(1.0, 0.6, 0.5, 0.8)),
-            (None, false, None) => ("Mic off", Color::srgba(1.0, 0.9, 0.7, 0.7)),
+            (None, false, None) => ("Mic off", crate::ui_theme::TEXT),
         });
         if label.0.0 != words {
             label.0.0 = words.into();

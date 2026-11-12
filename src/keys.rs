@@ -164,7 +164,7 @@ fn spawn_card(mut commands: Commands) {
                 flex_direction: FlexDirection::Column,
                 ..corner()
             },
-            BorderColor::all(Color::srgba(1.0, 0.85, 0.55, 0.25)),
+            BorderColor::all(crate::ui_theme::RIM_FAINT),
             BackgroundColor(Color::srgba(0.03, 0.08, 0.10, 0.72)),
             Visibility::Hidden,
         ))
@@ -210,8 +210,8 @@ fn spawn_card(mut commands: Commands) {
                 align_items: AlignItems::Center,
                 ..corner()
             },
-            BorderColor::all(Color::srgba(1.0, 0.85, 0.55, 0.25)),
-            BackgroundColor(Color::srgba(0.05, 0.12, 0.14, 0.45)),
+            BorderColor::all(crate::ui_theme::RIM_FAINT),
+            BackgroundColor(crate::ui_theme::BUTTON),
             Visibility::Hidden,
         ))
         .with_children(|tab| {
