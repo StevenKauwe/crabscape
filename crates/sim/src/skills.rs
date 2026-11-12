@@ -201,6 +201,14 @@ impl Mover {
     /// level.
     pub fn earn(&mut self, skill: Skill, xp: f32, t: &Tuning) -> Option<Skill> {
         let was = self.level(skill, t);
+        // The first hours pay the physical skills more (`ladder.rs`).
+        let xp = match skill {
+            Skill::Climbing | Skill::Swimming => {
+                xp * crate::economy::ladder::move_xp_percent(was) as f32 / 100.0
+            }
+            Skill::Fighting => xp * crate::economy::ladder::fight_xp_percent(was) as f32 / 100.0,
+            _ => xp,
+        };
         match skill {
             Skill::Climbing => self.climb_xp += xp,
             Skill::Swimming => self.swim_xp += xp,
@@ -229,7 +237,8 @@ impl Mover {
     /// Seconds on solid ground that rest the paddle legs from spent to full,
     /// at the crab's Swimming level.
     pub fn stamina_refill_time(&self, t: &Tuning) -> f32 {
-        t.stamina_refill_time * self.swim_quickness(t)
+        let legs = crate::economy::ladder::legs_rest_percent(self.level(Skill::Swimming, t));
+        t.stamina_refill_time * self.swim_quickness(t) * (1.0 - legs as f32 / 100.0)
     }
 
     /// The share of the base stroke rhythm and rest the crab needs at its
@@ -242,7 +251,9 @@ impl Mover {
     /// (1 at level 1, more after), by its size (bigger claws, harder blows:
     /// see [`Mover::grown`]), and weaker while soft after a moult.
     pub fn claw_strength(&self, t: &Tuning) -> f32 {
-        (1.0 + t.fight_damage_per_level * self.levels_gained(Skill::Fighting, t))
+        let beyond = crate::economy::ladder::claws_beyond_percent(self.level(Skill::Fighting, t));
+        (1.0 + t.fight_damage_per_level * self.levels_gained(Skill::Fighting, t)
+            + beyond as f32 / 100.0)
             * self.econ.claw_factor
             * self.grown(t)
             * self.softness(t)

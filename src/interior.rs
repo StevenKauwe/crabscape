@@ -2150,12 +2150,13 @@ mod tests {
     }
 
     #[test]
-    fn the_home_tab_leads_with_all_eight_pieces_greyed_until_they_can_be_built() {
+    fn the_home_tab_leads_with_all_the_pieces_greyed_until_they_can_be_built() {
         let sim = Sim::with_one_crab(Vec2::new(95.0, 0.0));
         let id = crabsim::PlayerId(0);
         let crab = sim.crab(id).unwrap();
         let rows = rows_for(Tab::Home, &sim, id, crab);
-        assert!(rows[..8].iter().all(|r| matches!(r, Row::Piece(_))));
+        let pieces = crabsim::economy::PIECES.len();
+        assert!(rows[..pieces].iter().all(|r| matches!(r, Row::Piece(_))));
         let Row::Piece(first) = rows[0] else {
             panic!("a piece row")
         };

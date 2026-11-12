@@ -239,6 +239,29 @@ pub const SPOTS: &[NodeSpot] = &[
     at(NODULE_FIELD, K::NoduleField, 1620.0),
     at(NODULE_FIELD, K::NoduleField, 1700.0),
     at(NODULE_FIELD, K::NoduleField, 1780.0),
+    // The half-tier nodes (tier 1, level 8), three of each kind, provisional
+    // (the world lane may move them). Two of each lie in the home pockets,
+    // between the first pocket's nodes and the second's (5 units from them,
+    // still clear of the shrimp at 340 and 590: 93 units off), so a crab at
+    // level 8 finds them where it already works; the third of each lies on
+    // the plateau past the second shrimp (floor 110: a walk and a hop from
+    // the second pocket), clear of the moray at 1,446. Appended, so earlier
+    // indices hold.
+    s(K::BarnacleRock, 227.0),
+    s(K::EelgrassBed, 237.0),
+    s(K::BrittleStarCrevice, 247.0),
+    s(K::SandDollarBed, 437.0),
+    s(K::PurpleFilmMat, 447.0),
+    s(K::BarnacleRock, 457.0),
+    s(K::EelgrassBed, 467.0),
+    s(K::BrittleStarCrevice, 477.0),
+    s(K::SandDollarBed, 487.0),
+    s(K::PurpleFilmMat, 497.0),
+    s(K::BarnacleRock, 900.0),
+    s(K::BrittleStarCrevice, 940.0),
+    s(K::SandDollarBed, 980.0),
+    s(K::EelgrassBed, 1020.0),
+    s(K::PurpleFilmMat, 1060.0),
 ];
 
 /// Where a spot lies on this level, or `None` when its named place is not

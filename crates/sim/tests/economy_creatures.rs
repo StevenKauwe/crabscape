@@ -172,7 +172,13 @@ fn beating_a_creature_pays_its_health_based_win() {
         .iter()
         .any(|e| e.kind == Kind::Viperfish && e.deaths == 1);
     assert!(dead, "the viperfish was beaten");
-    assert!((17.0..22.0).contains(&gained), "gained {gained}");
+    // The win pays half the health (17.5), times the early Fighting
+    // factor at level 1 (`ladder::fight_xp_percent`), plus the blow's damage.
+    let early = crabsim::economy::ladder::fight_xp_percent(1) as f32 / 100.0;
+    assert!(
+        (17.0 * early..22.0 * early).contains(&gained),
+        "gained {gained}"
+    );
 }
 
 // Recipes ------------------------------------------------------------------

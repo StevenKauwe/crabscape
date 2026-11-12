@@ -937,8 +937,10 @@ fn climbing_is_a_skill_that_levels_up() {
     // (The filled pit was an 8,000-unit climb worth level 3; the longest
     // climb a crab can start from the floor now is home's kelp, about 5,000
     // units: level 2, with level 3 (60 experience) one short climb away.)
-    assert_eq!(climb.count("levelled"), 1);
-    assert_eq!(crab.climb_level(&t), 2);
+    // (The first hours pay Climbing 180% below level 15: one climb now
+    // reaches level 3.)
+    assert_eq!(climb.count("levelled"), 2);
+    assert_eq!(crab.climb_level(&t), 3);
     // ...and each level climbs faster.
     assert!(crab.climb_speed(&t) > t.climb_speed);
 }

@@ -74,6 +74,11 @@ pub fn xp_to_next(xp: u32) -> u32 {
     }
 }
 
+/// The experience from the start of `level` to the start of the next.
+pub const fn level_step(level: u32) -> u32 {
+    TABLE[level as usize + 1] - TABLE[level as usize]
+}
+
 /// The experience at which `level` begins.
 pub fn xp_for_level(level: u32) -> u32 {
     TABLE[level.clamp(1, MAX_LEVEL) as usize]

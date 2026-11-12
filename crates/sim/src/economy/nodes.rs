@@ -37,6 +37,13 @@ pub enum NodeKind {
     SulfurMatSite,
     VentMatSite,
     VentPot,
+    // The half-tier nodes (tier 1, level 8): a goal halfway to 15, with a
+    // new item for the early recipes (appended: kind order is saved order).
+    BarnacleRock,
+    BrittleStarCrevice,
+    SandDollarBed,
+    EelgrassBed,
+    PurpleFilmMat,
 }
 
 /// What a kind of node is.
@@ -101,6 +108,43 @@ const fn gather(
         base_secs: SECS[t],
         charges: CHARGES[t],
         respawn_secs: RESPAWN[t],
+        yields: Some(yields),
+        name,
+        verb,
+    }
+}
+
+/// The level a half-tier node asks (halfway to the tier 2 nodes' 15).
+pub const HALF_TIER_LEVEL: u32 = 8;
+/// Half-tier XP per gather (a tier 1 gather is 10, tier 2 is 110).
+const HALF_XP: u32 = 56;
+/// Culturing wild sites pay 80% of gathering.
+const HALF_CULTURE_XP: u32 = 45;
+
+/// A half-tier node: tier 1 in depth, tool and charges, Gathering level 8.
+const fn half(
+    kind: NodeKind,
+    skill: Skill,
+    tool: Option<ToolKind>,
+    yields: Item,
+    name: &'static str,
+    verb: &'static str,
+) -> NodeDef {
+    NodeDef {
+        kind,
+        skill,
+        tier: 1,
+        level: HALF_TIER_LEVEL,
+        tool,
+        tool_tier: 0,
+        xp: if matches!(skill, Skill::Culturing) {
+            HALF_CULTURE_XP
+        } else {
+            HALF_XP
+        },
+        base_secs: 2.8,
+        charges: 2,
+        respawn_secs: 150.0,
         yields: Some(yields),
         name,
         verb,
@@ -354,6 +398,51 @@ pub const NODES: &[NodeDef] = &[
         name: "Vent pot",
         verb: "cook at the vent",
     },
+    // The half-tier nodes, level 8. Acorn barnacles crust shallow rock;
+    // brittle stars hide in rock crevices; sand dollars lie buried in sandy
+    // sediment; eelgrass beds grow on soft shallow ground; purple films are
+    // bacterial mats on rotting weed. (Where a real crab eats or uses them
+    // is a game reading: not verified.)
+    half(
+        K::BarnacleRock,
+        Prying,
+        Some(Pry),
+        Item::Barnacle,
+        "Barnacle rock",
+        "pry barnacles",
+    ),
+    half(
+        K::BrittleStarCrevice,
+        Foraging,
+        None,
+        Item::BrittleStar,
+        "Brittle-star crevice",
+        "pick brittle stars",
+    ),
+    half(
+        K::SandDollarBed,
+        Excavating,
+        Some(Scoop),
+        Item::SandDollar,
+        "Sand-dollar bed",
+        "dig sand dollars",
+    ),
+    half(
+        K::EelgrassBed,
+        Harvesting,
+        Some(Cutter),
+        Item::Eelgrass,
+        "Eelgrass bed",
+        "cut eelgrass",
+    ),
+    half(
+        K::PurpleFilmMat,
+        Culturing,
+        None,
+        Item::PurpleFilm,
+        "Purple film",
+        "take purple film",
+    ),
 ];
 
 impl NodeKind {

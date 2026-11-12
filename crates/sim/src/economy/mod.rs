@@ -21,6 +21,7 @@ pub mod gather;
 pub mod gear;
 pub mod home;
 pub mod items;
+pub mod ladder;
 pub mod nodes;
 pub mod place;
 pub mod recipes;
@@ -319,6 +320,10 @@ pub(crate) fn give_drops(
 /// requirement in `skill` is exactly `level` ("Prying 15: you can open
 /// clams").
 pub fn unlocks(skill: Skill, level: u32) -> Vec<String> {
+    // Levels 2 to 15 of the thirteen skills are the ladder's (`ladder.rs`).
+    if let Some(lines) = ladder::early_lines(skill, level) {
+        return lines;
+    }
     let mut lines = Vec::new();
     for n in NODES
         .iter()
