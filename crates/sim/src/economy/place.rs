@@ -221,6 +221,20 @@ pub const SPOTS: &[NodeSpot] = &[
     at(WHALE_HALL, K::WhaleFallBones, 3400.0),
     at(WHALE_HALL, K::WhaleFallBones, 3700.0),
     at(WHALE_HALL, K::WhaleFallBones, 4000.0),
+    // Region 5's shelf tops (`level::open_canyon::gather_spots`, the world
+    // lane's: a glass sponge and, 90 east, a bed beside it), out past the
+    // far rim, east of the canyon. The three deeper tops (the twilight band)
+    // hold glass gardens and glass scallop beds (tier 3); the kelp ledge, at
+    // -700, is still the basin band, so it holds a sea-pen field and a clam
+    // bed (tier 2).
+    at("sponge garden kelp ledge", K::SeaPenField, 11000.0),
+    at("sponge garden kelp ledge", K::ClamBed, 11090.0),
+    at("sponge garden tower shelf", K::GlassSpongeGarden, 9350.0),
+    at("sponge garden tower shelf", K::ScallopBed, 9440.0),
+    at("sponge garden first arch", K::GlassSpongeGarden, 11980.0),
+    at("sponge garden first arch", K::ScallopBed, 12070.0),
+    at("sponge garden second arch", K::GlassSpongeGarden, 13230.0),
+    at("sponge garden second arch", K::ScallopBed, 13320.0),
 ];
 
 /// Where a spot lies on this level, or `None` when its named place is not

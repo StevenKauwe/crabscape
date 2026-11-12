@@ -65,7 +65,7 @@ const TOO_LONG: f64 = 1.5;
 /// What the scripted crab goes for.
 #[derive(Clone, Copy, PartialEq)]
 enum How {
-    /// Cut glass at the farthest tier 3 garden (the Silt Galleries' second sponge gallery, under the trench).
+    /// Cut glass at the Silt Galleries' farthest garden (the second sponge gallery, under the trench).
     Glass,
     /// Beat the mantis shrimp of the lowest x (the basin's) for its club.
     Club,
@@ -250,9 +250,17 @@ const ROUTES: [Route; 4] = [
 fn target_of(level: &Level, how: How) -> (Vec2, Vec2) {
     match how {
         How::Glass => {
+            // The lamp's want points at the Silt Galleries (the farthest of
+            // their gardens); region 5's shelf gardens are a far second source.
+            let galleries = level
+                .landmarks()
+                .into_iter()
+                .find(|l| l.name == "upper gallery")
+                .expect("the Silt Galleries");
             let n = nodes(level)
                 .into_iter()
                 .filter(|n| n.kind == NodeKind::GlassSpongeGarden)
+                .filter(|n| galleries.rect.contains(n.pos))
                 .max_by(|a, b| a.pos.x.total_cmp(&b.pos.x))
                 .expect("a glass sponge garden");
             (n.pos, n.pos)

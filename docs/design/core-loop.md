@@ -50,7 +50,7 @@ Each lead keeps their own lines here. `[x]` means it is in the game; the rest sa
 - [x] The grouper is beatable (#633): the fair bot wins 67-70% (perfect 100%), from 0%; it never gaped at a crab on its slope (aim, range and cone) and its hurtbox was out of reach until the gulp carries the crab up to its head. The sixgill stays a hunter to avoid
 - [x] Silt Galleries glass for the lamp's want (#638): the three glass gardens moved (same node indices) from the doorstep and far rim into the Silt Galleries' first two sponge galleries (the third lies within a hermit crab's reach of the plateau above); the want names "upper gallery". Re-measured: the lamp loop is 2.63 min (22 s out, 12 s home), down from 5.62
 - [x] The Deep Galleries' halls hold nodes (#638): fish falls (lanternfish hall), black coral (nodule hall: too shallow for tier-5 nodules) and whale-fall bones (whale-fall hall), three each at the world lane's sites
-- [ ] Region 5's gather spots (`open_canyon::gather_spots()`) as nodes, once region 5 lands
+- [x] Region 5's shelf tops hold nodes (#638): glass gardens and glass scallop beds on the three twilight tops, a sea-pen field and a clam bed on the kelp ledge; the lamp's want still names the Silt Galleries (the nearest place glass grows)
 
 **Loop world** (map, regions, landmarks: the world lane)
 - [ ] Way out too short: the shallows end at the first open water (the basin, 2,706 units from the door) after 14 to 17 s on foot (measured again on the Plate D map, unchanged by it). The familiar way out is a quarter of its 4 minutes

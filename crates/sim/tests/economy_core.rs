@@ -66,12 +66,18 @@ fn nodes_per_kind_follow_the_tiers() {
     for def in NODES.iter().filter(|d| d.kind != NodeKind::VentPot) {
         let count = placed.iter().filter(|n| n.kind == def.kind).count();
         // The Deep Galleries' halls add three fish falls, black corals and
-        // whale-fall bones.
-        let deep = matches!(
-            def.kind,
-            NodeKind::FishFall | NodeKind::BlackCoral | NodeKind::WhaleFallBones
-        );
-        let want = if def.tier == 1 { 4 } else { 3 } + if deep { 3 } else { 0 };
+        // whale-fall bones; region 5's shelf tops three glass gardens and
+        // scallop beds, and a sea-pen field and a clam bed.
+        let extra = match def.kind {
+            NodeKind::FishFall
+            | NodeKind::BlackCoral
+            | NodeKind::WhaleFallBones
+            | NodeKind::GlassSpongeGarden
+            | NodeKind::ScallopBed => 3,
+            NodeKind::SeaPenField | NodeKind::ClamBed => 1,
+            _ => 0,
+        };
+        let want = if def.tier == 1 { 4 } else { 3 } + extra;
         assert_eq!(count, want, "{:?}", def.kind);
     }
     assert!(placed.iter().any(|n| n.kind == NodeKind::VentPot));
@@ -345,17 +351,25 @@ fn home_of(kind: NodeKind) -> Option<&'static str> {
     }
 }
 
-/// The Deep Galleries' hall a node lies in, if any (they hold kinds that
-/// also grow elsewhere: fish falls, black coral, whale-fall bones).
+/// The Deep Galleries' hall or region 5's shelf garden a node lies in, if
+/// any (they hold kinds that also grow elsewhere).
 fn deep_hall(level: &Level, pos: Vec2) -> Option<&'static str> {
-    ["lanternfish hall", "nodule hall", "whale-fall hall"]
-        .into_iter()
-        .find(|h| {
-            level
-                .landmarks()
-                .iter()
-                .any(|m| m.name == *h && m.rect.contains(pos))
-        })
+    [
+        "lanternfish hall",
+        "nodule hall",
+        "whale-fall hall",
+        "sponge garden kelp ledge",
+        "sponge garden tower shelf",
+        "sponge garden first arch",
+        "sponge garden second arch",
+    ]
+    .into_iter()
+    .find(|h| {
+        level
+            .landmarks()
+            .iter()
+            .any(|m| m.name == *h && m.rect.contains(pos))
+    })
 }
 
 #[test]
@@ -409,6 +423,16 @@ fn nodes_lie_in_their_places_on_a_floor_and_never_in_a_mouth() {
     assert_eq!(counts.get("lanternfish hall"), Some(&3));
     assert_eq!(counts.get("nodule hall"), Some(&3));
     assert_eq!(counts.get("whale-fall hall"), Some(&3));
+    // Region 5: two on each shelf top (one of them on the kelp ledge is a
+    // clam bed, which no home names).
+    for garden in [
+        "sponge garden kelp ledge",
+        "sponge garden tower shelf",
+        "sponge garden first arch",
+        "sponge garden second arch",
+    ] {
+        assert_eq!(counts.get(garden), Some(&2), "{garden}");
+    }
 }
 
 #[test]
@@ -418,12 +442,13 @@ fn a_level_without_a_pocket_drops_its_nodes_and_keeps_the_rest() {
     let mut bare = level.clone();
     bare.rocks.clear();
     let left = nodes(&bare);
-    // The Silt and Deep Galleries go with the rocks too (their roofs are
-    // rocks), and with them the three glass gardens and the halls' nine.
+    // The Silt and Deep Galleries and region 5's shelves go with the rocks
+    // too (their roofs and tops are rocks), and with them the three glass
+    // gardens, the halls' nine and the shelves' eight.
     assert_eq!(
         left.len(),
-        all - 24,
-        "the two pockets' 12 nodes, the galleries' 3 glass gardens and the deep halls' 9 are gone"
+        all - 32,
+        "the pockets' 12, the galleries' 3, the deep halls' 9 and the shelves' 8 are gone"
     );
     assert!(left.iter().all(|n| home_of(n.kind) != Some("bone hall")));
 }
