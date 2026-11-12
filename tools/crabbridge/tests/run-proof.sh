@@ -4,6 +4,8 @@ cd "$(dirname "$0")/.."
 export RUSTC_WRAPPER=""
 cargo fmt --check
 cargo test --locked
+# Inactive experiment still gets compile/behavioral regression coverage.
+cargo test --lib --features experimental-device-auth --locked
 cargo build --locked
 (cd transport && cargo fmt --check && cargo test --locked && sh build.sh)
 node --check web/app.js

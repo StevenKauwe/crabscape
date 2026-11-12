@@ -63,3 +63,7 @@ The aggregate proof was rerun successfully after adding the deployment policy gu
 Hermetic composition regressions preserve unselected artifacts and hosting-owned CNAME, reject stale/divergent updates and unsafe files, and exercise local bare-Git retry behavior. New bridge artifact publication is disabled unless the explicit repository publication flag is enabled; this task did not enable it, merge or deploy. Disabling updates does not unpublish previously stored artifacts. Standard GitHub Pages alone does not supply the required response policy and therefore leaves the credential interface locked.
 
 Remembered-device authentication is not implemented or enabled. Passwords, session tokens and private invitations are not persisted by the frontend.
+
+## Inactive passkey experiment
+
+Seven feature-library tests exercise exact origin policy, password freshness/current-user version, grant/connection closure and ceremony guards, and synthetic ledger insertion/privacy/uniqueness/limits/revocation policy. The 55 default gateway tests also pass with the updated lockfile. `tests/run-proof.sh` explicitly runs this optional feature suite so future CI cannot silently omit it. The default host has no WebAuthn/SQLite dependency or runtime wiring. These tests do **not** establish a valid browser WebAuthn completion, authentication flow, device management or remembered session; those remain required before activation.

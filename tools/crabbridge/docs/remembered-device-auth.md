@@ -1,5 +1,7 @@
 # Remembered-device authentication (proposed, not implemented)
 
+An optional `experimental-device-auth` library now contains inactive enrollment/ledger building blocks. It is not imported by the host binary and cannot issue sessions. See `src/device_auth/README.md` for precise implemented and missing pieces. The complete behavior below remains a proposed target, not a working remembered-login feature.
+
 ## Product boundary
 
 Allow a returning user to authenticate without retyping their password. Prefer **WebAuthn/passkeys verified by a maintained WebAuthn library**, not a new signature protocol. A biometric/security-key confirmation may still appear; this is not a promise of silent login. A synced passkey is not necessarily tied to one physical device, so UI should say “registered passkey,” not claim hardware-only device identity.
