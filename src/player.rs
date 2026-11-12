@@ -257,6 +257,7 @@ pub fn spawn_local_crab(
         p.visit
             .as_deref()
             .and_then(|name| crate::photo::visit_spot(&sim, name, p.beside))
+            .or_else(|| crate::photo::place_spot(&sim, p))
     });
     #[cfg(target_arch = "wasm32")]
     let visit: Option<Vec2> = None;

@@ -145,6 +145,8 @@ fn upload_memory_globals(
 pub struct MemoryMaterial {
     pub(crate) uniform: MemoryUniform,
     memory: Handle<Image>,
+    /// The painted ground's material tiles (`painted_world.rs`), read by shapes whose colour's alpha asks.
+    tiles: Handle<Image>,
 }
 
 // Retain the existing static layout and texture bindings. MemoryUniform also
@@ -156,6 +158,9 @@ pub struct StaticMemoryBindings {
     #[texture(1)]
     #[sampler(2)]
     memory: Handle<Image>,
+    #[texture(4, dimension = "2d_array")]
+    #[sampler(5)]
+    tiles: Handle<Image>,
 }
 
 impl AsBindGroup for MemoryMaterial {
@@ -185,6 +190,7 @@ impl AsBindGroup for MemoryMaterial {
         StaticMemoryBindings {
             uniform: self.uniform.clone(),
             memory: self.memory.clone(),
+            tiles: self.tiles.clone(),
         }
         .build_bind_group(layout, device, static_param, force_no_bindless, output)?;
         output
@@ -226,6 +232,8 @@ impl Material2d for MemoryMaterial {
 #[derive(Resource, Clone)]
 pub struct MemoryTexture {
     pub image: Handle<Image>,
+    /// The painted ground's material tiles (default, and unused, where nothing is painted).
+    pub tiles: Handle<Image>,
     /// Left, bottom, width, height (world units).
     grid: Vec4,
     made_at: Option<(u32, u64, Vec4)>,
@@ -242,6 +250,7 @@ impl MemoryTexture {
                 lights: [LightUniform::default(); 8],
             },
             memory: self.image.clone(),
+            tiles: self.tiles.clone(),
         }
     }
 }
@@ -252,6 +261,7 @@ pub fn setup_memory_texture(
     sim: Res<Sim>,
     mut images: ResMut<Assets<Image>>,
     mut globals: ResMut<MemoryGlobals>,
+    painted: Option<Res<crate::painted_world::PaintedWorld>>,
 ) {
     let t = &sim.tuning.memory;
 
@@ -277,6 +287,7 @@ pub fn setup_memory_texture(
     );
     commands.insert_resource(MemoryTexture {
         image: images.add(image),
+        tiles: painted.map(|p| p.tiles.clone()).unwrap_or_default(),
         grid: globals.grid,
         made_at: None,
     });
@@ -908,6 +919,25 @@ mod tests {
         }
         assert!(
             light(water_at(Vec2::new(7000.0, -1500.0))) < light(water_at(Vec2::new(0.0, -1500.0)))
+        );
+    }
+
+    /// The painted ground's shader code is one block of text in two shaders (the cells' and the floor's and
+    /// rocks'): they must stay the same, or the same material looks different where the two meet.
+    #[test]
+    fn painted_ground_code_is_the_same_in_both_shaders() {
+        fn block(shader: &str) -> &str {
+            let start = shader
+                .find("// ---- painted ground:")
+                .expect("start marker");
+            let end = shader
+                .find("// ---- end painted ground ----")
+                .expect("end marker");
+            &shader[start..end]
+        }
+        assert_eq!(
+            block(include_str!("cellular.wgsl")),
+            block(include_str!("memory.wgsl"))
         );
     }
 }
