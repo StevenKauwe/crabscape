@@ -110,6 +110,7 @@ fn measure_first_hours() {
             focus: None,
             secs: MIXED_SECS,
             stop_level: None,
+            guide: false,
         });
         b.play();
         b
@@ -119,6 +120,7 @@ fn measure_first_hours() {
             focus: Some(Skill::Prying),
             secs: FOCUS_SECS,
             stop_level: Some(15),
+            guide: false,
         });
         b.play();
         b
@@ -233,6 +235,7 @@ fn the_bot_plays_five_minutes() {
         focus: None,
         secs: 300.0,
         stop_level: None,
+        guide: false,
     });
     b.play();
     assert!(b.now() >= 300.0);
@@ -319,4 +322,79 @@ fn first_hours_targets() {
         failures.len(),
         failures.join("\n  ")
     );
+}
+
+// ---- The first-hour guide ----
+
+/// The bot follows the guide step by step on real ticks.
+fn guided_run() -> Bot {
+    let mut b = Bot::new(Config {
+        focus: None,
+        secs: 60.0 * 60.0,
+        stop_level: None,
+        guide: true,
+    });
+    b.play_guide();
+    b
+}
+
+/// The minute each guide step finished, one line per step.
+fn step_minutes(b: &Bot) -> Vec<String> {
+    let guide = crabsim::economy::guide::GUIDE;
+    guide
+        .iter()
+        .enumerate()
+        .map(|(i, s)| {
+            let at = b
+                .step_done
+                .iter()
+                .find(|(k, _)| *k == i)
+                .map(|(_, t)| t / 60.0);
+            format!(
+                "{:>2}  {:<11} {:<34} minute {}",
+                i + 1,
+                s.skill.name(),
+                s.title,
+                at.map_or("not finished".to_string(), |m| format!("{m:.1}"))
+            )
+        })
+        .collect()
+}
+
+#[test]
+#[ignore = "prints the guide's measured minutes"]
+fn measure_the_guide() {
+    let b = guided_run();
+    println!();
+    for line in step_minutes(&b) {
+        println!("{line}");
+    }
+    println!("levels: {:?}", b.levels);
+    println!("ended at minute {:.1}, deaths {}", b.now() / 60.0, b.deaths);
+}
+
+/// A brand-new crab that follows the guide finishes the whole chain inside an
+/// hour of real ticks, and has gained a level in all thirteen skills by then.
+#[test]
+fn a_crab_following_the_guide_finishes_it_within_an_hour() {
+    let b = guided_run();
+    let steps = crabsim::economy::guide::GUIDE.len();
+    for line in step_minutes(&b) {
+        eprintln!("{line}");
+    }
+    assert_eq!(
+        b.guide_index(),
+        steps,
+        "the guide did not finish in an hour (at step {})",
+        b.guide_index() + 1
+    );
+    assert_eq!(b.step_done.len(), steps, "every step finished in order");
+    assert!(b.now() <= 60.0 * 60.0);
+    for &s in &SKILLS {
+        assert!(
+            b.levels[skill_index(s)] >= 2,
+            "{} did not gain a level by the end of the guide",
+            s.name()
+        );
+    }
 }

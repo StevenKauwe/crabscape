@@ -28,6 +28,8 @@ pub enum CellSessionAction {
     Pin(Option<u16>),
     /// Build a home piece (its index in `PIECES`).
     Piece(u8),
+    /// Turn the first-hour guide on (`true`) or end it (`false`).
+    Guide(bool),
 }
 
 impl CellSessionAction {
@@ -46,6 +48,12 @@ impl CellSessionAction {
                 }
             }
             CellSessionAction::Pin(None) => sim.unpin(id),
+            CellSessionAction::Guide(true) => {
+                sim.guide_on(id);
+            }
+            CellSessionAction::Guide(false) => {
+                sim.guide_skip(id);
+            }
             CellSessionAction::Piece(i) => {
                 if let Some(def) = crate::economy::PIECES.get(usize::from(*i)) {
                     let _ = sim.build_piece(id, def.piece);
@@ -105,9 +113,9 @@ impl CellSessionTick {
                 CellSessionAction::Royal(action) => {
                     sim.royal_action(*id, *action);
                 }
-                CellSessionAction::Pin(_) | CellSessionAction::Piece(_) => {
-                    action.apply_home_wants(sim, *id)
-                }
+                CellSessionAction::Pin(_)
+                | CellSessionAction::Piece(_)
+                | CellSessionAction::Guide(_) => action.apply_home_wants(sim, *id),
             }
         }
         sim.set_controls(host, self.controls[0]);

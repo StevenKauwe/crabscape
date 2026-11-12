@@ -260,6 +260,11 @@ impl Sim {
             }
             ev.gathered = Some((item, xp_paid));
         }
+        if let Some(item) = def.yields {
+            crab.econ
+                .guide
+                .note(crate::economy::guide::Note::Gathered(item));
+        }
         if second && let Some(item) = def.yields {
             // Room permitting; otherwise the extra is simply not taken.
             let _ = crab.mover.take_up(Carry::Item(item), tuning);
