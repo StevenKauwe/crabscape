@@ -39,7 +39,7 @@ pub const ALERT_TICKS: u32 = 600;
 /// Ticks a crab must stay behind it before it turns about.
 pub const TURN_TICKS: u32 = 90;
 /// Starts the tell when the crab's middle is this close to the mouth.
-pub const TRIGGER_RANGE: f32 = 420.0;
+pub const TRIGGER_RANGE: f32 = 480.0;
 /// The tell (1.2 s): gill covers flare, the mouth opens slowly.
 pub const TELL_TICKS: u32 = 144;
 /// The aim is locked for the tell's last stretch: leaving the cone works.
@@ -47,11 +47,11 @@ pub const LOCK_TICKS: u32 = 36;
 /// The gulp itself.
 pub const GULP_TICKS: u32 = 12;
 /// Suction reaches this far from the mouth...
-pub const CONE_LEN: f32 = 460.0;
+pub const CONE_LEN: f32 = 520.0;
 /// ...inside this half-angle (25 degrees).
 pub const CONE_COS: f32 = 0.9063;
 /// Pull speed (units per second) at the mouth, falling off with distance.
-pub const PULL_SPEED: f32 = 3600.0;
+pub const PULL_SPEED: f32 = 7000.0;
 pub const PULL_FALLOFF: f32 = 0.5;
 /// A braced (blocking) crab is pulled only this share.
 pub const BRACE_SHARE: f32 = 0.25;
@@ -66,13 +66,13 @@ pub const LIP_R: f32 = 100.0;
 pub const LIP_STAGGER: u32 = 90;
 /// Engulfed: the first bite, then this much every `GRAB.every` ticks, at most
 /// `ENGULF_MAX` in all. (Spitting out inedible prey: not verified.)
-pub const ENGULF_DAMAGE: f32 = 6.0;
-pub const ENGULF_MAX: f32 = 30.0;
+pub const ENGULF_DAMAGE: f32 = 9.0;
+pub const ENGULF_MAX: f32 = 36.0;
 pub const GRAB: GrabTuning = GrabTuning {
     ticks: 120,
     struggle: 30,
     every: 30,
-    damage: 6.0,
+    damage: 9.0,
 };
 /// The spit: out ahead of the mouth.
 pub const SPIT_SPEED: f32 = 500.0;
@@ -103,7 +103,7 @@ pub const MOUTH_X: f32 = 600.0;
 pub const MOUTH_Y: f32 = 180.0;
 /// How far up and down the head can tilt to aim (radians).
 pub const AIM_UP: f32 = 0.70;
-pub const AIM_DOWN: f32 = 1.05;
+pub const AIM_DOWN: f32 = 1.45;
 
 /// Its own state beyond the generic enemy's.
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]

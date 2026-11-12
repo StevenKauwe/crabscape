@@ -26,6 +26,7 @@ pub mod landmarks;
 mod lower_canyon;
 mod plate_d;
 pub mod refuges;
+pub mod rest;
 pub mod royal;
 pub mod strata;
 

@@ -61,6 +61,11 @@ pub struct Progress {
     /// there were any wake at home.
     #[serde(default)]
     pub wakes_at: Option<usize>,
+    /// The rest points it has reached, by name (see [`crate::rest_points`]);
+    /// dying wakes it at the nearest. Saves from before have none: an old
+    /// `wakes_at` crevice counts as reached.
+    #[serde(default)]
+    pub reached: Vec<String>,
     /// Which of the level's shell grit it took, and how much it built into
     /// its home. Saves from before building have neither: nothing taken,
     /// nothing built.
@@ -197,6 +202,7 @@ impl Sim {
             clams: shared.clams.clone(),
             well_fed: m.well_fed,
             wakes_at: crab.wakes_at,
+            reached: crab.reached.clone(),
             grit_taken: shared.grit_taken.clone(),
             home_grit: crab.home_grit,
             glass_grips: m.glass_grips,
@@ -257,6 +263,7 @@ impl Sim {
             && fits(p.nets_cut.len(), self.level.nets.len());
         self.apply_progress_obstacles(p);
         let crevices = self.level.crevices.len();
+        let rest = self.rest_points().to_vec();
         if self.crab(id).is_none() {
             return;
         }
@@ -272,6 +279,7 @@ impl Sim {
             return;
         };
         crab.wakes_at = p.wakes_at.filter(|&i| i < crevices);
+        crab.reached = crate::rest_points::restore(&p.reached, crab.wakes_at, &rest);
         crab.salvage_receipts = p.salvage_receipts.clone();
         crab.drift_receipts = p.drift_receipts.clone();
         crab.salvage_identity = p.salvage_identity;

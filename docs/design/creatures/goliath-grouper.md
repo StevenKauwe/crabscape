@@ -37,12 +37,12 @@ moves you without hitting you.
   reach it waits 5 s, stands down, and booms again when it next notices you. Nothing hurts during a boom.
 - **Tell (1.2 s, phase `gape`, last 0.3 s `locked`):** gill covers flare and the lower jaw drops slowly; the head
   tilts to aim at you. It tracks you until the last 36 ticks, then the aim is locked. A `Cue::Tell` swell plays.
-- **Gulp (12 ticks):** a **suction cone** ahead of the mouth, 460 units long, half-angle 25 degrees. A crab in it is
-  pulled toward the mouth (stronger the closer, 3,600 u/s at the mouth falling to half at the far edge; a crab at
+- **Gulp (12 ticks):** a **suction cone** ahead of the mouth, 520 units long, half-angle 25 degrees. A crab in it is
+  pulled toward the mouth (stronger the closer, 7,000 u/s at the mouth falling to half at the far edge; a crab at
   250 units is dragged about 220 units). The pull sets the crab's own velocity (only on the crab's own device) and
   stops it steering (2 ticks of hit stun).
-- **Engulf:** a crab inside the mouth circle (radius 120) in the gulp's last 3 ticks is **engulfed**: 6 damage,
-  grabbed, held at the mouth. It is bitten 6 more every 30 ticks but **never more than 30 in all**; the hold lasts
+- **Engulf:** a crab inside the mouth circle (radius 120) in the gulp's last 3 ticks is **engulfed**: 9 damage,
+  grabbed, held at the mouth. It is bitten 9 more every 30 ticks but **never more than 36 in all**; the hold lasts
   at most 1 s (120 ticks), and each dodge press takes 30 ticks off. Then it is **spat out** ahead of the mouth
   (500 u/s) and the fish gapes in recovery. (Spitting is a design call, not verified.)
 - **The crab's answers:**
@@ -71,10 +71,10 @@ moves you without hitting you.
 |---|---|---|---|
 | Idle | | `guard` (`backed` while resting) | Holds station at home, 90 u/s to correct; notices a crab within 700 of the cave mouth |
 | Notice | 180 | `boom` | No damage. Then Approach |
-| Approach | up to 600 | `alert` | Holds station, turns about after 90 ticks of the crab being behind it. Starts the tell when the crab's middle is within 420 of the mouth, ahead of it, between 40 degrees above and 60 below the facing axis, with a clear line |
+| Approach | up to 600 | `alert` | Holds station, turns about after 90 ticks of the crab being behind it. Starts the tell when the crab's middle is within 480 of the mouth, ahead of it, between 40 degrees above and 83 below the facing axis, with a clear line |
 | Tell | 144 (last 36 locked) | `gape`, `locked` | Aim tracks the crab, then locks |
 | Attack (gulp) | 12 | `gulp` | Pull in the cone; lip check on ticks 3 to 12; engulf check on ticks 10 to 12 |
-| Grab (engulfed) | <= 121 | `engulf` | 6 every 30 ticks, 30 max in all (the first 6 included) |
+| Grab (engulfed) | <= 121 | `engulf` | 9 every 30 ticks, 36 max in all (the first 9 included) |
 | Recover | 180 | `recover` | Head x1.5 |
 | Stagger | 120 (poise) / 90 (lip) | `stagger` | |
 | Flee | up to 600 | `back` / `leave` | See below |
@@ -89,7 +89,7 @@ moves you without hitting you.
 - **Boxes:** hurtbox 1,250 x 420 centred on home x, from home y upward; mouth point 600 ahead and 180 up from
   its feet point; mouth circle r 120; lip circle r 100.
 - **Numbers:** health 400, poise 200 (refill 20/s after 90 ticks; stagger 120). Crab smash 12 damage / 25 poise: 34
-  clean smashes or 8 poise-breaking ones. Engulf 6 + up to 4 bites of 6 = **30 maximum**; 20 poise on the engulf. No
+  clean smashes or 8 poise-breaking ones. Engulf 9 + up to 3 bites of 9 = **36 maximum**; 20 poise on the engulf. No
   other damage exists: **no blow, no combo.** A full 100-shell crab is never killed by one gulp (it takes 4 gulps
   undefended, each with a 2.7 s warning and 1.5 s recovery).
 - **Real vs tuned:** size is real (sources above). Everything else, including all timings, the cone, the pull, the
@@ -111,7 +111,7 @@ for 400+ units from every refuge, but a scan of the whole eastern reef found no 
 coral stand and clear of the other residents (the reef has a coral stand about every 500 units; the moray's crevice
 is at x 15220 and the mantis at 16800; an earlier spot at x 15820 put its mouth on the moray, which killed the
 scripted crab of `eastern_upper_route.rs`). So it sits at a coral head, between stands 20 and 22; the mouth is 480
-from the moray and the cone (460) stops short of it. A test checks no other resident is inside the cone's reach of
+from the moray and the cone (520) stops short of it. A test checks no other resident is inside the cone's reach of
 the mouth and that it is not inside a refuge, tunnel, mouth or chamber. It keeps out of every named pocket and
 tunnel. A crab holding coral is left alone, so a retreat is always in sight.
 - **Prize for the skills/world build:** `grouper::prize(level, home)`: on the floor 300 units behind the mouth
@@ -136,11 +136,11 @@ on the floor, jaw ajar), **leave** (tail beats; gone and hidden).
 ## Scenario tests (`crates/sim/tests/goliath_grouper.rs`)
 Placement (in `Level::test_level()`'s foes, 400+ from every refuge, tunnel, mouth and chamber); the boom is first
 and hurts nothing; the tell is 144 ticks with a `Cue::Tell`, the gulp 12; the pull happens only in the cone and a
-brace cuts it; an engulf is held, costs at most 30 and spits out; struggling frees sooner; walking out of the cone
+brace cuts it; an engulf is held, costs at most 36 and spits out; struggling frees sooner; walking out of the cone
 takes nothing; a dodge through takes nothing; a braced crab is not swallowed; a lip smash staggers it; poise breaks;
 head hits count more in recovery and the recovery can be punished; a crab can drive it off and it never strays;
 hurt past half it backs out and rests 60 s; a hit wakes it; walking away ends it; it breaks off for a crab holding
-coral; it never follows into a tunnel; no engulf exceeds 30; determinism (two sims, same hash each second); a
+coral; it never follows into a tunnel; no engulf exceeds 36; determinism (two sims, same hash each second); a
 remote crab is never changed; co-op (the guest defends once, both devices agree); phase names.
 
 ## Sources

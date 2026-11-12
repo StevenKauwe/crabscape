@@ -154,6 +154,10 @@ pub struct SimCrab {
     /// in [`Level::crevices`]), or home (None) if it rested at home since,
     /// or never rested out in the level.
     pub wakes_at: Option<usize>,
+    /// The rest points it has reached, by name (home is always reached; see
+    /// [`crate::rest_points`]). Dying wakes it at the nearest of them.
+    #[serde(default)]
+    pub reached: Vec<String>,
 }
 
 impl SimCrab {
@@ -238,6 +242,8 @@ pub struct Sim {
     /// The feel preset the tuning came from (see [`Sim::set_feel`]).
     feel: Feel,
     pub level: Level,
+    /// The level's rest points, derived once (see [`Sim::rest_points`]).
+    rest: Vec<crate::level::rest::RestPoint>,
     /// What lies in the world for everyone: clams, shell grit, bodies (see
     /// [`crate::shared`]). Ghost nets and brittle rock are in the level.
     pub shared: Shared,
@@ -395,6 +401,7 @@ impl Sim {
             placed_nodes: crate::economy::place::nodes(&level),
             salvage: None,
             canyon: None,
+            rest: level.rest_points(),
             level,
             tick: 0,
             crabs: Vec::new(),
@@ -407,6 +414,16 @@ impl Sim {
             empty_shared_base: None,
             bone_hall: Default::default(),
         }
+    }
+
+    /// The level's rest points: home, crevices, entrances and boss doors.
+    pub fn rest_points(&self) -> &[crate::level::rest::RestPoint] {
+        &self.rest
+    }
+
+    /// Derive the rest points again (after the level was swapped).
+    pub fn refresh_rest_points(&mut self) {
+        self.rest = self.level.rest_points();
     }
 
     /// The usual setup: the test level, default tuning, one crab (player 0)
@@ -1042,6 +1059,7 @@ impl Sim {
             pending: StepEvents::default(),
             resting: 0,
             wakes_at: None,
+            reached: Vec::new(),
         });
     }
 
@@ -2411,21 +2429,56 @@ impl Sim {
             // cast-off shell where it fell; what it is (strokes, lantern,
             // claws, skills) it keeps.
             if f.dead.is_some_and(|d| d >= self.tuning.respawn_ticks) {
-                if let DeepFood::Carried(slot) = crab.deep_food {
-                    crab.deep_food = DeepFood::Dropped(
-                        crab.cast_offs.len() + usize::from(crab.mover.carrying.is_some()) + slot,
-                    );
+                // It wakes at the reached rest point nearest where it fell;
+                // a fall in a boss's arena wakes it at that door with its
+                // load kept, to try again straight away.
+                let fell = crab.mover.pos;
+                let (spot, boss, name, kind) =
+                    match crate::rest_points::wake(&crab.reached, &self.rest, fell) {
+                        Some(w) => (w.point.at, w.boss, w.point.name.as_str(), &w.point.kind),
+                        None => (
+                            self.level.home_den,
+                            false,
+                            "home",
+                            &crate::level::rest::RestKind::Home,
+                        ),
+                    };
+                let (spot, tucked) = match kind {
+                    crate::level::rest::RestKind::Crevice(i) => {
+                        (self.level.door_and_den(Place::Crevice(*i)).1, true)
+                    }
+                    crate::level::rest::RestKind::Home => (self.level.home_den, true),
+                    _ => (spot, false),
+                };
+                let (carrying, clinging) = if boss {
+                    (
+                        crab.mover.carrying.take(),
+                        std::mem::take(&mut crab.mover.clinging),
+                    )
+                } else {
+                    if let DeepFood::Carried(slot) = crab.deep_food {
+                        crab.deep_food = DeepFood::Dropped(
+                            crab.cast_offs.len()
+                                + usize::from(crab.mover.carrying.is_some())
+                                + slot,
+                        );
+                    }
+                    let m = &crab.mover;
+                    crab.cast_offs.extend(m.load().map(|carrying| CastOff {
+                        pos: m.pos,
+                        carrying,
+                        recoverable: true,
+                    }));
+                    (None, Vec::new())
+                };
+                if boss {
+                    crate::rest_points::mark(&mut crab.reached, name);
                 }
-                let m = &crab.mover;
-                crab.cast_offs.extend(m.load().map(|carrying| CastOff {
-                    pos: m.pos,
-                    carrying,
-                    recoverable: true,
-                }));
                 *f = Fighter::new(&self.tuning);
-                let place = crab.wakes_at.map_or(Place::Home, Place::Crevice);
-                let (_, den) = self.level.door_and_den(place);
+                let den = spot;
                 crab.mover = crate::physics::Mover {
+                    carrying,
+                    clinging,
                     prepared_food: std::mem::take(&mut crab.mover.prepared_food),
                     upgrades: crab.mover.upgrades,
                     lantern: crab.mover.lantern,
@@ -2444,8 +2497,10 @@ impl Sim {
                     soft: crab.mover.soft,
                     growing: crab.mover.growing,
                     proven: std::mem::take(&mut crab.mover.proven),
-                    shelter: Shelter::In,
-                    tucked: 1.0,
+                    // Only home and a crevice tuck it in; elsewhere it
+                    // wakes standing at the rest point.
+                    shelter: if tucked { Shelter::In } else { Shelter::Out },
+                    tucked: if tucked { 1.0 } else { 0.0 },
                     ..crate::physics::Mover::new(den)
                 };
                 crab.mover.stamina = crab.mover.strokes(&self.tuning) as f32;
@@ -2701,14 +2756,17 @@ impl Sim {
                 .shared
                 .home_pieces
                 .contains(&crate::economy::Piece::NoduleHearth);
+            crate::rest_points::reach(crab, &self.rest);
             let m = &mut crab.mover;
             let place = self.level.place_at(m.pos);
             if m.tucked_in()
                 && let Some(Place::Crevice(i)) = place
             {
                 crab.resting = crab.resting.saturating_add(1);
-                if crab.wakes_at != Some(i) {
-                    crab.wakes_at = Some(i);
+                crab.wakes_at = Some(i);
+                if let Some(name) = crate::rest_points::crevice_name(&self.rest, i)
+                    && crate::rest_points::mark(&mut crab.reached, name)
+                {
                     crab.events.wakes_here = true;
                 }
                 let mend_after = self.tuning.home_heal_after_ticks;

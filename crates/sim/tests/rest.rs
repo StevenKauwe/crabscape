@@ -1,7 +1,8 @@
 //! Promises about rest stops: crevices under rock out in the level where a
 //! crab tucks in the way it does at home. Resting in one mends the shell and
-//! fills the reserve (nothing else: no workbench, no larder), and the last
-//! one it rested in is where it wakes after dying. Home still counts. Each
+//! fills the reserve (nothing else: no workbench, no larder), and a crevice it
+//! rested in becomes a rest point it can wake at (the nearest reached one to
+//! where it fell; see `rest_points.rs`). Home still counts. Each
 //! crab keeps its own, and it is saved.
 
 use bevy_math::Vec2;
@@ -261,6 +262,9 @@ fn the_wake_point_is_saved_and_comes_back() {
     fresh.restore_progress(P0, &saved);
     assert_eq!(fresh.crab(P0).unwrap().wakes_at, Some(1));
     assert_eq!(fresh.progress(P0).unwrap(), saved);
+    // It wakes at the nearest reached rest point now, so it falls near it.
+    let den = fresh.level.crevices[1].den;
+    fresh.crab_mut(P0).unwrap().mover = crabsim::Mover::new(Vec2::new(den.x + 200.0, den.y));
     die(&mut fresh);
     assert_eq!(
         fresh.crab(P0).unwrap().mover.pos,
