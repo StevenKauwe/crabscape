@@ -1,5 +1,8 @@
 //! Manual loopback WebRTC proof. No HTTP forwarding or browser-selected identity.
 use crate::*;
+#[cfg(feature = "experimental-device-auth")]
+#[path = "remote_passkeys.rs"]
+mod passkey_rpc;
 use std::{
     io::Write,
     os::unix::fs::{DirBuilderExt, OpenOptionsExt},
@@ -16,14 +19,63 @@ struct Invitation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     matchbox: Option<crate::matchbox_signal::ClientSignal>,
 }
+fn validate_network_mode(invite: &Invitation, command: &str) -> Result<bool, String> {
+    let direct = command == "remote-direct";
+    if direct != invite.context.network_profile.is_some() {
+        return Err("Network profile and explicit host command disagree".into());
+    }
+    if direct {
+        if invite.signal.is_some() {
+            return Err("Direct STUN requires the existing CrabScape rendezvous only".into());
+        }
+        invite
+            .matchbox
+            .as_ref()
+            .ok_or("Missing CrabScape rendezvous")?
+            .validate(crate::matchbox_signal::Endpoint::Production)?;
+    }
+    Ok(direct)
+}
 #[derive(Deserialize)]
 #[serde(tag = "method", rename_all = "snake_case", deny_unknown_fields)]
 enum Rpc {
-    Login { password: String },
-    Terminal { request: TerminalRequest },
+    Capabilities,
+    #[cfg(feature = "experimental-device-auth")]
+    PasskeyRegisterBegin {
+        password: String,
+    },
+    #[cfg(feature = "experimental-device-auth")]
+    PasskeyRegisterFinish {
+        credential: serde_json::Value,
+    },
+    #[cfg(feature = "experimental-device-auth")]
+    PasskeyLoginBegin,
+    #[cfg(feature = "experimental-device-auth")]
+    PasskeyLoginFinish {
+        credential: serde_json::Value,
+    },
+    #[cfg(feature = "experimental-device-auth")]
+    DeviceList {
+        #[serde(default)]
+        offset: usize,
+    },
+    #[cfg(feature = "experimental-device-auth")]
+    DeviceRemove {
+        id: String,
+    },
+    Login {
+        password: String,
+    },
+    Terminal {
+        request: TerminalRequest,
+    },
     Logout,
 }
 struct Connection {
+    #[cfg(feature = "experimental-device-auth")]
+    owner: codex_harbor::device_auth::Owner,
+    #[cfg(feature = "experimental-device-auth")]
+    ceremonies: Mutex<passkeys::Ceremonies>,
     app: App,
     principal: String,
     session: Mutex<Option<String>>,
@@ -33,6 +85,8 @@ struct Connection {
 }
 impl Connection {
     async fn close(&self) {
+        #[cfg(feature = "experimental-device-auth")]
+        self.owner.close();
         self.closed.store(true, Ordering::SeqCst);
         self.app
             .inner
@@ -51,7 +105,25 @@ impl Connection {
         if self.closed.load(Ordering::SeqCst) {
             return Err("Connection closed".into());
         }
+        if !self
+            .app
+            .config_current_locked(&mut *self.app.inner.lock().await)
+        {
+            return Err("Configuration changed".into());
+        }
         let response = match req {
+            Rpc::Capabilities => {
+                return Ok(serde_json::to_vec(&serde_json::json!({"passkeys":cfg!(feature="experimental-device-auth") && self.app.config.device_auth.is_some()})).unwrap());
+            }
+            #[cfg(feature = "experimental-device-auth")]
+            req @ (Rpc::PasskeyRegisterBegin { .. }
+            | Rpc::PasskeyRegisterFinish { .. }
+            | Rpc::PasskeyLoginBegin
+            | Rpc::PasskeyLoginFinish { .. }
+            | Rpc::DeviceList { .. }
+            | Rpc::DeviceRemove { .. }) => {
+                return self.passkey_handle(req, &mut session).await;
+            }
             Rpc::Login { password } => {
                 if session.is_some() {
                     return Err("Already authenticated".into());
@@ -91,6 +163,8 @@ impl Connection {
                 if let Some(key) = session.take() {
                     self.app.inner.lock().await.sessions.remove(&key);
                 }
+                #[cfg(feature = "experimental-device-auth")]
+                self.owner.close();
                 self.closed.store(true, Ordering::SeqCst);
                 return Ok(b"{\"logged_out\":true}".to_vec());
             }
@@ -126,6 +200,8 @@ fn app(config: config::Config, guard: Arc<config_guard::ConfigGuard>) -> App {
 struct Cleanup(Arc<Connection>);
 impl Drop for Cleanup {
     fn drop(&mut self) {
+        #[cfg(feature = "experimental-device-auth")]
+        self.0.owner.close();
         self.0.closed.store(true, Ordering::SeqCst);
         let state = self.0.app.inner.clone();
         let id = self.0.grant_id.clone();
@@ -147,6 +223,7 @@ pub async fn command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> 
             | "remote-prepare"
             | "remote-matchbox-invite"
             | "remote-matchbox-test-invite"
+            | "remote-direct-invite"
     ) {
         let principal = args.get(3).ok_or("Missing USER")?.clone();
         if !config.users.contains_key(&principal) {
@@ -157,6 +234,11 @@ pub async fn command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> 
             matchbox: None,
             key: random(),
             context: harbor_noise::SessionContext {
+                network_profile: if args[1] == "remote-direct-invite" {
+                    Some(harbor_noise::NetworkProfile::DirectStunV1)
+                } else {
+                    None
+                },
                 host_id: random(),
                 principal,
                 session_id: random(),
@@ -165,7 +247,7 @@ pub async fn command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> 
         };
         if matches!(
             args[1].as_str(),
-            "remote-matchbox-invite" | "remote-matchbox-test-invite"
+            "remote-matchbox-invite" | "remote-matchbox-test-invite" | "remote-direct-invite"
         ) {
             invite.matchbox = Some(crate::matchbox_signal::ClientSignal {
                 endpoint: if args[1] == "remote-matchbox-test-invite" {
@@ -222,11 +304,18 @@ pub async fn command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> 
             .open(path)?;
         f.write_all(&serde_json::to_vec_pretty(&invite)?)?;
         f.sync_all()?;
-        println!("Private 10-minute per-user pairing file created. Treat as a secret. Manual loopback proof only.");
+        if invite.context.network_profile.is_some() {
+            println!("Private direct-STUN invitation created. Connecting requires explicit remote-direct opt-in; STUN reveals network addresses, not passwords or terminal traffic. No network connection was opened.");
+        } else {
+            println!("Private 10-minute per-user pairing file created. Treat as a secret. Default loopback policy.");
+        }
         return Ok(());
     }
     let automatic = args[1] == "remote-listen";
-    let matchbox_mode = matches!(args[1].as_str(), "remote-matchbox" | "remote-matchbox-test");
+    let matchbox_mode = matches!(
+        args[1].as_str(),
+        "remote-matchbox" | "remote-matchbox-test" | "remote-direct"
+    );
     let lan_pilot = args[1] == "remote-answer-lan";
     if (!automatic
         && !matchbox_mode
@@ -237,7 +326,15 @@ pub async fn command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> 
         return Err("Use remote-answer CONFIG INVITE OFFER_JSON ANSWER_JSON or remote-listen CONFIG INVITE HOST_SIGNAL_JSON".into());
     }
     let path = Path::new(&args[3]);
-    let invite: Invitation = serde_json::from_slice(&std::fs::read(path)?)?;
+    let bytes = std::fs::read(path)?;
+    if bytes.len() > 4096 {
+        return Err("Invitation too large".into());
+    }
+    let invite: Invitation = serde_json::from_slice(&bytes)?;
+    let direct_stun = validate_network_mode(&invite, &args[1])?;
+    if direct_stun {
+        eprintln!("Explicit direct-STUN mode: outbound fixed STUN and CrabScape rendezvous; non-loopback UDP interfaces, no TURN relay. IP/network metadata is exposed to STUN and peers. Native tool permissions are unchanged.");
+    }
     if now() >= invite.context.expires_at || !config.users.contains_key(&invite.context.principal) {
         return Err("Expired/unknown principal".into());
     }
@@ -317,11 +414,19 @@ pub async fn command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> 
         .open(used)?;
     marker.write_all(b"consumed\n")?;
     marker.sync_all()?;
+    let closed = Arc::new(AtomicBool::new(false));
     let conn = Arc::new(Connection {
+        #[cfg(feature = "experimental-device-auth")]
+        owner: codex_harbor::device_auth::Owner::with_closed(
+            Instant::now() + Duration::from_secs(invite.context.expires_at.saturating_sub(now())),
+            closed.clone(),
+        ),
+        #[cfg(feature = "experimental-device-auth")]
+        ceremonies: Mutex::new(passkeys::Ceremonies::default()),
         app: app(config, guard),
         principal: invite.context.principal.clone(),
         session: Mutex::new(None),
-        closed: Arc::new(AtomicBool::new(false)),
+        closed,
         grant_id: invite.context.session_id.clone(),
         expires: invite.context.expires_at,
     });
@@ -338,7 +443,9 @@ pub async fn command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> 
             result
         })
     });
-    let result = if lan_pilot {
+    let publish = if let Some(publish) = publisher {
+        publish
+    } else {
         let path = std::path::PathBuf::from(&args[5]);
         let publish: harbor_transport_spike::AnswerPublisher = Arc::new(move |answer| {
             let path = path.clone();
@@ -351,40 +458,30 @@ pub async fn command(args: &[String]) -> Result<(), Box<dyn std::error::Error>> 
                     .open(path)
                     .map_err(|e| e.to_string())?;
                 file.write_all(&bytes).map_err(|e| e.to_string())?;
+                file.sync_all().map_err(|e| e.to_string())?;
                 Ok(())
             })
         });
-        harbor_transport_spike::serve_offer_published_with_policy(
-            key,
-            invite.context,
-            offer,
-            Duration::from_secs(600),
-            handler,
-            publish,
-            harbor_transport_spike::NetworkPolicy::ApprovedLanPilot,
-        )
-        .await
-    } else if let Some(publish) = publisher {
-        harbor_transport_spike::serve_offer_published(
-            key,
-            invite.context,
-            offer,
-            Duration::from_secs(600),
-            handler,
-            publish,
-        )
-        .await
-    } else {
-        harbor_transport_spike::serve_offer(
-            key,
-            invite.context,
-            offer,
-            Path::new(&args[5]),
-            Duration::from_secs(600),
-            handler,
-        )
-        .await
+        publish
     };
+    let policy = if direct_stun {
+        harbor_transport_spike::NetworkPolicy::DirectStun
+    } else if lan_pilot {
+        harbor_transport_spike::NetworkPolicy::ApprovedLanPilot
+    } else {
+        harbor_transport_spike::NetworkPolicy::Loopback
+    };
+    let result = harbor_transport_spike::serve_offer_published_with_shutdown(
+        key,
+        invite.context,
+        offer,
+        Duration::from_secs(600),
+        handler,
+        publish,
+        policy,
+        conn.closed.clone(),
+    )
+    .await;
     conn.close().await;
     result.map_err(|e| e.to_string())?;
     Ok(())
@@ -396,6 +493,7 @@ mod tests {
     use argon2::password_hash::{PasswordHasher, SaltString};
     fn connection() -> Arc<Connection> {
         let cfg = config::Config {
+            device_auth: None,
             tools: HashMap::new(),
             users: HashMap::from([(
                 "owner".into(),
@@ -409,17 +507,59 @@ mod tests {
                 },
             )]),
         };
+        let closed = Arc::new(AtomicBool::new(false));
         Arc::new(Connection {
+            #[cfg(feature = "experimental-device-auth")]
+            owner: codex_harbor::device_auth::Owner::with_closed(
+                Instant::now() + Duration::from_secs(600),
+                closed.clone(),
+            ),
+            #[cfg(feature = "experimental-device-auth")]
+            ceremonies: Mutex::new(passkeys::Ceremonies::default()),
             app: app(
                 cfg,
                 Arc::new(config_guard::ConfigGuard::in_memory_fixture()),
             ),
             principal: "owner".into(),
             session: Mutex::new(None),
-            closed: Arc::new(AtomicBool::new(false)),
+            closed,
             grant_id: "grant-test".into(),
             expires: now() + 60,
         })
+    }
+    #[test]
+    fn direct_network_profile_is_closed_and_host_opt_in_only() {
+        let base = serde_json::json!({"key":"00".repeat(32),"context":{"host_id":"h".repeat(64),"principal":"owner","session_id":"s".repeat(64),"expires_at":now()+600},"matchbox":{"endpoint":"wss://crabscape-introducer.fly.dev","room":format!("crabscape-crabbridge-{}","a".repeat(32))}});
+        let normal: Invitation = serde_json::from_value(base.clone()).unwrap();
+        assert!(!validate_network_mode(&normal, "remote-matchbox").unwrap());
+        assert!(validate_network_mode(&normal, "remote-direct").is_err());
+        let mut direct = base.clone();
+        direct["context"]["network_profile"] = serde_json::json!("direct-stun-v1");
+        let invite: Invitation = serde_json::from_value(direct.clone()).unwrap();
+        assert!(validate_network_mode(&invite, "remote-direct").unwrap());
+        for command in [
+            "remote-answer",
+            "remote-answer-lan",
+            "remote-listen",
+            "remote-matchbox",
+            "remote-matchbox-test",
+        ] {
+            assert!(validate_network_mode(&invite, command).is_err());
+        }
+        for profile in [
+            serde_json::json!("turn"),
+            serde_json::json!({"profile":"direct-stun-v1","url":"stun:evil.example"}),
+            serde_json::json!({"profile":"direct-stun-v1","username":"owner"}),
+        ] {
+            let mut bad = base.clone();
+            bad["context"]["network_profile"] = profile;
+            assert!(serde_json::from_value::<Invitation>(bad).is_err());
+        }
+        direct["matchbox"]["endpoint"] = serde_json::json!("ws://127.0.0.1:3536");
+        assert!(
+            validate_network_mode(&serde_json::from_value(direct).unwrap(), "remote-direct")
+                .is_err()
+        );
     }
     #[tokio::test]
     async fn remote_identity_is_host_fixed_and_token_never_returned() {

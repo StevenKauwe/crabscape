@@ -11,6 +11,8 @@ while IFS= read -r path; do
   esac
   docs_only=false
   case "$path" in
+    tools/crabbridge/frontend/* | tools/crabbridge/web/* | tools/crabbridge/transport/auth/* | tools/crabbridge/transport/Cargo.toml | tools/crabbridge/transport/Cargo.lock | tools/crabbridge/transport/build.sh | web/crabbridge/* | tools/build-crabbridge.sh | tools/build-introducer-context.sh | tools/test-introducer-context.sh)
+      introducer=true; bridge=true; continue ;;
     tools/crabbridge/* | web/crabbridge/* | tools/build-crabbridge.sh | tools/test-build-crabbridge.sh | tools/test-crabbridge-page.cjs)
       bridge=true; continue ;;
     tools/introducer/* | .github/workflows/introducer.yml)

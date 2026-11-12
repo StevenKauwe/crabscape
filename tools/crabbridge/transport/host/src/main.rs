@@ -22,6 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let host_id = hex::encode(id);
         OsRng.fill_bytes(&mut id);
         let context = harbor_noise::SessionContext {
+            network_profile: None,
             host_id,
             principal: "echo".into(),
             session_id: hex::encode(id),

@@ -1,6 +1,8 @@
 //! Test-only use of the actual same Matchbox 0.14 full-mesh service implementation.
 //! No reports, production credentials, deployment, or nonloopback bind.
 use matchbox_signaling::SignalingServer;
+// Matchbox requires this concrete rejection response type.
+#[allow(clippy::result_large_err)]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut server =

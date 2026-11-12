@@ -33,6 +33,7 @@ fn fixture() -> App {
             pending_launch: None,
         })),
         config: Arc::new(config::Config {
+            device_auth: None,
             tools: HashMap::from([
                 ("alpha".into(), registration.clone()),
                 ("beta".into(), registration),
@@ -66,6 +67,8 @@ async fn session(a: &App, user: &str, remote: Option<RemoteAuth>) -> String {
     a.inner.lock().await.sessions.insert(
         key.clone(),
         Session {
+            #[cfg(feature = "experimental-device-auth")]
+            device: None,
             user: user.into(),
             connection: remote.as_ref().map(|r| r.id.clone()),
             authority: remote,

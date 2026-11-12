@@ -32,6 +32,7 @@ impl Fixture {
             .unwrap();
         let path = directory.join("config.json");
         let config = config::Config {
+            device_auth: None,
             tools: HashMap::from([(
                 "cat".into(),
                 terminal::Registration {

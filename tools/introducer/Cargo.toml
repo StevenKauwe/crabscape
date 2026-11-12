@@ -21,3 +21,14 @@ ureq = { version = "2", features = ["json"] }
 # Long replays go into the issue compressed.
 flate2 = "1"
 base64 = "0.22"
+
+crabbridge-frontend = { path = "../crabbridge/frontend", optional = true }
+
+[features]
+default = []
+crabbridge-frontend = ["dep:crabbridge-frontend"]
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+tokio-tungstenite = "0.29"
+futures-util = "0.3"

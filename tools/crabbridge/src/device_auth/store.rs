@@ -29,6 +29,13 @@ fn private(path: &Path, directory: bool) -> Result<fs::Metadata> {
     }
     Ok(m)
 }
+#[derive(Debug, serde::Serialize)]
+pub struct DeviceInfo {
+    pub id: Vec<u8>,
+    pub expires: i64,
+    pub revoked: bool,
+    pub auth_version: i64,
+}
 impl Store {
     /// Explicit host-admin initialization only. Refuses any existing directory.
     pub fn initialize(dir: &Path, authority: &str, origin: &str) -> Result<Self> {
@@ -62,7 +69,7 @@ impl Store {
         let m = private(&path, false)?;
         let db = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE)
             .map_err(|e| e.to_string())?;
-        db.busy_timeout(std::time::Duration::from_secs(2))
+        db.busy_timeout(std::time::Duration::from_millis(25))
             .map_err(|e| e.to_string())?;
         let schema: i64 = db
             .query_row("PRAGMA user_version", [], |r| r.get(0))
@@ -147,12 +154,187 @@ impl Store {
             .map_err(|e| e.to_string())?;
         tx.commit().map_err(|e| e.to_string())
     }
+    /// Host-admin retry-safe deactivation. Already inactive is a successful no-op.
+    pub fn deactivate_user(&mut self, user: &str) -> Result<()> {
+        self.intact()?;
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|e| e.to_string())?;
+        let (version, active): (i64, bool) = tx
+            .query_row(
+                "SELECT version,active FROM users WHERE user=?1",
+                [user],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(|_| "unknown user")?;
+        if active {
+            let next = version.checked_add(1).ok_or("auth version exhausted")?;
+            tx.execute(
+                "UPDATE users SET version=?1,active=0 WHERE user=?2",
+                params![next, user],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        tx.execute("UPDATE credentials SET revoked=1 WHERE user=?1", [user])
+            .map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())
+    }
     pub(super) fn assert_user(&self, b: &Binding, hash: &str) -> Result<()> {
         self.intact()?;
         if b.authority != self.authority {
             return Err("authority mismatch".into());
         }
         check_user(&self.db, b, hash)
+    }
+    /// Host-admin listing; bounded tombstone-inclusive inventory, never browser grants.
+    pub fn list(&self, user: &str) -> Result<Vec<DeviceInfo>> {
+        self.intact()?;
+        let mut q=self.db.prepare("SELECT id,expires,revoked,version FROM credentials WHERE user=?1 ORDER BY expires DESC LIMIT 256").map_err(|e|e.to_string())?;
+        let rows = q
+            .query_map([user], |r| {
+                Ok(DeviceInfo {
+                    id: r.get(0)?,
+                    expires: r.get(1)?,
+                    revoked: r.get(2)?,
+                    auth_version: r.get(3)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        rows.map(|r| r.map_err(|e| e.to_string())).collect()
+    }
+    /// Host-admin only. Retain tombstone so no registration can reuse a revoked ID.
+    pub fn revoke(&mut self, user: &str, id: &[u8]) -> Result<()> {
+        self.revoke_with_deadline(
+            user,
+            id,
+            std::time::Instant::now() + std::time::Duration::from_secs(30),
+            None,
+        )
+    }
+    fn revoke_with_deadline(
+        &mut self,
+        user: &str,
+        id: &[u8],
+        deadline: std::time::Instant,
+        closed: Option<&std::sync::atomic::AtomicBool>,
+    ) -> Result<()> {
+        self.intact()?;
+        if id.is_empty() || id.len() > 1024 {
+            return Err("credential bounds".into());
+        }
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|e| e.to_string())?;
+        if std::time::Instant::now() >= deadline {
+            return Err("grant expired".into());
+        }
+        let changed = tx
+            .execute(
+                "UPDATE credentials SET revoked=1 WHERE user=?1 AND id=?2",
+                params![user, id],
+            )
+            .map_err(|e| e.to_string())?;
+        if changed != 1 {
+            return Err("unknown credential".into());
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err("grant expired".into());
+        }
+        if closed.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Acquire)) {
+            return Err("connection closed before commit".into());
+        }
+        tx.commit().map_err(|e| e.to_string())
+    }
+    /// Browser-origin removal must hold its connection lease through commit.
+    pub fn revoke_owned(&mut self, user: &str, id: &[u8], lease: &super::Lease) -> Result<()> {
+        let _live = lease.live()?;
+        self.revoke_with_deadline(user, id, lease.deadline, Some(&lease.closed))
+    }
+    pub(super) fn authentication_records(
+        &self,
+        b: &Binding,
+        now: i64,
+    ) -> Result<Vec<(Vec<u8>, String)>> {
+        self.intact()?;
+        if now < 0 {
+            return Err("invalid time".into());
+        }
+        let mut q=self.db.prepare("SELECT id,value FROM credentials WHERE user=?1 AND version=?2 AND revoked=0 AND expires>?3 AND length(id)<=1024 AND length(value)<=16384 LIMIT 8").map_err(|e|e.to_string())?;
+        let rows = q
+            .query_map(params![b.user, b.auth_version, now], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .map_err(|e| e.to_string())?;
+        rows.map(|r| r.map_err(|e| e.to_string())).collect()
+    }
+    pub(super) fn assert_credential_live(&self, b: &Binding, id: &[u8], now: i64) -> Result<()> {
+        self.intact()?;
+        if now < 0 {
+            return Err("invalid time".into());
+        }
+        let live:bool=self.db.query_row("SELECT EXISTS(SELECT 1 FROM credentials WHERE id=?1 AND user=?2 AND version=?3 AND revoked=0 AND expires>?4)",params![id,b.user,b.auth_version,now],|r|r.get(0)).map_err(|e|e.to_string())?;
+        if !live {
+            return Err("credential revoked or expired".into());
+        }
+        Ok(())
+    }
+    // Keep authority, expiry and cancellation inputs explicit at this transaction boundary.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn commit_authentication(
+        &mut self,
+        b: &Binding,
+        hash: &str,
+        result: &AuthenticationResult,
+        snapshot: &str,
+        now: i64,
+        deadline: std::time::Instant,
+        closed: Option<&std::sync::atomic::AtomicBool>,
+    ) -> Result<i64> {
+        self.assert_user(b, hash)?;
+        if now < 0 {
+            return Err("invalid time".into());
+        }
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|e| e.to_string())?;
+        if std::time::Instant::now() >= deadline {
+            return Err("grant or ceremony expired".into());
+        }
+        check_user(&tx, b, hash)?;
+        let now = now.max(super::unix_now()?);
+        let (value,expires):(String,i64)=tx.query_row("SELECT value,expires FROM credentials WHERE id=?1 AND user=?2 AND version=?3 AND revoked=0 AND expires>?4",params![result.cred_id(),b.user,b.auth_version,now],|r|Ok((r.get(0)?,r.get(1)?))).map_err(|_|"credential revoked or expired")?;
+        // Reject stale challenge snapshots rather than merging old counter/backup
+        // state over a concurrent update. Retry starts with current library state.
+        if value != snapshot {
+            return Err("credential changed; retry authentication".into());
+        }
+        let mut current: Passkey = serde_json::from_str(&value).map_err(|e| e.to_string())?;
+        if current.update_credential(result).is_none() {
+            return Err("credential mismatch".into());
+        }
+        let updated = serde_json::to_string(&current).map_err(|e| e.to_string())?;
+        if updated.len() > 16384 {
+            return Err("credential bounds".into());
+        }
+        tx.execute(
+            "UPDATE credentials SET value=?1 WHERE id=?2",
+            params![updated, result.cred_id()],
+        )
+        .map_err(|e| e.to_string())?;
+        if std::time::Instant::now() >= deadline {
+            return Err("grant or ceremony expired".into());
+        }
+        if expires <= super::unix_now()? {
+            return Err("credential expired before commit".into());
+        }
+        if closed.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Acquire)) {
+            return Err("connection closed before commit".into());
+        }
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(expires)
     }
     pub(super) fn credential_ids(&self, user: &str, now: i64) -> Result<Vec<CredentialID>> {
         self.intact()?;
@@ -167,6 +349,8 @@ impl Store {
             .map_err(|e| e.to_string())?;
         rows.map(|r| r.map_err(|e| e.to_string())).collect()
     }
+    // Keep authority, expiry and cancellation inputs explicit at this transaction boundary.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn insert(
         &mut self,
         b: &Binding,
@@ -175,9 +359,10 @@ impl Store {
         now: i64,
         expires: i64,
         deadline: std::time::Instant,
+        closed: Option<&std::sync::atomic::AtomicBool>,
     ) -> Result<()> {
         let value = serde_json::to_string(&p).map_err(|e| e.to_string())?;
-        self.insert_record(b, hash, p.cred_id(), &value, now, expires, deadline)
+        self.insert_record(b, hash, p.cred_id(), &value, now, expires, deadline, closed)
     }
     // Ledger boundary accepts a serialized record only from verified insert above.
     // Unit fixtures exercise this boundary, not WebAuthn proof verification.
@@ -191,6 +376,7 @@ impl Store {
         now: i64,
         expires: i64,
         deadline: std::time::Instant,
+        closed: Option<&std::sync::atomic::AtomicBool>,
     ) -> Result<()> {
         if id.is_empty() || id.len() > 1024 || value.len() > 16384 {
             return Err("credential bounds".into());
@@ -207,6 +393,16 @@ impl Store {
             return Err("grant or ceremony expired".into());
         }
         check_user(&tx, b, hash)?;
+        let total: i64 = tx
+            .query_row(
+                "SELECT count(*) FROM credentials WHERE user=?1",
+                [&b.user],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        if total >= 256 {
+            return Err("credential history limit; administrator intervention required".into());
+        }
         let count: i64 = tx
             .query_row(
                 "SELECT count(*) FROM credentials WHERE user=?1 AND revoked=0 AND expires>?2",
@@ -224,6 +420,9 @@ impl Store {
         .map_err(|e| e.to_string())?;
         if std::time::Instant::now() >= deadline {
             return Err("grant or ceremony expired".into());
+        }
+        if closed.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Acquire)) {
+            return Err("connection closed before commit".into());
         }
         tx.commit().map_err(|e| e.to_string())
     }
@@ -317,11 +516,29 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(60);
         // Synthetic storage records are not proof fixtures and never leave this test.
         for id in 1..=8 {
-            s.insert_record(&b, "fixture", &[id], "storage-fixture", 100, 200, deadline)
-                .unwrap();
+            s.insert_record(
+                &b,
+                "fixture",
+                &[id],
+                "storage-fixture",
+                100,
+                200,
+                deadline,
+                None,
+            )
+            .unwrap();
         }
         assert!(s
-            .insert_record(&b, "fixture", &[9], "storage-fixture", 100, 200, deadline)
+            .insert_record(
+                &b,
+                "fixture",
+                &[9],
+                "storage-fixture",
+                100,
+                200,
+                deadline,
+                None
+            )
             .is_err());
         assert!(s
             .insert_record(
@@ -331,7 +548,8 @@ mod tests {
                 "storage-fixture",
                 100,
                 200,
-                deadline
+                deadline,
+                None
             )
             .is_err());
         s.insert_record(
@@ -342,9 +560,31 @@ mod tests {
             100,
             200,
             deadline,
+            None,
         )
         .unwrap();
         assert_eq!(s.credential_ids(&other, 100).unwrap(), vec![vec![20]]);
+        let flag = std::sync::atomic::AtomicBool::new(true);
+        assert_eq!(
+            s.insert_record(
+                &other_b,
+                "fixture",
+                &[31],
+                "storage-fixture",
+                100,
+                200,
+                deadline,
+                Some(&flag)
+            )
+            .unwrap_err(),
+            "connection closed before commit"
+        );
+        assert_eq!(
+            s.credential_ids(&other, 100).unwrap(),
+            vec![vec![20]],
+            "closed commit rolled back"
+        );
+
         assert_eq!(s.credential_ids(&u, 100).unwrap().len(), 8);
         assert!(s.credential_ids(&u, 200).unwrap().is_empty());
         assert!(s
@@ -355,7 +595,8 @@ mod tests {
                 "fixture",
                 100,
                 200,
-                deadline
+                deadline,
+                None
             )
             .is_err());
         assert!(s
@@ -366,20 +607,252 @@ mod tests {
                 "fixture",
                 100,
                 200,
-                Instant::now()
+                Instant::now(),
+                None
             )
             .is_err());
         let mut concurrent = Store::open_existing(&dir, &a, "https://example.com").unwrap();
         concurrent.advance_user(&u, 2, "changed", false).unwrap();
         assert!(s
-            .insert_record(&b, "fixture", &[30], "fixture", 100, 200, deadline)
+            .insert_record(&b, "fixture", &[30], "fixture", 100, 200, deadline, None)
             .is_err());
         assert!(s.credential_ids(&u, 100).unwrap().is_empty());
         // Revoked IDs remain globally reserved, even for another principal.
         assert!(s
-            .insert_record(&other_b, "fixture", &[1], "fixture", 100, 200, deadline)
+            .insert_record(
+                &other_b,
+                "fixture",
+                &[1],
+                "fixture",
+                100,
+                200,
+                deadline,
+                None
+            )
             .is_err());
+        s.deactivate_user(&other).unwrap();
+        s.deactivate_user(&other).unwrap();
+        assert!(s.assert_user(&other_b, "fixture").is_err());
+        let version: i64 =
+            s.db.query_row("SELECT version FROM users WHERE user=?1", [&other], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(version, 2);
         drop(concurrent);
+        drop(s);
+        fs::remove_dir_all(dir).unwrap();
+    }
+    // Synthetic serializable state ONLY: does not claim cryptographic validity.
+    fn fixture_passkey(counter: u32) -> Passkey {
+        serde_json::from_value(serde_json::json!({"cred":{
+          "cred_id":"AQ", "cred":{"type_":"ES256","key":{"EC_EC2":{"curve":"SECP256R1","x":vec![1u8;32],"y":vec![2u8;32]}}},
+          "counter":counter,"transports":null,"user_verified":true,"backup_eligible":true,"backup_state":false,
+          "registration_policy":"required","extensions":{},"attestation":{"data":"None","metadata":"None"},"attestation_format":"none"
+        }})).unwrap()
+    }
+    fn fixture_result(counter: u32, backup: bool) -> AuthenticationResult {
+        serde_json::from_value(serde_json::json!({"cred_id":"AQ","needs_update":true,"user_verified":true,"backup_state":backup,"backup_eligible":true,"counter":counter,"extensions":{}})).unwrap()
+    }
+    #[test]
+    fn authentication_transaction_rejects_stale_counter_and_revocation() {
+        use std::time::{Duration, Instant};
+        let dir = std::env::temp_dir().join(format!("harbor-auth-fixture-{}", Uuid::new_v4()));
+        let a = Uuid::new_v4().to_string();
+        let u = Uuid::new_v4().to_string();
+        let mut s = Store::initialize(&dir, &a, "https://example.com").unwrap();
+        s.advance_user(&u, 1, "hash", true).unwrap();
+        let b = Binding {
+            authority: a.clone(),
+            user: u.clone(),
+            auth_version: 1,
+            grant: "g".into(),
+            connection: "c".into(),
+        };
+        let now = super::super::unix_now().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(60);
+        s.insert(
+            &b,
+            "hash",
+            fixture_passkey(1),
+            now,
+            now + 100,
+            deadline,
+            None,
+        )
+        .unwrap();
+        let snapshot = s.authentication_records(&b, now).unwrap().pop().unwrap().1;
+        let mut second = Store::open_existing(&dir, &a, "https://example.com").unwrap();
+        s.commit_authentication(
+            &b,
+            "hash",
+            &fixture_result(2, true),
+            &snapshot,
+            now,
+            deadline,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            second
+                .commit_authentication(
+                    &b,
+                    "hash",
+                    &fixture_result(3, false),
+                    &snapshot,
+                    now,
+                    deadline,
+                    None
+                )
+                .unwrap_err(),
+            "credential changed; retry authentication"
+        );
+        let current = second
+            .authentication_records(&b, now)
+            .unwrap()
+            .pop()
+            .unwrap()
+            .1;
+        let value: serde_json::Value = serde_json::from_str(&current).unwrap();
+        assert_eq!(value["cred"]["counter"], 2);
+        assert_eq!(value["cred"]["backup_state"], true);
+        // Captured caller time cannot extend a credential that expired meanwhile.
+        second
+            .db
+            .execute(
+                "UPDATE credentials SET expires=?1 WHERE id=?2",
+                params![now - 1, &[1u8][..]],
+            )
+            .unwrap();
+        assert!(s
+            .commit_authentication(
+                &b,
+                "hash",
+                &fixture_result(3, false),
+                &current,
+                now - 100,
+                deadline,
+                None
+            )
+            .is_err());
+        second
+            .db
+            .execute(
+                "UPDATE credentials SET expires=?1 WHERE id=?2",
+                params![now + 100, &[1u8][..]],
+            )
+            .unwrap();
+        let owner = super::super::Owner::new(Instant::now() + Duration::from_secs(30));
+        let lease = owner.lease();
+        owner.close();
+        assert_eq!(
+            second.revoke_owned(&u, &[1], &lease).unwrap_err(),
+            "owner closed or grant expired"
+        );
+        assert!(s.assert_credential_live(&b, &[1], now).is_ok());
+        second.revoke(&u, &[1]).unwrap();
+        assert!(s
+            .commit_authentication(
+                &b,
+                "hash",
+                &fixture_result(3, false),
+                &current,
+                now,
+                deadline,
+                None
+            )
+            .is_err());
+        assert!(s.assert_credential_live(&b, &[1], now).is_err());
+        assert!(s.list(&u).unwrap()[0].revoked);
+        assert!(s
+            .insert(
+                &b,
+                "hash",
+                fixture_passkey(1),
+                now,
+                now + 100,
+                deadline,
+                None
+            )
+            .is_err());
+        drop(second);
+        drop(s);
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn zero_counter_synced_state_and_cross_handle_revoke_barrier() {
+        use std::{
+            sync::{Arc, Barrier},
+            time::{Duration, Instant},
+        };
+        let dir = std::env::temp_dir().join(format!("harbor-zero-fixture-{}", Uuid::new_v4()));
+        let a = Uuid::new_v4().to_string();
+        let u = Uuid::new_v4().to_string();
+        let mut s = Store::initialize(&dir, &a, "https://example.com").unwrap();
+        s.advance_user(&u, 1, "hash", true).unwrap();
+        let b = Binding {
+            authority: a.clone(),
+            user: u.clone(),
+            auth_version: 1,
+            grant: "g".into(),
+            connection: "c".into(),
+        };
+        let now = super::super::unix_now().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(60);
+        s.insert(
+            &b,
+            "hash",
+            fixture_passkey(0),
+            now,
+            now + 100,
+            deadline,
+            None,
+        )
+        .unwrap();
+        let snapshot = s.authentication_records(&b, now).unwrap().pop().unwrap().1;
+        s.commit_authentication(
+            &b,
+            "hash",
+            &fixture_result(0, false),
+            &snapshot,
+            now,
+            deadline,
+            None,
+        )
+        .unwrap();
+        s.commit_authentication(
+            &b,
+            "hash",
+            &fixture_result(0, false),
+            &snapshot,
+            now,
+            deadline,
+            None,
+        )
+        .unwrap();
+        let barrier = Arc::new(Barrier::new(2));
+        let gate = barrier.clone();
+        let path = dir.clone();
+        let authority = a.clone();
+        let user = u.clone();
+        let thread = std::thread::spawn(move || {
+            let mut other = Store::open_existing(&path, &authority, "https://example.com").unwrap();
+            other.revoke(&user, &[1]).unwrap();
+            gate.wait();
+        });
+        barrier.wait();
+        assert!(s
+            .commit_authentication(
+                &b,
+                "hash",
+                &fixture_result(1, true),
+                &snapshot,
+                now,
+                deadline,
+                None
+            )
+            .is_err());
+        thread.join().unwrap();
         drop(s);
         fs::remove_dir_all(dir).unwrap();
     }

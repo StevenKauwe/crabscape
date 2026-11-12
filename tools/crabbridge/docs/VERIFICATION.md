@@ -62,8 +62,18 @@ The aggregate proof was rerun successfully after adding the deployment policy gu
 
 Hermetic composition regressions preserve unselected artifacts and hosting-owned CNAME, reject stale/divergent updates and unsafe files, and exercise local bare-Git retry behavior. New bridge artifact publication is disabled unless the explicit repository publication flag is enabled; this task did not enable it, merge or deploy. Disabling updates does not unpublish previously stored artifacts. Standard GitHub Pages alone does not supply the required response policy and therefore leaves the credential interface locked.
 
-Remembered-device authentication is not implemented or enabled. Passwords, session tokens and private invitations are not persisted by the frontend.
+Remembered-device authentication is implemented behind the default-off experimental-device-auth feature and tested below. It has not been activated on a deployed origin. Passwords, session tokens and private invitations are not persisted by the frontend.
 
-## Inactive passkey experiment
+## Historical inactive passkey checkpoint (superseded below)
 
 Seven feature-library tests exercise exact origin policy, password freshness/current-user version, grant/connection closure and ceremony guards, and synthetic ledger insertion/privacy/uniqueness/limits/revocation policy. The 55 default gateway tests also pass with the updated lockfile. `tests/run-proof.sh` explicitly runs this optional feature suite so future CI cannot silently omit it. The default host has no WebAuthn/SQLite dependency or runtime wiring. These tests do **not** establish a valid browser WebAuthn completion, authentication flow, device management or remembered session; those remain required before activation.
+
+## Integrated passkey and deployment-source milestone
+
+The full `tests/run-proof.sh` aggregate passes, including the optional library suite and `tests/passkey-smoke.cjs`. The latter uses an isolated virtual authenticator and a reserved HTTPS origin fulfilled locally, not a real certificate or deployed service. It proves enrollment, fresh-private-invitation passwordless login, authorized cat PTY, cross-process idle revocation, revoked-login denial, wrong userHandle/challenge/origin/replay denial, canceled pending ceremony and stale completion rejection at a 390px viewport. Default builds remain disabled; no real credential was enrolled.
+
+DirectStun policy is tested without contacting Google or opening its Internet profile. The browser rejects expired, unsafe-integer and beyond-ten-minute grants before constructing a peer. Existing loopback aggregate tests do not establish phone/carrier reachability.
+
+The existing introducer can embed the curated browser bundle using its explicit `crabbridge-frontend` feature. Default game fixture builds remain asset-independent. Static router and real local Matchbox tests cover strict headers, GET/HEAD, absent CORS on bridge assets and retained signaling/report behavior. Production Docker explicitly enables the feature; the workflow stages a closed asset/source allowlist. These are source/local checks, not a Docker build or Fly deployment.
+
+Final local Rust rerun: 56 default host tests; feature-enabled 10 library + 58 host tests; transport 14 Noise + 14 broker + 15 host tests. These overlap across feature builds, so the feature-plus-transport total is **111 unique cases**, not their sum with the default suite. Separate frontend 4, introducer default 17 and frontend-enabled 18 tests pass. The full aggregate passed before the final pre-discovery expiry helper, then the helper/no-constructor regression and actual 390px WebRTC/PTY/config-revocation fixture passed again after rebuilding assets.

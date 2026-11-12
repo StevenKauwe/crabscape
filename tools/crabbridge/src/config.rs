@@ -21,6 +21,8 @@ pub struct User {
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_auth: Option<crate::passkeys::Settings>,
     pub tools: HashMap<String, Registration>,
     pub users: HashMap<String, User>,
 }
@@ -34,6 +36,12 @@ impl Config {
     {
         let (guard, bytes) = crate::config_guard::ConfigGuard::capture(path)?;
         let c: Self = serde_json::from_slice(&bytes)?;
+        if let Some(settings) = &c.device_auth {
+            settings.validate().map_err(std::io::Error::other)?;
+            if settings.users.keys().any(|u| !c.users.contains_key(u)) {
+                return Err("Passkey principal missing from host users".into());
+            }
+        }
         for tool in c.tools.values() {
             tool.validate().map_err(std::io::Error::other)?;
         }
@@ -102,7 +110,9 @@ pub fn admin(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         "remove-user" => {
-            c.users.remove(args.get(3).ok_or("Missing user name")?);
+            let name = args.get(3).ok_or("Missing user name")?;
+            crate::passkeys::invalidate_user(&mut c, name)?;
+            c.users.remove(name);
         }
         "add-user" => {
             let name = args.get(3).ok_or("Missing user name")?;
@@ -133,6 +143,7 @@ pub fn admin(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
                 .map_err(|_| "Hashing failed")?
                 .to_string();
+            crate::passkeys::invalidate_user(&mut c, name)?;
             c.users.insert(
                 name.clone(),
                 User {
@@ -144,6 +155,7 @@ pub fn admin(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => return Err("Unknown admin command".into()),
     }
+    crate::passkeys::sync_users(&mut c)?;
     c.save(path)?;
     println!(
         "Saved host configuration. Running gateways revoke their old snapshot on the next authority check or idle sweep. Restart them to accept this new configuration."

@@ -128,7 +128,7 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.bridge == 'true') }}
     runs-on: ubuntu-24.04 # Pinned Playwright 1.60 supports this image; latest moved to unsupported 26.04.
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Public asset packaging regression
@@ -140,6 +140,8 @@ jobs:
           workspaces: |
             tools/crabbridge
             tools/crabbridge/transport
+            tools/crabbridge/frontend
+            tools/introducer
           key: crabbridge
       - name: Install matching WASM binding generator
         run: |
@@ -158,6 +160,16 @@ jobs:
         run: bash tests/run-proof.sh
       - name: Package public browser assets only
         run: bash tools/build-crabbridge.sh
+      - name: Static frontend and shared introducer regressions
+        run: |
+          cargo fmt --manifest-path tools/crabbridge/frontend/Cargo.toml --check
+          cargo clippy --manifest-path tools/crabbridge/frontend/Cargo.toml --all-targets --locked -- -D warnings
+          cargo test --manifest-path tools/crabbridge/frontend/Cargo.toml --locked
+          cargo fmt --manifest-path tools/introducer/Cargo.toml --check
+          cargo clippy --manifest-path tools/introducer/Cargo.toml --all-targets --features crabbridge-frontend --locked -- -D warnings
+          cargo test --manifest-path tools/introducer/Cargo.toml --locked
+          cargo test --manifest-path tools/introducer/Cargo.toml --features crabbridge-frontend --locked
+          bash tools/test-introducer-context.sh
       - name: Packaged peer page loads under preview subpath
         env:
           NODE_PATH: ${{ github.workspace }}/tools/crabbridge/node_modules

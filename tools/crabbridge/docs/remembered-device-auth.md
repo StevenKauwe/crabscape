@@ -1,12 +1,12 @@
-# Remembered-device authentication (proposed, not implemented)
+# Remembered-device authentication (feature-gated; no production activation)
 
-An optional `experimental-device-auth` library now contains inactive enrollment/ledger building blocks. It is not imported by the host binary and cannot issue sessions. See `src/device_auth/README.md` for precise implemented and missing pieces. The complete behavior below remains a proposed target, not a working remembered-login feature.
+The `experimental-device-auth` build now includes host-configured passkey registration/authentication, device list/removal, and live session revocation checks. It remains off in default builds, and requires an explicitly configured trusted HTTPS origin/RP and private ledger. Real-browser virtual-authenticator tests cover successful login and rejection/lifecycle paths; no personal passkey or production account has been enrolled. See `passkey-host-setup.md` for concrete commands and `VERIFICATION.md` for precise evidence.
 
 ## Product boundary
 
 Allow a returning user to authenticate without retyping their password. Prefer **WebAuthn/passkeys verified by a maintained WebAuthn library**, not a new signature protocol. A biometric/security-key confirmation may still appear; this is not a promise of silent login. A synced passkey is not necessarily tied to one physical device, so UI should say “registered passkey,” not claim hardware-only device identity.
 
-This is a design only. No credentials are enrolled, no password storage is added, and nothing here authorizes deployment, network exposure, or a change to the existing approval model.
+The implementation does not authorize deployment, network exposure or real credential enrollment. Passwords are not persisted by the browser. The following records the design and remaining operational constraints.
 
 **Remembered authentication does not replace pairing.** Every new connection still needs a fresh private Noise invitation and the existing authenticated encrypted channel. Never persist passwords, bearer sessions, invitation secrets, reusable Noise keys or terminal queues. Passkey authentication replaces only the password step inside that channel.
 
@@ -25,7 +25,7 @@ The frontend origin and its scripts are trusted code. HTTPS, CSP and response he
 3. Store the library's verified public credential, opaque credential ID, label, creation/expiry, principal, authority and current user-auth-version. Do not accept grants from browser-supplied registration fields. The label is untrusted display text, never an identity.
 4. For subsequent login, host creates a fresh authentication ceremony for the invitation's fixed principal. Successful verification installs an ordinary session using **current** tool grants and native tool permissions. It does not restore an old grant snapshot.
 
-Default credential expiry proposal: 30 days, host-admin cap 90 days; at most eight active credentials per user. These are proposed product defaults, not active settings. Support host-side list/remove and explicit browser “forget” metadata; forgetting locally does not revoke the host credential.
+Default credential expiry proposal: 30 days, host-admin cap 90 days; at most eight active credentials per user. The host currently issues 30-day credentials and enforces the 90-day upper bound in its library. Support host-side list/remove and explicit browser “forget” metadata; forgetting locally does not revoke the host credential.
 
 ## Challenge and authorization invariants
 
@@ -56,4 +56,4 @@ Use browser virtual authenticators and disposable local RP/authority storage. No
 - Logout/forget clear browser session metadata and terminal state appropriately. No password, session token or Noise invitation is persisted in browser storage, captures or logs.
 - Successful signaling closure after the completed SDP exchange does not revoke an otherwise live P2P connection; a closed Noise/application connection does invalidate its ceremonies.
 
-Implementation and deployment remain pending product choice, security review, final trusted origin/RP selection and explicit authorization for any hosting changes.
+Production activation remains pending trusted origin/RP setup and explicit authorization for deployment and host network scope. A passkey may prompt for biometric/security-key confirmation; it is not a promise of silent authentication.

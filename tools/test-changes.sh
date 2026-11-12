@@ -15,7 +15,8 @@ all=$'docs_only=false\ncode=true\nart=true\nintroducer=true\nbridge=true'
 game=$'docs_only=false\ncode=true\nart=false\nintroducer=false\nbridge=false'
 bridge=$'docs_only=false\ncode=false\nart=false\nintroducer=false\nbridge=true'
 docs=$'docs_only=true\ncode=false\nart=false\nintroducer=false\nbridge=false'
-for path in tools/crabbridge/src/main.rs tools/crabbridge/Cargo.lock web/crabbridge/remote.js tools/build-crabbridge.sh tools/test-build-crabbridge.sh tools/test-crabbridge-page.cjs; do check "$bridge" "$path"; done
+for path in tools/crabbridge/src/main.rs tools/crabbridge/Cargo.lock tools/test-build-crabbridge.sh tools/test-crabbridge-page.cjs; do check "$bridge" "$path"; done
+for path in tools/crabbridge/frontend/src/lib.rs tools/crabbridge/web/remote.js tools/crabbridge/transport/auth/src/lib.rs tools/crabbridge/transport/Cargo.lock tools/crabbridge/transport/build.sh web/crabbridge/remote.js tools/build-crabbridge.sh tools/build-introducer-context.sh tools/test-introducer-context.sh; do check $'docs_only=false\ncode=false\nart=false\nintroducer=true\nbridge=true' "$path"; done
 for path in src/main.rs crates/sim/src/net.rs web/index.html web/dragon/index.html tools/build-web.sh; do check "$game" "$path"; done
 for path in docs/design/vision.md README.md tools/crabbridge/README.md; do check "$docs" "$path"; done
 for path in Cargo.toml Cargo.lock rust-toolchain.toml .github/workflows/ci.yml tools/changes.sh tools/test-changes.sh tools/check-component-gate.sh tools/test-component-gate.sh tools/previews.sh deny.toml unknown/new.rs; do check "$all" "$path"; done

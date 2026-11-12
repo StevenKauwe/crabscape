@@ -5,6 +5,12 @@ const PROLOGUE: &[u8] =
 const MAX: usize = 16_384;
 const PATTERN: &str = "Noise_NNpsk0_25519_ChaChaPoly_BLAKE2s";
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum NetworkProfile {
+    #[serde(rename = "direct-stun-v1")]
+    DirectStunV1,
+}
+
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SessionContext {
@@ -12,6 +18,8 @@ pub struct SessionContext {
     pub principal: String,
     pub session_id: String,
     pub expires_at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network_profile: Option<NetworkProfile>,
 }
 impl SessionContext {
     pub fn validate(&self) -> Result<(), String> {
@@ -34,7 +42,7 @@ impl SessionContext {
     }
 }
 enum State {
-    Handshake(snow::HandshakeState),
+    Handshake(Box<snow::HandshakeState>),
     Transport(snow::TransportState),
     Closed,
 }
@@ -61,7 +69,7 @@ impl Channel {
         }
         .map_err(|_| "Noise initialization failed")?;
         Ok(Self {
-            state: State::Handshake(state),
+            state: State::Handshake(Box::new(state)),
         })
     }
     pub fn handshake_write(&mut self) -> Result<Vec<u8>, String> {
@@ -104,7 +112,7 @@ impl Channel {
                 unreachable!()
             };
             self.state = State::Transport(
-                h.into_transport_mode()
+                (*h).into_transport_mode()
                     .map_err(|_| "Transport transition failed")?,
             );
         }
@@ -201,6 +209,7 @@ mod tests {
     use super::*;
     fn context() -> SessionContext {
         SessionContext {
+            network_profile: None,
             host_id: "01".repeat(32),
             principal: "test".into(),
             session_id: "02".repeat(32),
@@ -348,5 +357,19 @@ mod tests {
             b.decrypt(&a.encrypt(b"still ordered").unwrap()).unwrap(),
             b"still ordered"
         );
+    }
+    #[test]
+    fn network_profile_is_noise_bound_and_legacy_bytes_unchanged() {
+        let old = context();
+        let bytes = serde_json::to_string(&old).unwrap();
+        assert!(!bytes.contains("network_profile"));
+        let mut direct = old.clone();
+        direct.network_profile = Some(NetworkProfile::DirectStunV1);
+        let mut a = Channel::new(&[3; 32], true, &direct).unwrap();
+        let mut b = Channel::new(&[3; 32], false, &old).unwrap();
+        assert!(b.handshake_read(&a.handshake_write().unwrap()).is_err());
+        let mut unknown = serde_json::to_value(old).unwrap();
+        unknown["network_profile"] = serde_json::json!("untrusted-url");
+        assert!(serde_json::from_value::<SessionContext>(unknown).is_err());
     }
 }

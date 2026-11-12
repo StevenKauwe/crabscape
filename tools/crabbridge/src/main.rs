@@ -2,6 +2,11 @@
 mod config;
 mod config_guard;
 mod matchbox_signal;
+#[cfg(feature = "experimental-device-auth")]
+mod passkeys;
+#[cfg(not(feature = "experimental-device-auth"))]
+#[path = "passkeys_disabled.rs"]
+mod passkeys;
 mod remote;
 mod signaling;
 mod terminal;
@@ -78,6 +83,8 @@ impl Drop for AuthorityWatch {
 }
 
 struct Session {
+    #[cfg(feature = "experimental-device-auth")]
+    device: Option<Arc<passkeys::DeviceSession>>,
     user: String,
     connection: Option<String>,
     authority: Option<RemoteAuth>,
@@ -179,6 +186,21 @@ async fn install_authenticated_session(
     username: String,
     remote: Option<RemoteAuth>,
 ) -> Response {
+    install_session(
+        app,
+        username,
+        remote,
+        #[cfg(feature = "experimental-device-auth")]
+        None,
+    )
+    .await
+}
+async fn install_session(
+    app: App,
+    username: String,
+    remote: Option<RemoteAuth>,
+    #[cfg(feature = "experimental-device-auth")] device: Option<Arc<passkeys::DeviceSession>>,
+) -> Response {
     let raw = random();
     let mut state = app.inner.lock().await;
     if !app.config_current_locked(&mut state) {
@@ -196,9 +218,22 @@ async fn install_authenticated_session(
     }) {
         return StatusCode::UNAUTHORIZED.into_response();
     }
+    #[cfg(feature = "experimental-device-auth")]
+    if device.as_ref().is_some_and(|d| {
+        !d.live()
+            || remote.as_ref().is_none_or(|r| {
+                app.config.device_auth.as_ref().is_none_or(|settings| {
+                    !d.matches(settings, &username, &user.password_hash, &r.id)
+                })
+            })
+    }) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
     state.sessions.insert(
         digest(&raw),
         Session {
+            #[cfg(feature = "experimental-device-auth")]
+            device,
             user: username,
             connection: remote.as_ref().map(|r| r.id.clone()),
             authority: remote.clone(),
@@ -281,6 +316,15 @@ fn unix_now() -> u64 {
         .as_secs()
 }
 fn session_live(s: &Session) -> bool {
+    #[cfg(feature = "experimental-device-auth")]
+    if s.device.as_ref().is_some_and(|d| !d.live()) {
+        if let Some(remote) = &s.authority {
+            remote
+                .closed
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        return false;
+    }
     s.expires > Instant::now()
         && s.authority.as_ref().is_none_or(|r| {
             !r.closed.load(std::sync::atomic::Ordering::SeqCst) && unix_now() < r.expires
@@ -443,6 +487,10 @@ fn router(app: App) -> Router {
             get(|| async { local_asset("web/remote.html", "text/html") }),
         )
         .route(
+            "/network.js",
+            get(|| async { local_asset("web/network.js", "text/javascript") }),
+        )
+        .route(
             "/deployment.js",
             get(|| async { local_asset("web/deployment.js", "text/javascript") }),
         )
@@ -515,6 +563,10 @@ fn router(app: App) -> Router {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = std::env::args().collect::<Vec<_>>();
+    #[cfg(feature = "experimental-device-auth")]
+    if args.get(1).is_some_and(|a| a.starts_with("device-")) {
+        return passkeys::admin(&args);
+    }
     if args.get(1).is_some_and(|a| a.starts_with("remote-")) {
         return remote::command(&args).await;
     }
@@ -558,6 +610,7 @@ mod tests {
                 pending_launch: None,
             })),
             config: Arc::new(config::Config {
+                device_auth: None,
                 tools: HashMap::new(),
                 users: HashMap::from([(
                     "test".into(),
@@ -645,6 +698,8 @@ mod tests {
         a.inner.lock().await.sessions.insert(
             digest(&t),
             Session {
+                #[cfg(feature = "experimental-device-auth")]
+                device: None,
                 user: "test".into(),
                 connection: None,
                 authority: None,
@@ -695,6 +750,8 @@ mod tests {
         a.inner.lock().await.sessions.insert(
             digest(&t),
             Session {
+                #[cfg(feature = "experimental-device-auth")]
+                device: None,
                 user: "test".into(),
                 connection: None,
                 authority: None,
@@ -780,6 +837,8 @@ mod tests {
         a.inner.lock().await.sessions.insert(
             digest(&t),
             Session {
+                #[cfg(feature = "experimental-device-auth")]
+                device: None,
                 user: "test".into(),
                 connection: None,
                 authority: None,
@@ -829,6 +888,8 @@ mod tests {
         a.inner.lock().await.sessions.insert(
             digest(&t),
             Session {
+                #[cfg(feature = "experimental-device-auth")]
+                device: None,
                 user: "test".into(),
                 connection: None,
                 authority: None,
@@ -873,6 +934,8 @@ mod tests {
         a.inner.lock().await.sessions.insert(
             digest(&t),
             Session {
+                #[cfg(feature = "experimental-device-auth")]
+                device: None,
                 user: "test".into(),
                 connection: None,
                 authority: None,
@@ -929,6 +992,8 @@ mod tests {
             a.inner.lock().await.sessions.insert(
                 digest(key),
                 Session {
+                    #[cfg(feature = "experimental-device-auth")]
+                    device: None,
                     user: "test".into(),
                     connection: None,
                     authority: None,
@@ -997,6 +1062,8 @@ mod tests {
             inner.sessions.insert(
                 digest(&t),
                 Session {
+                    #[cfg(feature = "experimental-device-auth")]
+                    device: None,
                     user: "test".into(),
                     connection: None,
                     authority: None,
@@ -1052,6 +1119,8 @@ mod tests {
             inner.sessions.insert(
                 digest(&t),
                 Session {
+                    #[cfg(feature = "experimental-device-auth")]
+                    device: None,
                     user: "test".into(),
                     connection: None,
                     authority: None,
@@ -1149,6 +1218,8 @@ mod tests {
         a.inner.lock().await.sessions.insert(
             digest(&t),
             Session {
+                #[cfg(feature = "experimental-device-auth")]
+                device: None,
                 user: "test".into(),
                 connection: None,
                 authority: None,

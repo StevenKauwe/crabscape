@@ -4,7 +4,7 @@ const dir=process.env.HARBOR_FIXTURE_DIR||__dirname,assets=process.argv[2],pause
 const clientIP=process.env.HARBOR_CLIENT_IP||'192.168.1.198',hostIP=process.env.HARBOR_HOST_IP||'192.168.1.147';
 let browser,server,page;
 const routes={
- '/':'remote.html','/remote.html':'remote.html','/remote.js':'remote.js','/matchbox.js':'matchbox.js','/deployment.js':'deployment.js','/style.css':'style.css',
+ '/':'remote.html','/remote.html':'remote.html','/remote.js':'remote.js','/matchbox.js':'matchbox.js','/network.js':'network.js','/deployment.js':'deployment.js','/style.css':'style.css',
  '/vendor/xterm.js':'vendor/xterm.js','/vendor/xterm.css':'vendor/xterm.css',
  '/remote/pkg/harbor_noise.js':'remote/pkg/harbor_noise.js','/remote/pkg/harbor_noise_bg.wasm':'remote/pkg/harbor_noise_bg.wasm'
 };

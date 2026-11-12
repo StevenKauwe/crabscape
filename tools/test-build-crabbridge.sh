@@ -10,7 +10,7 @@ printf 'PRIVATE STALE CONTENT' > "$fixture/web/crabbridge/invite.json"
 printf 'name = "wasm-bindgen"\nversion = "0.2.129"\n' > "$fixture/tools/crabbridge/transport/Cargo.lock"
 printf '<script src="/remote.js"></script><link href="/style.css">' > "$fixture/tools/crabbridge/web/remote.html"
 printf "import init from '/remote/pkg/harbor_noise.js';\n" > "$fixture/tools/crabbridge/web/remote.js"
-for file in deployment.js matchbox.js style.css vendor/xterm.js vendor/xterm.css vendor/LICENSE; do printf 'test asset' > "$fixture/tools/crabbridge/web/$file"; done
+for file in deployment.js matchbox.js network.js style.css vendor/xterm.js vendor/xterm.css vendor/LICENSE; do printf 'test asset' > "$fixture/tools/crabbridge/web/$file"; done
 printf 'PRIVATE CONFIG' > "$fixture/tools/crabbridge/web/config.json"
 cat > "$fixture/bin/cargo" <<'MOCK'
 #!/usr/bin/env bash
@@ -26,7 +26,7 @@ MOCK
 chmod +x "$fixture/bin/"*
 GITHUB_SHA=1111111111111111111111111111111111111111 PATH="$fixture/bin:$PATH" bash "$fixture/tools/build-crabbridge.sh"
 files=$(cd "$fixture/web/crabbridge" && find . -type f | sort)
-expected=$'./build-commit.txt\n./deployment.js\n./index.html\n./matchbox.js\n./remote.html\n./remote.js\n./remote/pkg/harbor_noise.js\n./remote/pkg/harbor_noise_bg.wasm\n./style.css\n./vendor/LICENSE\n./vendor/xterm.css\n./vendor/xterm.js'
+expected=$'./build-commit.txt\n./deployment.js\n./index.html\n./matchbox.js\n./network.js\n./remote.html\n./remote.js\n./remote/pkg/harbor_noise.js\n./remote/pkg/harbor_noise_bg.wasm\n./style.css\n./vendor/LICENSE\n./vendor/xterm.css\n./vendor/xterm.js'
 test "$files" = "$expected"
 grep -q 'src="./remote.js"' "$fixture/web/crabbridge/index.html"
 grep -q "from './remote/pkg/harbor_noise.js'" "$fixture/web/crabbridge/remote.js"

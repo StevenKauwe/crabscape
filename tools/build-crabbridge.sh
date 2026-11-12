@@ -20,14 +20,14 @@ fi
 )
 # Never copy a directory recursively: host config, invitations, SDP and proof artifacts are private.
 mkdir -p "$out/vendor" "$out/remote/pkg"
-for file in remote.html remote.js deployment.js matchbox.js style.css vendor/xterm.js vendor/xterm.css vendor/LICENSE; do
+for file in remote.html remote.js deployment.js matchbox.js network.js style.css vendor/xterm.js vendor/xterm.css vendor/LICENSE; do
   test -f "$source_dir/web/$file"
   cp "$source_dir/web/$file" "$out/$file"
 done
 cp "$source_dir/transport/web/pkg/harbor_noise.js" "$out/remote/pkg/"
 cp "$source_dir/transport/web/pkg/harbor_noise_bg.wasm" "$out/remote/pkg/"
 # Relative asset paths also work under PR previews (/pr-N/crabbridge/).
-for file in remote.html remote.js deployment.js matchbox.js; do
+for file in remote.html remote.js deployment.js matchbox.js network.js; do
   sed -e 's|href="/|href="./|g' -e 's|src="/|src="./|g' \
       -e "s|from '/|from './|g" "$out/$file" > "$out/$file.tmp"
   mv "$out/$file.tmp" "$out/$file"

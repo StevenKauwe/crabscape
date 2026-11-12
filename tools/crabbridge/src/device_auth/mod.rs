@@ -7,7 +7,7 @@ use std::{
     sync::{Arc, Mutex, MutexGuard},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-pub use store::Store;
+pub use store::{DeviceInfo, Store};
 use webauthn_rs::prelude::*;
 pub type Result<T> = std::result::Result<T, String>;
 
@@ -57,30 +57,62 @@ pub struct Binding {
     pub grant: String,
     pub connection: String,
 }
-/// Host-owned lifetime. Close serializes with final ledger commit. Clone only
-/// shares the same cancellation state; it cannot revive a closed owner.
-/// Dropping a clone does NOT close it. A future connection guard MUST call close
-/// on disconnect; runtime integration should use a unique RAII owner + leases.
-#[derive(Clone)]
+/// Unique connection lifetime owner. Drop revokes all leases. Keep on the host
+/// connection task; never clone or place it inside a pending ceremony.
 pub struct Owner {
+    lease: Lease,
+}
+/// Shared cancellation capability, unable to extend lifetime or revive its owner.
+#[derive(Clone)]
+pub struct Lease {
     alive: Arc<Mutex<bool>>,
     deadline: Instant,
+    closed: Arc<std::sync::atomic::AtomicBool>,
 }
 impl Owner {
     pub fn new(deadline: Instant) -> Self {
-        Self {
-            alive: Arc::new(Mutex::new(true)),
+        Self::with_closed(
             deadline,
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        )
+    }
+    /// Shared host/transport latch must only transition false -> true.
+    pub fn with_closed(deadline: Instant, closed: Arc<std::sync::atomic::AtomicBool>) -> Self {
+        Self {
+            lease: Lease {
+                alive: Arc::new(Mutex::new(true)),
+                deadline,
+                closed,
+            },
         }
     }
+    pub fn lease(&self) -> Lease {
+        self.lease.clone()
+    }
     pub fn close(&self) {
-        if let Ok(mut live) = self.alive.lock() {
+        self.lease
+            .closed
+            .store(true, std::sync::atomic::Ordering::Release);
+        if let Ok(mut live) = self.lease.alive.lock() {
             *live = false;
         }
     }
+}
+impl Drop for Owner {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+impl Lease {
     fn live(&self) -> Result<MutexGuard<'_, bool>> {
+        if self.closed.load(std::sync::atomic::Ordering::Acquire) {
+            return Err("owner closed or grant expired".into());
+        }
         let guard = self.alive.lock().map_err(|_| "owner poisoned")?;
-        if !*guard || Instant::now() >= self.deadline {
+        if !*guard
+            || self.closed.load(std::sync::atomic::Ordering::Acquire)
+            || Instant::now() >= self.deadline
+        {
             return Err("owner closed or grant expired".into());
         }
         Ok(guard)
@@ -100,7 +132,7 @@ pub struct FreshPassword {
     binding: Binding,
     password_hash: String,
     at: Instant,
-    owner: Owner,
+    owner: Lease,
 }
 impl FreshPassword {
     /// Host must supply its current hash, never a hash obtained from an RPC caller.
@@ -109,7 +141,7 @@ impl FreshPassword {
         binding: Binding,
         password: &[u8],
         current_hash: &str,
-        owner: Owner,
+        owner: Lease,
     ) -> Result<Self> {
         drop(owner.live()?);
         store.assert_user(&binding, current_hash)?;
@@ -133,7 +165,7 @@ pub struct Registration {
     hash: String,
     deadline: Instant,
     state: PasskeyRegistration,
-    owner: Owner,
+    owner: Lease,
 }
 impl RelyingParty {
     /// Calling this method is the host's explicit enrollment opt-in boundary.
@@ -196,7 +228,146 @@ impl RelyingParty {
             now,
             expires,
             ceremony.deadline,
+            Some(&ceremony.owner.closed),
         )
+    }
+}
+
+fn validate_user_handle(binding: &Binding, handle: Option<&[u8]>) -> Result<()> {
+    let user = Uuid::parse_str(&binding.user).map_err(|_| "invalid durable user UUID")?;
+    if handle.is_some_and(|h| h != user.as_bytes()) {
+        return Err("userHandle does not match principal".into());
+    }
+    Ok(())
+}
+/// Server-only, consumed by finish even on failure. Never persist or serialize.
+pub struct Authentication {
+    binding: Binding,
+    hash: String,
+    owner: Lease,
+    deadline: Instant,
+    snapshots: Vec<(Vec<u8>, String)>,
+    state: PasskeyAuthentication,
+}
+/// Opaque, server-only proof, not an application session or bearer credential.
+/// Host must call credential_live on every request/late launch/idle sweep.
+pub struct DeviceProof {
+    binding: Binding,
+    hash: String,
+    owner: Lease,
+    credential: Vec<u8>,
+    expires: i64,
+}
+impl DeviceProof {
+    pub fn binding(&self) -> &Binding {
+        &self.binding
+    }
+    pub fn credential_id(&self) -> &[u8] {
+        &self.credential
+    }
+    pub fn credential_expires(&self) -> i64 {
+        self.expires
+    }
+}
+impl RelyingParty {
+    pub fn begin_authentication(
+        &self,
+        store: &Store,
+        binding: Binding,
+        current_hash: &str,
+        owner: Lease,
+        now: i64,
+    ) -> Result<(RequestChallengeResponse, Authentication)> {
+        drop(owner.live()?);
+        store.assert_origin(&self.origin)?;
+        store.assert_user(&binding, current_hash)?;
+        let snapshots = store.authentication_records(&binding, now)?;
+        if snapshots.is_empty() {
+            return Err("no active credentials".into());
+        }
+        let passkeys: Vec<Passkey> = snapshots
+            .iter()
+            .map(|(_, value)| serde_json::from_str(value).map_err(|e| e.to_string()))
+            .collect::<Result<_>>()?;
+        let (challenge, state) = self
+            .webauthn
+            .start_passkey_authentication(&passkeys)
+            .map_err(|e| e.to_string())?;
+        let deadline = (Instant::now() + Duration::from_secs(60)).min(owner.deadline);
+        drop(owner.live()?);
+        Ok((
+            challenge,
+            Authentication {
+                binding,
+                hash: current_hash.into(),
+                owner,
+                deadline,
+                snapshots,
+                state,
+            },
+        ))
+    }
+    pub fn finish_authentication(
+        &self,
+        store: &mut Store,
+        ceremony: Authentication,
+        binding: &Binding,
+        response: &PublicKeyCredential,
+        now: i64,
+    ) -> Result<DeviceProof> {
+        if ceremony.binding != *binding || Instant::now() >= ceremony.deadline {
+            return Err("ceremony binding or expiry".into());
+        }
+        drop(ceremony.owner.live()?);
+        store.assert_origin(&self.origin)?;
+        validate_user_handle(binding, response.response.user_handle.as_deref())?;
+        let result = self
+            .webauthn
+            .finish_passkey_authentication(response, &ceremony.state)
+            .map_err(|e| e.to_string())?;
+        if !result.user_verified() {
+            return Err("user verification required".into());
+        }
+        let snapshot = ceremony
+            .snapshots
+            .iter()
+            .find(|(id, _)| id == result.cred_id())
+            .map(|(_, value)| value)
+            .ok_or("unknown result credential")?;
+        let live = ceremony.owner.live()?;
+        let expires = store.commit_authentication(
+            binding,
+            &ceremony.hash,
+            &result,
+            snapshot,
+            now,
+            ceremony.deadline,
+            Some(&ceremony.owner.closed),
+        )?;
+        drop(live);
+        Ok(DeviceProof {
+            binding: ceremony.binding,
+            hash: ceremony.hash,
+            owner: ceremony.owner,
+            credential: result.cred_id().clone(),
+            expires,
+        })
+    }
+    pub fn credential_live(
+        &self,
+        store: &Store,
+        proof: &DeviceProof,
+        binding: &Binding,
+        current_hash: &str,
+        now: i64,
+    ) -> Result<()> {
+        drop(proof.owner.live()?);
+        store.assert_origin(&self.origin)?;
+        if proof.binding != *binding || proof.hash != current_hash || now >= proof.expires {
+            return Err("device proof stale".into());
+        }
+        store.assert_user(binding, current_hash)?;
+        store.assert_credential_live(binding, &proof.credential, now)
     }
 }
 
@@ -240,15 +411,15 @@ mod tests {
             connection: "fixture-connection".into(),
         };
         let owner = Owner::new(Instant::now() + Duration::from_secs(300));
-        assert!(FreshPassword::verify(&store, b.clone(), b"wrong", &hash, owner.clone()).is_err());
+        assert!(FreshPassword::verify(&store, b.clone(), b"wrong", &hash, owner.lease()).is_err());
         let rp = RelyingParty::new("https://example.com", "example.com").unwrap();
         let mut proof =
-            FreshPassword::verify(&store, b.clone(), b"fixture-password", &hash, owner.clone())
+            FreshPassword::verify(&store, b.clone(), b"fixture-password", &hash, owner.lease())
                 .unwrap();
         proof.at = Instant::now() - Duration::from_secs(61);
         assert!(rp.begin_registration(&store, proof).is_err());
         let proof =
-            FreshPassword::verify(&store, b.clone(), b"fixture-password", &hash, owner.clone())
+            FreshPassword::verify(&store, b.clone(), b"fixture-password", &hash, owner.lease())
                 .unwrap();
         let (challenge, _state) = rp.begin_registration(&store, proof).unwrap();
         let j = serde_json::to_value(challenge).unwrap();
@@ -258,7 +429,7 @@ mod tests {
         );
         assert_eq!(j["publicKey"]["attestation"], "none");
         let proof =
-            FreshPassword::verify(&store, b.clone(), b"fixture-password", &hash, owner.clone())
+            FreshPassword::verify(&store, b.clone(), b"fixture-password", &hash, owner.lease())
                 .unwrap();
         store.advance_user(&b.user, 2, &hash, false).unwrap();
         assert!(rp.begin_registration(&store, proof).is_err());
@@ -268,11 +439,20 @@ mod tests {
     #[test]
     fn owner_close_and_deadline_are_irreversible() {
         let owner = Owner::new(Instant::now() + Duration::from_secs(60));
-        drop(owner.live().unwrap());
-        let clone = owner.clone();
+        drop(owner.lease.live().unwrap());
+        let clone = owner.lease();
         owner.close();
         assert!(clone.live().is_err());
-        assert!(Owner::new(Instant::now()).live().is_err());
+        let owner = Owner::new(Instant::now() + Duration::from_secs(60));
+        let lease = owner.lease();
+        drop(owner);
+        assert!(lease.live().is_err());
+        assert!(Owner::new(Instant::now()).lease.live().is_err());
+        let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let owner = Owner::with_closed(Instant::now() + Duration::from_secs(30), flag.clone());
+        let lease = owner.lease();
+        flag.store(true, std::sync::atomic::Ordering::Release);
+        assert!(lease.live().is_err());
     }
     #[test]
     fn ceremony_guards_precede_verification_and_insertion() {
@@ -295,11 +475,11 @@ mod tests {
             connection: "connection".into(),
         };
         let rp = RelyingParty::new("https://example.com", "example.com").unwrap();
-        let proof_for = |owner: Owner| {
+        let proof_for = |owner: Lease| {
             FreshPassword::verify(&store, b.clone(), b"fixture-password", &hash, owner).unwrap()
         };
         let owner = Owner::new(Instant::now() + Duration::from_secs(30));
-        let proof = proof_for(owner.clone());
+        let proof = proof_for(owner.lease());
         owner.close();
         assert_eq!(
             rp.begin_registration(&store, proof).err().unwrap(),
@@ -314,15 +494,17 @@ mod tests {
         .unwrap();
         let owner = Owner::new(Instant::now() + Duration::from_secs(30));
         let (_, closed) = rp
-            .begin_registration(&store, proof_for(owner.clone()))
+            .begin_registration(&store, proof_for(owner.lease()))
             .unwrap();
-        assert_eq!(closed.deadline, owner.deadline);
+        assert_eq!(closed.deadline, owner.lease.deadline);
         owner.close();
         let other = Owner::new(Instant::now() + Duration::from_secs(30));
         let (_, wrong) = rp
-            .begin_registration(&store, proof_for(other.clone()))
+            .begin_registration(&store, proof_for(other.lease()))
             .unwrap();
-        let (_, mut expired) = rp.begin_registration(&store, proof_for(other)).unwrap();
+        let (_, mut expired) = rp
+            .begin_registration(&store, proof_for(other.lease()))
+            .unwrap();
         expired.deadline = Instant::now();
         let mut changed = b.clone();
         changed.connection = "other-connection".into();
@@ -344,5 +526,20 @@ mod tests {
         assert!(store.credential_ids(&b.user, 100).unwrap().is_empty());
         drop(store);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn user_handle_requires_exact_durable_uuid_when_present() {
+        let user = Uuid::new_v4();
+        let binding = Binding {
+            authority: "a".into(),
+            user: user.to_string(),
+            auth_version: 1,
+            grant: "g".into(),
+            connection: "c".into(),
+        };
+        assert!(validate_user_handle(&binding, None).is_ok());
+        assert!(validate_user_handle(&binding, Some(user.as_bytes())).is_ok());
+        assert!(validate_user_handle(&binding, Some(Uuid::new_v4().as_bytes())).is_err());
+        assert!(validate_user_handle(&binding, Some(&[])).is_err());
     }
 }
