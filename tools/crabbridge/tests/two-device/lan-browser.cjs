@@ -4,7 +4,7 @@ const dir=process.env.HARBOR_FIXTURE_DIR||__dirname,assets=process.argv[2],pause
 const clientIP=process.env.HARBOR_CLIENT_IP||'192.168.1.198',hostIP=process.env.HARBOR_HOST_IP||'192.168.1.147';
 let browser,server,page;
 const routes={
- '/':'remote.html','/remote.html':'remote.html','/remote.js':'remote.js','/matchbox.js':'matchbox.js','/style.css':'style.css',
+ '/':'remote.html','/remote.html':'remote.html','/remote.js':'remote.js','/matchbox.js':'matchbox.js','/deployment.js':'deployment.js','/style.css':'style.css',
  '/vendor/xterm.js':'vendor/xterm.js','/vendor/xterm.css':'vendor/xterm.css',
  '/remote/pkg/harbor_noise.js':'remote/pkg/harbor_noise.js','/remote/pkg/harbor_noise_bg.wasm':'remote/pkg/harbor_noise_bg.wasm'
 };
@@ -12,10 +12,10 @@ const routes={
  if(!assets)throw new Error('Verified frontend asset root required');
  for(const relative of Object.values(routes))if(!fs.statSync(path.join(assets,relative)).isFile())throw new Error('Missing trusted asset');
  server=http.createServer((req,res)=>{
-  if(req.headers.host!=='127.0.0.1:7878'||req.method!=='GET'||!routes[req.url]){res.writeHead(404);return res.end();}
+  if(req.headers.host!=='127.0.0.1:7878'||!['GET','HEAD'].includes(req.method)||!routes[req.url]){res.writeHead(404);return res.end();}
   const file=path.join(assets,routes[req.url]),ext=path.extname(file);
   const type={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.wasm':'application/wasm'}[ext];
-  res.writeHead(200,{'Content-Type':type,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",'Permissions-Policy':'camera=(), microphone=(), geolocation=()'});fs.createReadStream(file).pipe(res);
+  res.writeHead(200,{'Content-Type':type,'X-Frame-Options':'DENY','X-CrabBridge-Policy':'1','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:7879 ws://127.0.0.1:3536 wss://crabscape-introducer.fly.dev; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",'Permissions-Policy':'camera=(), microphone=(), geolocation=()'});if(req.method==='HEAD')res.end();else fs.createReadStream(file).pipe(res);
  });
  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(7878,'127.0.0.1',resolve);});
  browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_BIN||'/usr/bin/chromium',args:['--disable-features=WebRtcHideLocalIpsWithMdns']});

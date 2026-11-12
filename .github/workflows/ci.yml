@@ -127,7 +127,7 @@ jobs:
     name: CrabBridge authentication, transport and browser tests
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.bridge == 'true') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # Pinned Playwright 1.60 supports this image; latest moved to unsupported 26.04.
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

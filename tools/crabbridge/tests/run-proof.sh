@@ -9,6 +9,8 @@ cargo build --locked
 node --check web/app.js
 node --check web/remote.js
 node --check web/matchbox.js
+node --check web/deployment.js
+node tests/deployment-policy.cjs
 node tests/matchbox-client.cjs
 node tests/webrtc-terminal-smoke.cjs
 

@@ -6,7 +6,7 @@ Prerequisites: existing Playwright and Chromium. Use PLAYWRIGHT_MODULE and CHROM
 
 Run: `HARBOR_FIXTURE_DIR=/private/test-dir HARBOR_CLIENT_IP=<authorized-client-ip> HARBOR_HOST_IP=<authorized-host-ip> node lan-browser.cjs /verified/frontend-assets`
 
-The private fixture directory must contain mode 600 `invite.json` and `password.txt`. Assets must be separately hash-verified and contain remote.html, remote.js, matchbox.js, style.css, vendor/xterm.js, vendor/xterm.css, remote/pkg/harbor_noise.js and remote/pkg/harbor_noise_bg.wasm. Never put credentials in the asset directory.
+The private fixture directory must contain mode 600 `invite.json` and `password.txt`. Assets must be separately hash-verified and contain remote.html, remote.js, matchbox.js, deployment.js, style.css, vendor/xterm.js, vendor/xterm.css, remote/pkg/harbor_noise.js and remote/pkg/harbor_noise_bg.wasm. Never put credentials in the asset directory.
 
 The harness binds frontend HTTP only to 127.0.0.1:7878. It produces private offer.json containing only actually gathered numeric UDP host candidates matching the authorized client IP. Transfer the offer to the host through the private authorized channel, then write the returned answer to answer.json. The harness waits up to 4 minutes, checks Noise/password login and registered cat output, verifies the selected LAN candidate pair, then Stop/logs out. It checks the actual xterm buffer, not DOM text, and prints answer-application time. Permission queries are read-only and never grant local-network access. It always closes browser/server and removes the four private fixture files. `result.json` contains pass/fail and sanitized diagnostics only, never SDP or passwords.
 

@@ -1,6 +1,11 @@
+import {checkDeployment} from '/deployment.js';
 import {validateMatchbox,matchboxAnswer} from '/matchbox.js';
 import init,{BrowserChannel} from '/remote/pkg/harbor_noise.js';
 const $=id=>document.getElementById(id);
+let deploymentLocked=false,deploymentReady=false;
+function lockDeployment(){deploymentLocked=true;if(deploymentReady)reset('Locked: service worker control changed.');$('deployment-controls').disabled=true;document.querySelectorAll('input,button,select,textarea').forEach(e=>e.disabled=true);$('status').textContent='Locked: deployment policy changed. Reopen on an approved clean origin.';}
+navigator.serviceWorker?.addEventListener('controllerchange',lockDeployment);
+try{await checkDeployment();if(deploymentLocked)throw new Error('Deployment changed');}catch{deploymentLocked=true;$('status').textContent='Locked: this deployment lacks the required trusted hosting policy. Do not load invitations or enter credentials here.';throw new Error('CrabBridge deployment policy refused');}
 let signalAbort=null;
 let invitation=null,pc=null,dc=null,noise=null,pending=null,epoch=0;
 let authenticated=false,active=false,finished=false,stopping=false,sequence=0,offset=0,input='',control=false;
@@ -45,9 +50,10 @@ $('download-offer').onclick=()=>{const url=URL.createObjectURL(new Blob([$('offe
 $('answer-file').onchange=()=>guarded(async()=>{const generation=epoch;const file=$('answer-file').files?.[0];if(!file||file.size>65536)throw new Error('Invalid answer file');const text=await file.text();if(epoch!==generation)return;$('answer-json').value=text;$('answer-file').value='';});
 $('connect').onclick=()=>guarded(async()=>{if(!pc)throw new Error('Create an offer first');const data=$('answer-json').value;if(new TextEncoder().encode(data).length>65536*6+128)throw new Error('Answer too large');const answer=JSON.parse(data);validateAnswer(answer);await pc.setRemoteDescription(answer);$('connect').disabled=true;});
 $('disconnect').onclick=()=>reset('Disconnected. Host connection cleanup follows channel closure.');
+
 $('login').onclick=()=>guarded(async()=>{input='';const generation=epoch;const password=$('password').value;$('password').value='';const reply=await rpc({method:'login',password});if(generation!==epoch)throw new Error('Discarded old login response');if(!Array.isArray(reply.tools))throw new Error('Invalid login response');authenticated=true;control=reply.control;sequence=reply.next_sequence;$('tool').replaceChildren(...reply.tools.map(name=>{const o=document.createElement('option');o.value=name;o.textContent=name;return o;}));status('Authenticated. Only the listed host-registered tools are available.');});
 $('logout').onclick=()=>guarded(async()=>{input='';stopping=true;const generation=epoch;try{await rpc({method:'logout'});}finally{if(generation===epoch)reset('Logged out. Connection closed.');}});
 $('start').onclick=()=>guarded(async()=>{input='';stopping=false;finished=false;offset=0;terminal.reset();await terminalRpc({action:'start',tool:$('tool').value});active=true;terminal.focus();status('Registered tool running. Its existing permissions apply.');});
 $('stop').onclick=()=>guarded(async()=>{input='';stopping=true;try{await terminalRpc({action:'stop'});active=false;status('Stop requested. Input queue cleared.');}finally{stopping=false;}});
 setInterval(()=>{if(!authenticated||!active||finished||stopping||pending)return;const generation=epoch;guarded(async()=>{if(input){const text=input.slice(0,1024);input=input.slice(1024);await terminalRpc({action:'input',text});}else{const result=await terminalRpc({action:'read',offset});if(generation!==epoch)return;offset=result.offset;if(result.truncated)status('Earlier output was truncated by host retention limit.');if(Array.isArray(result.bytes))terminal.write(new Uint8Array(result.bytes));if(result.ended){finished=true;input='';status('Tool exited. Press Stop tool to release the session before starting another.');}}}).catch(()=>{});},200);
-await init();status('Ready. Load a private host-generated invitation file.');controls();
+await init();if(deploymentLocked)throw new Error('Deployment locked');deploymentReady=true;$('deployment-controls').disabled=false;status('Ready. Load a private host-generated invitation file.');controls();

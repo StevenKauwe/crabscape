@@ -427,7 +427,7 @@ async fn security(req: axum::extract::Request, next: axum::middleware::Next) -> 
         return StatusCode::FORBIDDEN.into_response();
     }
     let mut response = next.run(req).await;
-    for (k,v) in [("cache-control","no-store"),("x-content-type-options","nosniff"),("referrer-policy","no-referrer"),("content-security-policy","default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:7879 ws://127.0.0.1:3536 wss://crabscape-introducer.fly.dev; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"),("permissions-policy","camera=(), microphone=(), geolocation=()")] { response.headers_mut().insert(axum::http::HeaderName::from_static(k),axum::http::HeaderValue::from_static(v)); }
+    for (k,v) in [("x-frame-options","DENY"),("x-crabbridge-policy","1"),("cache-control","no-store"),("x-content-type-options","nosniff"),("referrer-policy","no-referrer"),("content-security-policy","default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:7879 ws://127.0.0.1:3536 wss://crabscape-introducer.fly.dev; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"),("permissions-policy","camera=(), microphone=(), geolocation=()")] { response.headers_mut().insert(axum::http::HeaderName::from_static(k),axum::http::HeaderValue::from_static(v)); }
     response
 }
 fn local_asset(path: &'static str, mime: &'static str) -> Response {
@@ -441,6 +441,10 @@ fn router(app: App) -> Router {
         .route(
             "/remote.html",
             get(|| async { local_asset("web/remote.html", "text/html") }),
+        )
+        .route(
+            "/deployment.js",
+            get(|| async { local_asset("web/deployment.js", "text/javascript") }),
         )
         .route(
             "/matchbox.js",

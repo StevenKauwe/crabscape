@@ -55,3 +55,11 @@ Repeatable physical-client fixture: `tests/two-device/lan-browser.cjs`, with set
 ## Existing CrabScape rendezvous adapter
 
 The actual Matchbox 0.14 full-mesh library runs in a disposable loopback fixture for repeatable adapter/browser tests. Eight additional native tests cover endpoint/room/schema/peer pinning, budgets, malformed frames, expiry/revocation, one-use answer publication and signaling-content checks. Browser tests exercise the real Matchbox event exchange through Noise authentication, password login, registered PTY output and logout. A second legitimate-looking peer with the wrong private capability cannot reach password login or tools. Browser-only negative tests verify malformed/oversized UTF-8 offers and unsupported destinations cause no WebSocket contact. The shared deployed service was neither contacted nor modified during this proof.
+
+## Publication composition and fail-closed frontend policy
+
+The aggregate proof was rerun successfully after adding the deployment policy guard. Pure policy regressions reject missing headers, extra/duplicate CSP directives (including case variants and script-src-elem overrides), ambiguous Permissions-Policy and development destinations in production policy. The packaged-page Chrome fixture verifies nested relative assets, disabled controls with JavaScript absent, rejected incomplete policies, valid policy readiness, and sticky locks on controller changes both during the awaited HEAD check and after readiness. HEAD is a configuration sanity check, not proof of navigation headers or publisher integrity.
+
+Hermetic composition regressions preserve unselected artifacts and hosting-owned CNAME, reject stale/divergent updates and unsafe files, and exercise local bare-Git retry behavior. New bridge artifact publication is disabled unless the explicit repository publication flag is enabled; this task did not enable it, merge or deploy. Disabling updates does not unpublish previously stored artifacts. Standard GitHub Pages alone does not supply the required response policy and therefore leaves the credential interface locked.
+
+Remembered-device authentication is not implemented or enabled. Passwords, session tokens and private invitations are not persisted by the frontend.

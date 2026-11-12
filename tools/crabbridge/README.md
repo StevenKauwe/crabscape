@@ -117,3 +117,7 @@ CrabBridge can speak the unchanged Matchbox 0.14 full-mesh protocol used by `wss
 These commands still use loopback ICE by default. The existing explicit LAN pilot is separate; public signaling compatibility does not magically enable Internet reachability or deploy the browser client. This iteration was tested against the local equivalent, not the live service.
 
 The service is **untrusted public rendezvous**. Room/peer IDs and ready messages do not authenticate anyone. A malicious participant or service can disrupt or consume a pairing attempt, but must not learn the private Noise capability, password, principal, or terminal traffic. Strong private pairing, Noise context validation, password login, per-tool authority and consumed-grant checks remain independent. No automatic reconnect, destination override, role escalation or fallback to plaintext. Room locators may appear in existing service logs; no account or secret is encoded in them.
+
+## Production hosting guard
+
+Static bundles remain locked unless the required security-header policy is present; pairing and credential handlers are not installed before the guard passes. See `docs/hosting/README.md` for the exact policy and its limits. This is configuration checking, not a claim that shared-origin pages are isolated or that a compromised publisher can be detected. GitHub Pages alone cannot supply the required custom headers. New bridge publication also defaults disabled until explicitly approved and enabled; no deployment occurs from this local work.
