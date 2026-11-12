@@ -176,18 +176,21 @@ Milestone 1 (W1.2), Milestone 3 (W3.3) and Milestone 4 (W5.2): the PR gets its p
 list from this plan on the issue, with a recommendation, and auto-merges like any other.
 
 ## Hidden rules found while building (read before any package)
-- **The seed fingerprint.** See item 8: only `underwater*`, `physics/consts.rs`, `level/coral_rise.rs` and the
-  level's floor and rocks force a rebake. A 30-step probe digest test (`probe_digest_matches_committed`) catches
-  terrain changes from anywhere else and says "rebake". Two PRs that both rebake conflict on the binary seed: the
-  second rebases and bakes again.
+- **The seed fingerprint is per chunk.** The settled seed is baked in 24 fixed chunks of 1,024 x 1,024 cells, each
+  with its own fingerprint (the authored cells of the chunk and a 160-cell halo, the bake settings and the engine's
+  source: `underwater*`, `physics/consts.rs`, `level/coral_rise.rs`). `bake_settled_world --write` rebakes only the
+  chunks whose fingerprint changed (two chunks in about 30 seconds for a gallery edit; all 24 in about two
+  minutes), and `bundled_seed_is_current_and_chunk_edges_share_one_history` names a stale chunk. A 30-step probe
+  digest test (`probe_digest_matches_committed`) still catches terrain changes from anywhere else. Two PRs that
+  both rebake conflict on the binary seed: the second rebases and bakes again (a quick job now).
 - **The route solver is slow.** `crates/sim/tests/common/route.rs` plays real ticks. Give every survey a tight stop
   predicate (stop past the region you test); keep each test file under about 60 s on CI. Exhaustive kit matrices
   are `#[ignore]` and run by hand (`-- --ignored --nocapture`).
-- **The level is a single-valued heightmap** (`Level::floor`, one height per x; rocks are boxes on top). A deep
-  place can only go where the floor itself is deep: nothing can sit "under" the far rim or the reef without
-  turning them into rock roofs, which breaks every animal's `floor_height`. New deep ground goes at new x: the
-  lower canyon continues east of Coral Rise (x > 17,400), as the owner's map has the canyon stepping down to the
-  right.
+- **Terrain is a 2D layer map** (`level/layers.rs`; was a single-valued heightmap, `Level::floor`, with box rocks on
+  top). New regions are authored as shapes (cavities, soil, bedrock linings: `level/silt_galleries.rs` is the
+  model); `Level::floor_height(x)` stays the ground surface for open-water creatures, and `solid_at`,
+  `ground_below` and `footing` answer for caverns. Soil never hangs over open water or stands in a vertical face
+  (the 9,000-step settling slumps it): line every cavity with bedrock and keep only flat beds of soil on floors.
 - **Bedrock frames may hold substrate.** The cell generator fills any empty space below the floor with sediment;
   a frame only has to be sealed by bedrock (unreachable, undiggable through), not empty. W3.0 replaces the
   substrate with layered strata.

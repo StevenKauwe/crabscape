@@ -75,7 +75,9 @@ fn markers_snap_to_the_ground_and_every_rest_point_is_clear_of_rock() {
         let p = point(&sim, m.name);
         assert_eq!(
             p.at.y,
-            level.floor_height(m.at[0]),
+            level
+                .ground_below(Vec2::from(m.at))
+                .unwrap_or_else(|| level.floor_height(m.at[0])),
             "{} on the ground",
             m.name
         );

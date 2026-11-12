@@ -1617,7 +1617,8 @@ impl Sim {
     pub fn spawn_enemy(&mut self, kind: Kind, pos: Vec2) -> u32 {
         let id = self.next_enemy;
         self.next_enemy += 1;
-        let floor = self.level.floor_height(pos.x);
+        // A cavern's floor when it is authored there, the sea floor otherwise.
+        let floor = self.level.placed_footing(pos.x, pos.y);
         let half = kind.tuning(&self.tuning).body.0 * 0.5;
         let surface = self
             .level
@@ -2730,7 +2731,14 @@ impl Sim {
                 if against(&crab.mover, net.rect, &self.tuning) {
                     // A one-sided net (a shortcut home) gives way only from
                     // the side its knots are on.
-                    if crab.mover.scissor_claw && net.cuttable_from(crab.mover.pos.x) {
+                    // The Silt Galleries' plug is dug open (a held dig),
+                    // from below only: no tool, but no way from above.
+                    let tool = if net.rect == crate::level::silt_galleries::PLUG {
+                        crab.controls.dig_held
+                    } else {
+                        crab.mover.scissor_claw
+                    };
+                    if tool && net.cuttable_at(crab.mover.pos) {
                         net.cut = true;
                         crab.events.cut_net = true;
                         if let Some(n) = &mut self.net {

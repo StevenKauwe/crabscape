@@ -559,7 +559,7 @@ mod tests {
             assert!(shader.contains("lights: array<Light, 8>"));
             assert!(shader.contains("amount * "));
             assert!(shader.contains("lights[i].luminosity"));
-            assert!(shader.contains("daylight + max(3.0 - daylight, 0.0) * brightness"));
+            assert!(shader.contains("day + 0.9 * brightness"));
         }
     }
 

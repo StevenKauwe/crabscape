@@ -26,6 +26,9 @@ struct MemoryGlobals {
     lights: array<Light, 8>,
 };
 @group(2) @binding(3) var<uniform> globals: MemoryGlobals;
+// The painted ground's tiles (painted_world.rs).
+@group(2) @binding(4) var tiles: texture_2d_array<f32>;
+@group(2) @binding(5) var tiles_sampler: sampler;
 
 @group(2) @binding(0) var<uniform> material: MemoryUniform;
 @group(2) @binding(1) var memory_texture: texture_2d<f32>;
@@ -33,6 +36,9 @@ struct MemoryGlobals {
 
 struct FragmentInput {
     @location(0) world_position: vec4<f32>,
+    @location(1) world_normal: vec3<f32>,
+    // A painted shape's y is its distance below its top edge, in world units (level.rs).
+    @location(2) uv: vec2<f32>,
 };
 
 // A cheap repeatable hash (Dave Hoskins' hash12).
@@ -52,6 +58,67 @@ fn noise(p: vec2<f32>) -> f32 {
         u.y
     );
 }
+
+// How lit the ground is here, 0 (dark water's own dark) to 1 (the lantern or the sun on it).
+fn light_amount(p: vec2<f32>) -> f32 {
+    var brightness = 0.0;
+    for (var i = 0; i < 8; i += 1) {
+        let light = globals.lights[i].geometry;
+        if light.w > light.z {
+            let amount = 1.0 - smoothstep(light.z, light.w, distance(p, light.xy));
+            brightness = max(brightness, amount * globals.lights[i].luminosity);
+        }
+    }
+    // Match lantern.rs `daylight`: the canyon represents the twilight zone.
+    let vertical = clamp(-p.y / 9000.0, 0.0, 1.0);
+    let canyon = smoothstep(5350.0, 6150.0, p.x)
+        * (1.0 - smoothstep(-1500.0, 1000.0, p.y));
+    let depth = max(vertical, 0.75 * canyon);
+    let day = (1.0 - depth) * (1.0 - depth);
+    return clamp(day + 0.9 * brightness, 0.0, 1.0);
+}
+
+// ---- painted ground: the same text in cellular.wgsl and memory.wgsl (a test keeps them equal) ----
+// Six materials painted by our oil painter (tools/paint-world.sh), each a seamless tile, lit by the lantern in
+// layers 0..5 and unlit in 6..11. They are read in world space (so a material looks the same wherever it is cut),
+// bent a little by a slow warp and laid over a second, larger and turned reading of itself so no repeat shows.
+const TILE_UNITS: f32 = 104.0;
+const TILE_TEXELS: f32 = 96.0;
+const INK: vec3<f32> = vec3<f32>(0.011, 0.008, 0.007);
+
+fn tile_read(uv: vec2<f32>, layer: i32, lit_amount: f32, lod: f32) -> vec3<f32> {
+    var c = vec3<f32>(0.0);
+    if lit_amount < 0.999 {
+        c += (1.0 - lit_amount) * textureSampleLevel(tiles, tiles_sampler, uv, layer + 6, lod).rgb;
+    }
+    if lit_amount > 0.001 {
+        c += lit_amount * textureSampleLevel(tiles, tiles_sampler, uv, layer, lod).rgb;
+    }
+    return c;
+}
+
+// A material's painted colour at a world position, in the light there. `lod`: how many mips to drop (the pixel's
+// footprint on the tile), so a zoomed-out view sees the tile's average, never sparkle.
+fn painted_ground(p: vec2<f32>, layer: i32, lit_amount: f32, lod: f32) -> vec3<f32> {
+    let warp = (vec2<f32>(noise(p / 83.0), noise(p / 83.0 + 31.7)) - 0.5) * 0.22;
+    let uv1 = vec2<f32>(p.x, -p.y) / TILE_UNITS + warp;
+    let uv2 = vec2<f32>(-p.y, p.x) / (TILE_UNITS * 1.63) + vec2<f32>(0.37, 0.61);
+    return mix(
+        tile_read(uv1, layer, lit_amount, lod),
+        tile_read(uv2, layer, lit_amount, max(lod - 0.7, 0.0)),
+        0.3
+    );
+}
+
+// The shape's own light on its paint: a bright band under its top edge (lit from the top left), then a dark warm
+// ink line along the edge itself. `top`: world units below the shape's top edge.
+fn rim_top(c: vec3<f32>, p: vec2<f32>, top: f32) -> vec3<f32> {
+    let d = top + (noise(p / 6.0) - 0.5) * 1.6;
+    let lit_band = 1.0 - smoothstep(2.0, 9.0, d);
+    let ink = 1.0 - smoothstep(0.7, 2.5, d);
+    return mix(c * (1.0 + 0.4 * lit_band), INK, ink * 0.92);
+}
+// ---- end painted ground ----
 
 fn lit(c: vec3<f32>, p: vec2<f32>) -> vec3<f32> {
     var brightness = 0.0;
@@ -104,6 +171,9 @@ fn water_colour(p: vec2<f32>) -> vec3<f32> {
 @fragment
 fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
     let p = in.world_position.xy;
+    // World units a pixel spans, for the tile's mip (taken before any branch: it needs derivatives).
+    let footprint = max(length(dpdx(p)), length(dpdy(p)));
+    let lod = clamp(log2(max(footprint / (TILE_UNITS / TILE_TEXELS), 1.0)), 0.0, 6.0);
     let uv = vec2<f32>(
         (p.x - globals.grid.x) / globals.grid.z,
         1.0 - (p.y - globals.grid.y) / globals.grid.w
@@ -116,18 +186,25 @@ fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
         + textureSample(memory_texture, memory_sampler, uv + vec2<f32>(texel.x, -texel.y)).r
         + textureSample(memory_texture, memory_sampler, uv + vec2<f32>(-texel.x, -texel.y)).r
     );
-    let c = material.color.rgb;
-    if m >= 0.995 {
-        return vec4<f32>(lit(c, p), 1.0);
-    }
     if m < 0.004 {
         return vec4<f32>(water_colour(p), 1.0);
+    }
+    // The shape in the light here: a painted one (its colour's alpha names its tile) or a plain colour.
+    var c: vec3<f32>;
+    if material.color.a < 0.99 {
+        let layer = i32(round(material.color.a * 10.0)) - 1;
+        c = rim_top(painted_ground(p, layer, light_amount(p), lod), p, in.uv.y);
+    } else {
+        c = lit(material.color.rgb, p);
+    }
+    if m >= 0.995 {
+        return vec4<f32>(c, 1.0);
     }
     // Noise only where there is memory, most at its fading edge.
     let n = noise(p / 30.0) * 0.6 + noise(p / 9.0) * 0.4;
     let k = clamp(m + (n - 0.5) * 0.6 * min(m * 4.0, 1.0) * (1.0 - m), 0.0, 1.0);
     let grey = vec3<f32>(dot(c, vec3<f32>(0.3, 0.59, 0.11)));
     let faded = mix(grey, c, k * k);
-    let shown = mix(water_colour(p), lit(faded, p), smoothstep(0.04, 0.95, k));
+    let shown = mix(water_colour(p), faded, smoothstep(0.04, 0.95, k));
     return vec4<f32>(shown, 1.0);
 }

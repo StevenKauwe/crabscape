@@ -23,11 +23,13 @@ pub(crate) mod coral_rise;
 mod exploration;
 mod hub;
 pub mod landmarks;
+pub mod layers;
 mod lower_canyon;
 mod plate_d;
 pub mod refuges;
 pub mod rest;
 pub mod royal;
+pub mod silt_galleries;
 pub mod strata;
 
 /// The canyon's floor (the sea-pen floor): the lower canyon is the deepest step.
@@ -118,6 +120,8 @@ pub enum CutFrom {
     West,
     /// Only by a crab whose middle is east (right) of the net's.
     East,
+    /// Only by a crab below it, digging up (a plug in a ceiling).
+    Below,
 }
 
 impl Net {
@@ -134,9 +138,17 @@ impl Net {
     pub fn cuttable_from(&self, x: f32) -> bool {
         let middle = self.rect.center().x;
         match self.from {
-            CutFrom::Either => true,
+            CutFrom::Either | CutFrom::Below => true,
             CutFrom::West => x < middle,
             CutFrom::East => x > middle,
+        }
+    }
+
+    /// Can a crab standing (feet) at `pos` get at the net?
+    pub fn cuttable_at(&self, pos: Vec2) -> bool {
+        match self.from {
+            CutFrom::Below => pos.y < self.rect.min.y,
+            _ => self.cuttable_from(pos.x),
         }
     }
 }
@@ -293,8 +305,98 @@ impl Level {
         landmarks::existing_level(self)
     }
 
+    /// The 2D layer map this level authors: the source of every solid cell.
+    /// Built on demand; cheap enough for setup and queries, not for a tick.
+    pub fn layers(&self) -> layers::LayerMap {
+        layers::LayerMap::of(self)
+    }
+
+    /// The layer map, shared between callers that ask for the same terrain
+    /// (the cell generator asks once per column).
+    pub(crate) fn layers_shared(&self) -> std::sync::Arc<layers::LayerMap> {
+        use std::sync::{Arc, Mutex};
+        type Entry = (Vec<Vec2>, Vec<Rect>, Arc<layers::LayerMap>);
+        static CACHE: Mutex<Vec<Entry>> = Mutex::new(Vec::new());
+        let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((_, _, map)) = cache
+            .iter()
+            .find(|(floor, rocks, _)| *floor == self.floor && *rocks == self.rocks)
+        {
+            return Arc::clone(map);
+        }
+        let map = Arc::new(layers::LayerMap::of(self));
+        if cache.len() >= 4 {
+            cache.remove(0);
+        }
+        cache.push((self.floor.clone(), self.rocks.clone(), Arc::clone(&map)));
+        map
+    }
+
+    /// Is the ground solid at `p` (rock, silt or clay), caverns included?
+    pub fn solid_at(&self, p: Vec2) -> bool {
+        self.layers_shared().solid_at(p)
+    }
+
+    /// The nearest solid top at or under `p`: where a body at `p` lands. Inside
+    /// a cavern this is the cavern's floor, not the sea floor above it.
+    pub fn ground_below(&self, p: Vec2) -> Option<f32> {
+        self.layers_shared().ground_below(p)
+    }
+
+    /// The ground under a body whose feet are at height `y`, over `x`: the
+    /// sea floor when it is at or above it, and in a cavern the cavern's own
+    /// floor (`ground_below`). A body inside bare soil stands on the sea floor.
+    pub fn footing(&self, x: f32, y: f32) -> f32 {
+        let surface = self.floor_height(x);
+        if y >= surface - 2.0 {
+            return surface;
+        }
+        self.cavern_footing(x, y, surface)
+    }
+
+    /// [`footing`](Self::footing) for a body *placed* by an author at `y`
+    /// (a spawn: `Sim::spawn_enemy`): only a place a good way under the sea
+    /// floor (a cavern, 400 units down) counts as another floor; anything
+    /// nearer is the sea floor with its y ignored, as it has always been.
+    pub fn placed_footing(&self, x: f32, y: f32) -> f32 {
+        let surface = self.floor_height(x);
+        if y >= surface - 400.0 {
+            return surface;
+        }
+        self.cavern_footing(x, y, surface)
+    }
+
+    fn cavern_footing(&self, x: f32, y: f32, surface: f32) -> f32 {
+        // Only in open water under the surface (a cavern): a body buried in
+        // soil or rock stands on the sea floor as ever.
+        let map = self.layers_shared();
+        let at = Vec2::new(x, y);
+        if map.solid_at(at) {
+            return surface;
+        }
+        map.ground_below(at).unwrap_or(surface)
+    }
+
     /// The level the game uses (for now, the only one).
     pub fn test_level() -> Self {
+        let mut level = Self::before_galleries();
+        silt_galleries::shape(&mut level);
+        // Last, so every place a creature anchors to (landmarks, refuges, the
+        // lower canyon, the galleries) exists.
+        bestiary::place(&mut level);
+        level
+    }
+
+    /// The world as it was before the Silt Galleries: the reference the layer
+    /// map's raster is proved against cell for cell.
+    #[cfg(test)]
+    pub(crate) fn world_without_galleries() -> Self {
+        let mut level = Self::before_galleries();
+        bestiary::place(&mut level);
+        level
+    }
+
+    fn before_galleries() -> Self {
         let mut level = Self {
             cells: None,
             floor: vec![
@@ -593,9 +695,6 @@ impl Level {
         plate_d::drop_east(&mut level);
         lower_canyon::shape(&mut level);
         plate_d::place_finds(&mut level);
-        // Last, so every place a creature anchors to (landmarks, refuges, the
-        // lower canyon) exists.
-        bestiary::place(&mut level);
         level
     }
 
@@ -653,6 +752,9 @@ impl Level {
 
     /// Height of the sea floor's surface at `x`.
     pub fn floor_height(&self, x: f32) -> f32 {
+        if let Some(bottom) = self.hole_bottom(x) {
+            return bottom;
+        }
         let pts = &self.floor;
         if x <= pts[0].x {
             return pts[0].y;
@@ -683,7 +785,9 @@ impl Level {
                 a.x >= left && b.x <= left + width
             });
             (is_cliff && !in_cells)
-                .then(|| Rect::new(a.x, a.y.min(b.y) - 2000.0, b.x, a.y.max(b.y)))
+                // The wall stands from the foot of the cliff to its top, not
+                // on down through the ground: caverns under it are open.
+                .then(|| Rect::new(a.x, a.y.min(b.y), b.x, a.y.max(b.y)))
         });
         let nets = self.nets.iter().filter(|n| !n.cut).map(|n| n.rect);
         let brittle = self.brittle.iter().filter(|b| !b.cracked).map(|b| b.rect);
@@ -694,6 +798,17 @@ impl Level {
             .chain(nets)
             .chain(brittle)
             .chain(royal::solids())
+            .chain(self.cavern_soil().iter().copied())
+    }
+
+    /// Soil that holds a body up in a cavern when there is no cell world to
+    /// say so (the cells carry it otherwise, so a dug wall stays dug).
+    fn cavern_soil(&self) -> &'static [Rect] {
+        if self.cells.is_none() && self.has_silt_galleries() {
+            silt_galleries::walls()
+        } else {
+            &[]
+        }
     }
 
     /// The trench that needs the double jump: (left edge x, right edge x).

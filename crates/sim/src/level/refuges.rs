@@ -34,6 +34,23 @@ const CLUMPS: [(f32, f32); 3] = [
 
 pub(super) fn shape(level: &mut Level) {
     level.climbs.extend(clumps());
+    level.climbs.push(descent_clump());
+}
+
+/// A clump on the slump dam's east face, halfway down the lower canyon's
+/// descent (y -7,800 once the east has dropped 2,000, which happens after
+/// this runs). The open water between the dam and the narrows had one refuge
+/// in 4,000 units, the hanging garden at its top (the worst gap was 1,946 at
+/// y -7,900); it stands 2,100 above the floor (a full-kit rise is about
+/// 1,020), so it is no ladder from below. Not one of the canyon's
+/// [`clumps`], whose spacing rule `refuges_make_no_new_climb` proves.
+pub fn descent_clump() -> Climb {
+    Climb {
+        x: 17800.0,
+        bottom: -5800.0 - 200.0,
+        top: -5800.0,
+        kind: Growth::Coral,
+    }
 }
 
 /// The clumps this module adds (for tests that compare with and without).

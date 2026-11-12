@@ -8,6 +8,8 @@
 //! the animal is lit the way it is close up, and keeps the camera on the animal. No save is read or written, so a
 //! visit never touches the crab you play. `--photo <prefix>` saves the picture as `<prefix>-1.png`, `-2.png` and
 //! `-3.png` (a little apart, so they catch the animal idle, noticing and in its tell or blow), then quits.
+//! `--place <name>` (a landmark's name, or part of it) or `--at x,y` starts the crab in a place instead, and `--zoom <x>`
+//! starts the view zoomed out x times (1 = closest); `--cells` plays with the cell field, as the game does.
 //! `--style ink` shows the ink drawing instead of the oil paint. The recipe that uses them:
 //! `docs/design/painted-creatures.md`.
 
@@ -40,6 +42,10 @@ pub struct Photo {
     pub beside: f32,
     pub prefix: Option<String>,
     pub ink: bool,
+    /// `--at x,y`: start the crab here (world units) instead of beside an animal.
+    pub at: Option<Vec2>,
+    /// `--place <name>`: start on the floor in the first landmark whose name contains this text.
+    pub place: Option<String>,
 }
 
 impl Photo {
@@ -57,12 +63,26 @@ impl Photo {
                 .unwrap_or(BESIDE),
             prefix: after("--photo"),
             ink: after("--style").as_deref() == Some("ink"),
+            at: after("--at").and_then(|v| {
+                let (x, y) = v.split_once(',')?;
+                Some(Vec2::new(x.trim().parse().ok()?, y.trim().parse().ok()?))
+            }),
+            place: after("--place"),
         }
     }
 
     /// Nothing asked: the plugin does nothing.
     fn idle(&self) -> bool {
-        self.visit.is_none() && self.prefix.is_none() && !self.ink
+        self.visit.is_none()
+            && self.prefix.is_none()
+            && !self.ink
+            && self.at.is_none()
+            && self.place.is_none()
+    }
+
+    /// A place asked for with `--at` or `--place`: no save is read or written there either.
+    pub fn visits_a_place(&self) -> bool {
+        self.at.is_some() || self.place.is_some()
     }
 }
 
@@ -101,7 +121,7 @@ impl Plugin for PhotoPlugin {
         if photo.idle() {
             return;
         }
-        if photo.visit.is_some() {
+        if photo.visit.is_some() || photo.visits_a_place() {
             crate::save::freeze();
         }
         if photo.ink {
@@ -115,6 +135,34 @@ impl Plugin for PhotoPlugin {
         }
         app.insert_resource(photo).add_systems(Update, take_photos);
     }
+}
+
+/// Where `--at` or `--place` puts the crab: the point itself, or the floor under the middle of the named landmark
+/// (the middle of the box itself for open water).
+pub fn place_spot(sim: &Sim, photo: &Photo) -> Option<Vec2> {
+    if let Some(at) = photo.at {
+        return Some(at);
+    }
+    let name = photo.place.as_deref()?;
+    let landmarks = sim.level.landmarks();
+    let Some(found) = landmarks.iter().find(|l| l.name.contains(name)) else {
+        let names: Vec<&str> = landmarks.iter().map(|l| l.name.as_str()).collect();
+        error!(
+            "--place: no landmark called {name}; there are: {}",
+            names.join(", ")
+        );
+        return None;
+    };
+    let middle = found.rect.center();
+    let floor = sim.level.floor_height(middle.x);
+    Some(Vec2::new(
+        middle.x,
+        if middle.y > floor + 60.0 {
+            middle.y
+        } else {
+            floor
+        },
+    ))
 }
 
 /// The visited animal nearest the crab.

@@ -144,7 +144,9 @@ fn farthest_east(kit: Kit) -> (Vec2, String) {
     // Down in the trench (its floor and stepping stone) is still home's side.
     let x = |s: &Survey, i: usize| {
         let p = s.nodes[i].mover().pos;
-        if p.x > 1300.0 && p.x < 1820.0 && p.y < 0.0 {
+        // (And the Silt Galleries, a sealed cavern system under the shelf, the
+        // trench, the cliff and the basin: nothing there is past a gate.)
+        if (p.x > 1300.0 && p.x < 1820.0 && p.y < 0.0) || (p.y < -700.0 && p.x < 3300.0) {
             0.0
         } else {
             p.x

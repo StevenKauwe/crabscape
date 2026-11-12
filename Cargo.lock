@@ -5845,6 +5845,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "oil-world"
+version = "0.1.0"
+dependencies = [
+ "png 0.18.1",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

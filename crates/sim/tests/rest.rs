@@ -88,7 +88,18 @@ fn die(sim: &mut Sim) {
 fn the_level_has_crevices_out_past_the_trench_on_solid_floor() {
     let sim = Sim::with_one_crab(Vec2::ZERO);
     let level = &sim.level;
-    let crevices = &level.crevices;
+    // The Silt Galleries' two rest points lie in the trench and under the
+    // ground, by design (`silt_galleries.rs`, `tests/silt_galleries.rs`): this
+    // is the rule of the others.
+    let crevices: Vec<_> = level
+        .crevices
+        .iter()
+        .filter(|c| {
+            !crabsim::level::silt_galleries::REST_POINTS
+                .iter()
+                .any(|(door, _)| *door == c.door)
+        })
+        .collect();
     let grown_half_width = sim.tuning.body_half_width * sim.tuning.moult.most_size;
     let supported = |p: Vec2| {
         level.floor_height(p.x) == p.y
@@ -105,6 +116,7 @@ fn the_level_has_crevices_out_past_the_trench_on_solid_floor() {
     );
     let (_, trench_right) = level.trench();
     for c in crevices {
+        let c = *c;
         // Out in the level, supported by the seabed or a broad rock shelf,
         // in its own doorway. Raised shelves must fit a fully grown crab.
         assert!(c.den.x > trench_right, "{c:?} past the trench");

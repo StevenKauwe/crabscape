@@ -56,6 +56,17 @@ Each lead keeps their own lines here. `[x]` means it is in the game; the rest sa
 - [ ] The fight is short: the basin's mantis (3,785 units from the door) takes a dive and a climb out (a 1 to 6 egg crab cannot get home from the pit: only the full kit can), then a 6 s scripted win. A hunting want needs a creature that is worth a crossing: the coral garden's mantis at x 16,700 is now one (the solver reaches it with the full kit: 105 s of crossing, 129 s out in all); the one at x 10,720 and the morays are not measured
 - [ ] Way home too short: 100 s from the far rim, 63 s from the basin (no tired-leg wait), and no hunter between you and home
 - [ ] Nothing but the lamp's garden at the far rim: nothing to find on the way (the 12 to 15 minute "strange, beautiful moment" has no place yet). The bone hall and seep garden have nodes and prizes, and wants now send a crab to each (and to the cathedral's mantis); the route solver cannot play the digs into them, so only the cathedral's mantis is measured
+- [x] A first cavern near home, the Silt Galleries (region 2, issue #4's PR): a mouth on the trench floor with a rest point, the upper gallery's three glass-sponge galleries (the gatherer's line, out of every hunter's reach), the lower gallery and the moray hall (the hunting ground, a rest point at its door), a ledge over the future Drop (seen, not reached yet) (`level/silt_galleries.rs`, `tests/silt_galleries.rs`)
+- [x] The shortcut home opened from the far side: a plug at the top of a shaft up to the tide-pool shelf, dug only from below, open for good after (the long chimney's duct blocks a tunnel straight into the home burrow, so it comes up under the shelf at x 920 to 1,040)
+- [x] Several cast-offs wait at once (`tests/cast_offs.rs`); death and respawn rules belong to the systems lead, rest-point markers to this lane
+- [x] Terrain authored as a 2D layer map (caverns under ground), baked per chunk: a region edit rebakes 2 chunks in about 26 s, not the whole map
+- [x] The crust vault has a second door (a duct and shaft); the lower canyon descent has a refuge every 904 or less (was 1,946)
+- [x] The world painted like its creatures: oil-painted material tiles, ink rims, painted parallax ridges that never end or drift on a dive (`painted-world.md`)
+- [ ] Rest-point markers at every region entrance and boss door (octopus lair, sixgill at the kelp foot, grouper cave) in the systems lead's `level/rest.rs`, once it lands
+- [ ] Map memory still draws cavern interiors as solid (`src/memory.rs` reads `floor_height`); other creature walkers too
+- [ ] The plug shaft is a 1,000-unit climb with no mid-way rest
+- [ ] Regions 4 (the Drop and the Deep Galleries, the octopus lair), 5 (open-canyon shelves, arches, the kelp column home) and 6 (the slope caves and the grouper) are the next big PRs; most of the map is still dead rock until then
+- [ ] Re-measure the loop with the galleries: home, then the sponges, then home through the plug, against 20 minutes
 
 ## Measured loop (2026-11-11, Plate D map after #610, one-trip piece costs)
 `crates/sim/tests/loop_pacing.rs` plays one loop per want, headless, and prints this table with `--nocapture`.

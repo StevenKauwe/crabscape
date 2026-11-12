@@ -70,13 +70,13 @@ pub const MARKERS: &[Marker] = &[
 /// A crab reaches a rest point by passing within this many units of it.
 pub const REACH: f32 = 120.0;
 
-/// The ground below `p`: the y a crab stands at. Every rest point snaps
-/// through here.
-// TODO(engine #634): becomes
-// `level.ground_below(p).unwrap_or_else(|| level.floor_height(p.x))`, the
-// nearest solid top under `p` (inside caverns), when the layer map lands.
+/// The ground below `p`: the y a crab stands at, the nearest solid top under
+/// `p` (inside caverns too). Every rest point snaps through here; the floor
+/// line only where the layer map has no ground under `p`.
 fn ground_below(level: &Level, p: Vec2) -> f32 {
-    level.floor_height(p.x)
+    level
+        .ground_below(p)
+        .unwrap_or_else(|| level.floor_height(p.x))
 }
 
 /// How far in front of the octopus's den its door lies (the fair bot starts

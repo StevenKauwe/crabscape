@@ -6,6 +6,9 @@ use bevy_math::{Rect, Vec2};
 
 /// Like the Rubble Banks pocket, this is sediment above a hard rock floor.
 /// Saved edited chunks remain authoritative; this only seeds unseen terrain.
+/// The layer map (`level/layers.rs`) authors the same bank now; this stays as
+/// the reference its raster is proved against.
+#[cfg(test)]
 pub(crate) fn sediment_depth(x: f32, floor: f32) -> Option<f32> {
     // A flat bottom avoids a bedrock step beneath the sloping bank (it lies
     // at y -4,960 since the east stepped down 2,000).

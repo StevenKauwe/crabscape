@@ -227,7 +227,13 @@ fn discovery_is_enclosed_in_rock_with_two_open_mouths() {
 fn raised_haven_can_be_reached_rested_in_and_left() {
     for moults in [0, 100] {
         let level = Level::test_level();
-        let haven = *level.crevices.last().unwrap();
+        // Found by place: later regions append their own crevices.
+        let haven_index = level
+            .crevices
+            .iter()
+            .position(|c| c.door.min.x == 14280.0)
+            .expect("the raised haven");
+        let haven = level.crevices[haven_index];
         let mut sim = Sim::with_one_crab(Vec2::new(14170.0, level.floor_height(14170.0)));
         sim.crab_mut(P0).unwrap().mover.moults = moults;
         sim.enable_underwater_cells();
@@ -285,10 +291,7 @@ fn raised_haven_can_be_reached_rested_in_and_left() {
             sim.crab(P0).unwrap().mover.pos,
             haven.den
         );
-        assert_eq!(
-            sim.crab(P0).unwrap().wakes_at,
-            Some(sim.level.crevices.len() - 1)
-        );
+        assert_eq!(sim.crab(P0).unwrap().wakes_at, Some(haven_index));
         sim.set_controls(P0, Controls::default());
         for _ in 0..120 {
             sim.tick();
