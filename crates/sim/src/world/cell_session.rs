@@ -401,6 +401,7 @@ impl Sim {
                     || c.mover.water_spin.abs() > 3.0
                     || !c.memory.session_valid(&sim.level, &sim.tuning.memory)
                     || c.wakes_at.is_some_and(|i| i >= sim.level.crevices.len())
+                    || !crate::rest_points::valid(&c.reached, sim.rest_points())
                     || c.eaten.len() != sim.level.eggs.len()
                     || c.cultures_taken.len() != sim.level.cultures.len()
                     || c.clues_found.len() != sim.level.clues.len()
