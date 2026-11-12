@@ -83,8 +83,8 @@ fn spawn_button(mut commands: Commands, window: Single<&Window>) {
                 border_radius: BorderRadius::all(px(r.height() / 2.0)),
                 ..default()
             },
-            BorderColor::all(Color::srgba(1.0, 0.85, 0.55, 0.25)),
-            BackgroundColor(Color::srgba(0.05, 0.12, 0.14, 0.45)),
+            BorderColor::all(crate::ui_theme::RIM_FAINT),
+            BackgroundColor(crate::ui_theme::BUTTON),
             Visibility::Hidden,
         ))
         .with_children(|b| {
@@ -94,7 +94,7 @@ fn spawn_button(mut commands: Commands, window: Single<&Window>) {
                     font_size: FontSize::Px(13.0),
                     ..default()
                 },
-                TextColor(Color::srgba(1.0, 0.9, 0.7, 0.7)),
+                TextColor(crate::ui_theme::TEXT),
             ));
         });
 }
@@ -134,7 +134,7 @@ fn spawn_question(mut commands: Commands) {
                     border_radius: BorderRadius::all(px(12.0)),
                     ..default()
                 },
-                BorderColor::all(Color::srgba(1.0, 0.85, 0.55, 0.35)),
+                BorderColor::all(crate::ui_theme::RIM),
                 BackgroundColor(Color::srgba(0.03, 0.08, 0.10, 0.85)),
             ))
             .with_children(|card| {

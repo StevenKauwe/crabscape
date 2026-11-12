@@ -893,11 +893,9 @@ fn text(words: impl Into<String>, size: f32, colour: Color) -> impl Bundle {
     )
 }
 
-const INK: Color = Color::srgba(1.0, 0.9, 0.7, 0.92);
-const GOLD: Color = Color::srgb(1.0, 0.88, 0.45);
-const DIM: Color = Color::srgba(1.0, 0.9, 0.7, 0.6);
-const HAVE: Color = Color::srgb(0.62, 0.92, 0.70);
-const LACK: Color = Color::srgb(0.95, 0.62, 0.55);
+use crate::ui_theme::{GOLD, HAVE, LACK, TEXT as INK};
+/// The home's quieter words: parchment, dimmed (warmer than the sea's grey).
+const DIM: Color = Color::srgba(0.96, 0.91, 0.80, 0.62);
 
 /// Absolutely placed at `r`, inside a parent whose corner is `origin`.
 fn at(r: Rect, origin: Vec2) -> Node {
@@ -938,8 +936,10 @@ fn lay_out_menu(
                 border_radius: BorderRadius::all(px(12.0)),
                 ..at(l.panel, Vec2::ZERO)
             },
-            BorderColor::all(Color::srgba(1.0, 0.85, 0.55, 0.30)),
-            BackgroundColor(Color::srgba(0.06, 0.05, 0.04, 0.88)),
+            BorderColor::all(crate::ui_theme::RIM),
+            // The home's own ink: warm, by the hearth.
+            BackgroundColor(Color::srgba(0.07, 0.055, 0.04, 0.93)),
+            crate::ui_theme::panel_shadow(),
             Visibility::Hidden,
         ))
         .with_children(|p| {
@@ -965,7 +965,7 @@ fn lay_out_menu(
                             ..default()
                         })
                         .with_children(|line| {
-                            line.spawn(text("Moult", 15.0, INK));
+                            line.spawn(text("Moult", crate::ui_theme::TITLE, GOLD));
                             line.spawn((MoultText::Head, text("", 11.5, DIM)));
                         });
                         w.spawn((MoultText::Line, text("", 11.0, DIM)));
@@ -983,8 +983,8 @@ fn lay_out_menu(
                             border_radius: BorderRadius::all(px(MAKE_H / 2.0)),
                             ..at(r, o)
                         },
-                        BorderColor::all(Color::srgba(1.0, 0.85, 0.55, 0.35)),
-                        BackgroundColor(Color::srgba(0.05, 0.12, 0.14, 0.45)),
+                        BorderColor::all(crate::ui_theme::RIM),
+                        BackgroundColor(crate::ui_theme::BUTTON),
                     ))
                     .with_children(|b| {
                         b.spawn((MoultText::Button(button), text(word, 13.0, INK)));
@@ -992,7 +992,10 @@ fn lay_out_menu(
                 }
             } else {
                 let head = Rect::new(o.x + PAD, o.y + 8.0, l.panel.max.x - PAD, o.y + 26.0);
-                p.spawn((at(head, o), text("The workbench", 15.0, INK)));
+                p.spawn((
+                    at(head, o),
+                    text("The workbench", crate::ui_theme::TITLE, GOLD),
+                ));
                 p.spawn((
                     LarderText,
                     Node {
@@ -1026,8 +1029,8 @@ fn lay_out_menu(
                         border_radius: BorderRadius::all(px(PAGER_H / 2.0)),
                         ..at(r, o)
                     },
-                    BorderColor::all(Color::srgba(1.0, 0.85, 0.55, 0.35)),
-                    BackgroundColor(Color::srgba(0.05, 0.12, 0.14, 0.45)),
+                    BorderColor::all(crate::ui_theme::RIM),
+                    BackgroundColor(crate::ui_theme::BUTTON),
                 ))
                 .with_children(|b| {
                     b.spawn(text(word, 14.0, INK));
@@ -1052,11 +1055,11 @@ fn lay_out_menu(
                         border_radius: BorderRadius::all(px(10.0)),
                         ..at(*r, o)
                     },
-                    BorderColor::all(Color::srgba(1.0, 0.85, 0.55, 0.35)),
-                    BackgroundColor(Color::srgba(0.05, 0.12, 0.14, 0.45)),
+                    BorderColor::all(crate::ui_theme::RIM),
+                    BackgroundColor(crate::ui_theme::BUTTON),
                 ))
                 .with_children(|b| {
-                    b.spawn((TabText, text(tab.label(), 11.0, INK)));
+                    b.spawn((TabText, text(tab.label(), crate::ui_theme::CAPTION, INK)));
                 });
             }
             for (slot, (row, make)) in l.rows.iter().enumerate() {
@@ -1101,8 +1104,8 @@ fn lay_out_menu(
                         border_radius: BorderRadius::all(px(MAKE_H / 2.0)),
                         ..at(*make, o)
                     },
-                    BorderColor::all(Color::srgba(1.0, 0.85, 0.55, 0.35)),
-                    BackgroundColor(Color::srgba(0.05, 0.12, 0.14, 0.45)),
+                    BorderColor::all(crate::ui_theme::RIM),
+                    BackgroundColor(crate::ui_theme::BUTTON),
                 ))
                 .with_children(|b| {
                     b.spawn((SlotButtonText(slot), text("", 13.0, INK)));
@@ -1654,9 +1657,9 @@ fn show_menu(
     for (TabButton(tab), mut bg, mut border) in &mut tabs {
         let on = *tab == state.tab;
         bg.set_if_neq(BackgroundColor(if on {
-            Color::srgba(0.35, 0.55, 0.6, 0.75)
+            crate::ui_theme::BUTTON_ON
         } else {
-            Color::srgba(0.05, 0.12, 0.14, 0.45)
+            crate::ui_theme::BUTTON
         }));
         border.set_if_neq(BorderColor::all(Color::srgba(
             1.0,
@@ -1698,9 +1701,9 @@ fn show_menu(
         let ok = button.is_some_and(|b| b.1);
         let pinned = button.is_some_and(|b| b.0 == "Pinned");
         bg.set_if_neq(BackgroundColor(if pinned {
-            Color::srgba(0.75, 0.55, 0.18, 0.85)
+            crate::ui_theme::BUTTON_ON
         } else if ok {
-            Color::srgba(0.35, 0.55, 0.6, 0.75)
+            crate::ui_theme::BUTTON_GO
         } else {
             Color::srgba(0.05, 0.12, 0.14, 0.30)
         }));
@@ -1772,9 +1775,9 @@ fn show_moult_row(
             MoultButton::Next => (false, offer.choice),
         };
         bg.set_if_neq(BackgroundColor(if on {
-            Color::srgba(0.35, 0.55, 0.6, 0.75)
+            crate::ui_theme::BUTTON_GO
         } else {
-            Color::srgba(0.05, 0.12, 0.14, 0.45)
+            crate::ui_theme::BUTTON
         }));
         let edge = if on || *which == MoultButton::Next {
             0.55

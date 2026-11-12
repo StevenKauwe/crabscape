@@ -23,12 +23,9 @@ use crabsim::skills::MAX_LEVEL;
 use crate::feel::FeelLab;
 use crate::player::{GameSet, LocalPlayer, PlayerId};
 
-const PAPER: Color = Color::srgba(0.03, 0.08, 0.10, 0.94);
-const EDGE: Color = Color::srgba(1.0, 0.85, 0.55, 0.40);
-const CELL: Color = Color::srgba(0.07, 0.16, 0.18, 0.95);
-const WORDS: Color = Color::srgb(1.0, 0.91, 0.73);
-const DIM: Color = Color::srgba(0.85, 0.92, 0.95, 0.55);
-const GOLD: Color = Color::srgb(1.0, 0.88, 0.55);
+use crate::ui_theme::{
+    self as theme, CELL, GOLD, MUTED as DIM, PANEL as PAPER, RIM as EDGE, TEXT as WORDS, UiFonts,
+};
 
 const PAD: f32 = 10.0;
 const GAP: f32 = 6.0;
@@ -84,6 +81,9 @@ struct CellLevel(Skill);
 struct CellFill(Skill);
 #[derive(Component)]
 struct GuideTitle;
+/// "Total level 24 · tap one for its guide".
+#[derive(Component)]
+struct TotalLevel;
 #[derive(Component)]
 struct GuideNext;
 #[derive(Component)]
@@ -159,7 +159,7 @@ fn text(size: f32, colour: Color) -> impl Bundle {
     )
 }
 
-fn spawn(mut commands: Commands, window: Single<&Window>, lab: Res<FeelLab>) {
+fn spawn(mut commands: Commands, window: Single<&Window>, lab: Res<FeelLab>, fonts: Res<UiFonts>) {
     let r = button_rect(window.size(), lab.available);
     let size = window.size();
     commands
@@ -178,17 +178,10 @@ fn spawn(mut commands: Commands, window: Single<&Window>, lab: Res<FeelLab>) {
                 border_radius: BorderRadius::all(px(r.height() / 2.0)),
                 ..default()
             },
-            BorderColor::all(Color::srgba(1.0, 0.85, 0.55, 0.25)),
-            BackgroundColor(Color::srgba(0.05, 0.12, 0.14, 0.45)),
+            BorderColor::all(crate::ui_theme::RIM_FAINT),
+            BackgroundColor(crate::ui_theme::BUTTON),
         ))
-        .with_child((
-            Text::new("Skills"),
-            TextFont {
-                font_size: FontSize::Px(13.0),
-                ..default()
-            },
-            TextColor(Color::srgba(1.0, 0.9, 0.7, 0.7)),
-        ));
+        .with_child(theme::words("Skills", theme::BODY, theme::TEXT));
 
     commands
         .spawn((
@@ -202,12 +195,13 @@ fn spawn(mut commands: Commands, window: Single<&Window>, lab: Res<FeelLab>) {
                 padding: UiRect::all(px(PAD)),
                 row_gap: px(GAP),
                 border: UiRect::all(px(1.5)),
-                border_radius: BorderRadius::all(px(12)),
+                border_radius: BorderRadius::all(px(theme::RADIUS)),
                 overflow: Overflow::clip(),
                 ..default()
             },
             BorderColor::all(EDGE),
             BackgroundColor(PAPER),
+            theme::panel_shadow(),
         ))
         .with_children(|card| {
             // The grid.
@@ -227,22 +221,8 @@ fn spawn(mut commands: Commands, window: Single<&Window>, lab: Res<FeelLab>) {
                     ..default()
                 },))
                     .with_children(|row| {
-                        row.spawn((
-                            Text::new("Skills"),
-                            TextFont {
-                                font_size: FontSize::Px(17.0),
-                                ..default()
-                            },
-                            TextColor(GOLD),
-                        ));
-                        row.spawn((
-                            Text::new("tap one for its guide"),
-                            TextFont {
-                                font_size: FontSize::Px(11.0),
-                                ..default()
-                            },
-                            TextColor(DIM),
-                        ));
+                        row.spawn(theme::bold(&fonts, "Skills", theme::TITLE, GOLD));
+                        row.spawn((TotalLevel, theme::words("", theme::CAPTION, DIM)));
                     });
                 grid.spawn(Node {
                     display: Display::Grid,
@@ -262,29 +242,39 @@ fn spawn(mut commands: Commands, window: Single<&Window>, lab: Res<FeelLab>) {
                                     justify_content: JustifyContent::SpaceBetween,
                                     padding: UiRect::axes(px(6), px(5)),
                                     border: UiRect::all(px(1)),
-                                    border_radius: BorderRadius::all(px(7)),
+                                    border_radius: BorderRadius::all(px(8)),
                                     ..default()
                                 },
-                                BorderColor::all(Color::srgba(1.0, 0.85, 0.55, 0.18)),
+                                BorderColor::all(theme::RIM_FAINT),
                                 BackgroundColor(CELL),
                             ))
                             .with_children(|cell| {
-                                cell.spawn((
-                                    Text::new(skill.name()),
-                                    TextFont {
-                                        font_size: FontSize::Px(12.0),
-                                        ..default()
-                                    },
-                                    TextColor(WORDS),
-                                ));
-                                cell.spawn((CellLevel(skill), text(15.0, GOLD)));
+                                // The name, and the level big on the right.
+                                cell.spawn(Node {
+                                    justify_content: JustifyContent::SpaceBetween,
+                                    align_items: AlignItems::Center,
+                                    ..default()
+                                })
+                                .with_children(|top| {
+                                    top.spawn(theme::words(
+                                        skill.name(),
+                                        theme::CAPTION + 1.0,
+                                        WORDS,
+                                    ));
+                                    top.spawn((
+                                        CellLevel(skill),
+                                        theme::bold(&fonts, "", theme::TITLE, GOLD),
+                                    ));
+                                });
                                 cell.spawn((
                                     Node {
                                         width: percent(100),
-                                        height: px(3),
+                                        height: px(4),
+                                        border_radius: BorderRadius::all(px(2)),
+                                        overflow: Overflow::clip(),
                                         ..default()
                                     },
-                                    BackgroundColor(Color::srgba(1.0, 0.88, 0.55, 0.18)),
+                                    BackgroundColor(Color::srgba(1.0, 0.88, 0.55, 0.16)),
                                 ))
                                 .with_child((
                                     CellFill(skill),
@@ -293,7 +283,7 @@ fn spawn(mut commands: Commands, window: Single<&Window>, lab: Res<FeelLab>) {
                                         height: percent(100),
                                         ..default()
                                     },
-                                    BackgroundColor(Color::srgba(1.0, 0.88, 0.55, 0.85)),
+                                    BackgroundColor(GOLD),
                                 ));
                             });
                     }
@@ -336,8 +326,8 @@ fn spawn(mut commands: Commands, window: Single<&Window>, lab: Res<FeelLab>) {
                         },
                         TextColor(WORDS),
                     ));
-                guide.spawn((GuideTitle, text(18.0, GOLD)));
-                guide.spawn((GuideNext, text(12.0, DIM)));
+                guide.spawn((GuideTitle, theme::bold(&fonts, "", theme::TITLE, GOLD)));
+                guide.spawn((GuideNext, text(theme::CAPTION + 1.0, DIM)));
                 guide.spawn((
                     GuideList,
                     ScrollPosition::default(),
@@ -504,7 +494,8 @@ fn refresh_grid(
     sim: Res<crabsim::Sim>,
     local: Query<&PlayerId, With<LocalPlayer>>,
     mut cells: Query<(&Cell, &mut Node), (Without<CellFill>, Without<CellLevel>)>,
-    mut levels: Query<(&CellLevel, &mut Text)>,
+    mut levels: Query<(&CellLevel, &mut Text), Without<TotalLevel>>,
+    mut total_line: Single<&mut Text, With<TotalLevel>>,
     mut fills: Query<(&CellFill, &mut Node), Without<Cell>>,
 ) {
     if !open.open {
@@ -524,8 +515,17 @@ fn refresh_grid(
             node.display = display;
         }
     }
+    let total: u32 = Skill::ALL
+        .iter()
+        .filter(|s| listed(**s, crab.xp(**s)))
+        .map(|s| crab.level(*s, t))
+        .sum();
+    let line = format!("Total level {total}   ·   tap one for its guide");
+    if total_line.0 != line {
+        total_line.0 = line;
+    }
     for (level, mut words) in &mut levels {
-        let line = format!("Level {}", crab.level(level.0, t));
+        let line = format!("{}", crab.level(level.0, t));
         if words.0 != line {
             words.0 = line;
         }
@@ -564,18 +564,18 @@ fn build_guide(
     };
     let t = &sim.tuning;
     let (level, xp) = (crab.level(skill, t), crab.xp(skill));
-    let heading = format!("{}   level {level}", skill.name());
+    let heading = format!("{}   ·   level {level}", skill.name());
     if title.0 != heading {
         title.0 = heading;
     }
     let to_go = match xp_to_next(skill, level, xp, t) {
         Some(n) => format!(
-            "{} xp   |   {} to level {}",
+            "{} xp   ·   {} to level {}",
             thousands(xp as u32),
             thousands(n),
             level + 1
         ),
-        None => format!("{} xp   |   top level", thousands(xp as u32)),
+        None => format!("{} xp   ·   top level", thousands(xp as u32)),
     };
     if next.0 != to_go {
         next.0 = to_go;
