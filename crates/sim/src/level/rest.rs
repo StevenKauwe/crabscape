@@ -39,12 +39,13 @@ pub enum MarkerKind {
     },
 }
 
-/// An authored rest marker: `x`, and `dy` over the ground below it.
+/// An authored rest marker: a point in open water at `[x, y]` that snaps
+/// down to the ground below it (`y: f32::INFINITY` means the top surface).
+/// In a cavern, give a `y` inside the cavern so it lands on the cavern floor.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Marker {
     pub name: &'static str,
-    pub x: f32,
-    pub dy: f32,
+    pub at: [f32; 2],
     pub kind: MarkerKind,
 }
 
@@ -54,16 +55,14 @@ pub const MARKERS: &[Marker] = &[
     // Where the basin's cliff gives out into the far basin.
     Marker {
         name: "far basin",
-        x: 4500.0,
-        dy: 0.0,
+        at: [4500.0, f32::INFINITY],
         kind: MarkerKind::Entrance,
     },
     // The top of the slump dam: the way into Plate D's lower canyon. (The
     // far rim needs none: the octopus's door is there.)
     Marker {
         name: "lower canyon",
-        x: 17540.0,
-        dy: 0.0,
+        at: [17540.0, f32::INFINITY],
         kind: MarkerKind::Entrance,
     },
 ];
@@ -71,11 +70,13 @@ pub const MARKERS: &[Marker] = &[
 /// A crab reaches a rest point by passing within this many units of it.
 pub const REACH: f32 = 120.0;
 
-/// The ground below `(x, y)`: the y a crab stands at. Today the floor line;
-/// the world lead's layer map will replace this body with a
-/// ground-below-a-point query (a one-line change), so every marker follows.
-fn ground_below(level: &Level, x: f32, _y: f32) -> f32 {
-    level.floor_height(x)
+/// The ground below `p`: the y a crab stands at. Every rest point snaps
+/// through here.
+// TODO(engine #634): becomes
+// `level.ground_below(p).unwrap_or_else(|| level.floor_height(p.x))`, the
+// nearest solid top under `p` (inside caverns), when the layer map lands.
+fn ground_below(level: &Level, p: Vec2) -> f32 {
+    level.floor_height(p.x)
 }
 
 /// How far in front of the octopus's den its door lies (the fair bot starts
@@ -104,10 +105,10 @@ impl Level {
             });
         }
         for m in MARKERS {
-            let y = ground_below(self, m.x, f32::INFINITY) + m.dy;
+            let y = ground_below(self, Vec2::from(m.at));
             points.push(RestPoint {
                 name: m.name.into(),
-                at: Vec2::new(m.x, y),
+                at: Vec2::new(m.at[0], y),
                 kind: match m.kind {
                     MarkerKind::Entrance => RestKind::Entrance,
                     MarkerKind::BossDoor { arena } => RestKind::BossDoor {
@@ -126,7 +127,7 @@ impl Level {
             let x = self.den.min.x - OCTOPUS_DOOR;
             points.push(RestPoint {
                 name: "octopus den".into(),
-                at: Vec2::new(x, ground_below(self, x, self.den.min.y)),
+                at: Vec2::new(x, ground_below(self, Vec2::new(x, self.den.max.y))),
                 kind: RestKind::BossDoor {
                     arena: Rect::new(
                         self.den.min.x - OCTOPUS_APRON,
@@ -142,7 +143,7 @@ impl Level {
         if let Some(&spot) = crate::creatures::grouper::spots(self).first() {
             let mouth = spot.x - crate::creatures::grouper::MOUTH_X;
             let x = mouth - GROUPER_DOOR;
-            let ground = ground_below(self, x, spot.y);
+            let ground = ground_below(self, Vec2::new(x, spot.y));
             points.push(RestPoint {
                 name: "goliath grouper".into(),
                 at: Vec2::new(x, ground),
