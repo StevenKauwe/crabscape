@@ -127,10 +127,15 @@ impl Progress {
     /// well fed) reduced to running or not: what's worth saving at once. The
     /// clocks themselves are saved along with anything else.
     pub fn ignoring_clocks(&self) -> Progress {
+        let mut econ = self.econ.clone();
+        // The guide's one-time look at what the crab has already done is
+        // bookkeeping, not news.
+        econ.guide.vetted = true;
         Progress {
             clams: self.clams.iter().map(|&c| c.min(1)).collect(),
             well_fed: self.well_fed.min(1),
             soft: self.soft.min(1),
+            econ,
             ..self.clone()
         }
     }

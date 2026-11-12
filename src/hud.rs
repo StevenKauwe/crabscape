@@ -110,6 +110,16 @@ pub fn level_card(skill: Skill, level: u32, more: Vec<String>) -> Card {
 }
 
 /// How long a card stays up, in all.
+/// A first-hour guide step done: the step's title and what it paid.
+pub fn guide_card(step: &crabsim::economy::guide::Step) -> Card {
+    Card {
+        caption: "GUIDE",
+        title: step.title.to_string(),
+        lines: vec![format!("You get {}.", step.reward.line())],
+        gold: false,
+    }
+}
+
 fn card_life(card: &Card) -> f32 {
     HOLD + HOLD_PER_LINE * card.lines.len() as f32
 }
@@ -335,6 +345,12 @@ fn queue_cards(
             Vec::new()
         };
         cards.push(level_card(skill, level, more));
+    }
+    if let Some(step) = ev
+        .guide_done
+        .and_then(|i| crabsim::economy::guide::GUIDE.get(usize::from(i)))
+    {
+        cards.push(guide_card(step));
     }
     if ev.goal_ready {
         cards.push(Card {
@@ -598,6 +614,20 @@ mod tests {
         assert_eq!(card.lines.len(), MOST_LINES + 1);
         assert_eq!(card.lines[MOST_LINES], "and 3 more: see Skills");
         assert!(card_life(&card) > card_life(&level_card(Skill::Building, 2, vec![])));
+    }
+
+    #[test]
+    fn a_guide_card_names_the_step_and_what_it_paid() {
+        let first = &crabsim::economy::guide::GUIDE[0];
+        let card = guide_card(first);
+        assert_eq!(card.caption, "GUIDE");
+        assert_eq!(card.title, first.title);
+        assert_eq!(card.lines.len(), 1);
+        assert!(
+            card.lines[0].starts_with("You get 2 kelp"),
+            "{:?}",
+            card.lines
+        );
     }
 
     #[test]

@@ -1004,6 +1004,14 @@ impl Sim {
         }
     }
 
+    /// A crab ended or resumed the first-hour guide at `tick`: a running
+    /// recording notes it.
+    pub(crate) fn note_guide(&mut self, tick: u64, on: bool) {
+        if let Some(rec) = &mut self.recorder {
+            rec.note_guide(tick, on);
+        }
+    }
+
     /// The co-op connection, if any.
     pub(crate) fn net_ref(&self) -> Option<&Net> {
         self.net.as_ref()
@@ -3172,6 +3180,7 @@ impl Sim {
         self.gather_step();
         self.dig_step();
         self.pin_step();
+        self.guide_step();
         // Each crab's memory: what it sees now is seen.
         if self
             .tick
@@ -3370,6 +3379,11 @@ impl Sim {
                 if let Some(took) = e.takes_at(part, &hit, crab.mover.pos.x, t) {
                     let levelled =
                         fought(&mut crab.mover, health - e.health_left(), took, e.kind, t);
+                    if took.died && !crab.remote {
+                        crab.econ
+                            .guide
+                            .note(crate::economy::guide::Note::Beat(e.kind));
+                    }
                     crab.events.levelled = crab.events.levelled.or(levelled);
                     if countered && took.died {
                         let proven = crab.mover.prove(Skill::Fighting);
@@ -3843,6 +3857,11 @@ fn crush(crab: &mut SimCrab, enemies: &mut [Enemy], t: &Tuning, ev: &mut StepEve
         let health = e.vitals.health;
         if let Some(took) = e.takes(&squeeze, crab.mover.pos.x, t) {
             let levelled = fought(&mut crab.mover, health - e.vitals.health, took, e.kind, t);
+            if took.died && !crab.remote {
+                crab.econ
+                    .guide
+                    .note(crate::economy::guide::Note::Beat(e.kind));
+            }
             ev.levelled = ev.levelled.or(levelled);
         }
         f.vitals.hitstop = f.vitals.hitstop.max(ct.crack_hitstop);
@@ -3872,6 +3891,11 @@ fn crush(crab: &mut SimCrab, enemies: &mut [Enemy], t: &Tuning, ev: &mut StepEve
         let health = e.vitals.health;
         if let Some(took) = e.takes(&blow, crab.mover.pos.x, t) {
             let levelled = fought(&mut crab.mover, health - e.vitals.health, took, e.kind, t);
+            if took.died && !crab.remote {
+                crab.econ
+                    .guide
+                    .note(crate::economy::guide::Note::Beat(e.kind));
+            }
             ev.levelled = ev.levelled.or(levelled);
             // The crush is a counter's: beating a creature with it proves
             // the fighter.

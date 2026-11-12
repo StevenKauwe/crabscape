@@ -101,6 +101,9 @@ pub struct Config {
     pub secs: f64,
     /// Stop once `focus` reaches this level.
     pub stop_level: Option<u32>,
+    /// Follow the first-hour guide step by step (`play_guide`), stopping at
+    /// the end of the chain or at `secs`.
+    pub guide: bool,
 }
 
 /// A stretch of consecutive work on one label.
@@ -173,6 +176,9 @@ pub struct Bot {
     pub gathers: std::collections::BTreeMap<Item, u32>,
     spot: Vec2,
     pub home_x: f32,
+    /// The minute (in seconds) each guide step finished, by step index.
+    pub step_done: Vec<(usize, f64)>,
+    guide_seen: usize,
 }
 
 fn walk(dir: f32) -> Controls {
@@ -217,6 +223,8 @@ impl Bot {
             gathers: Default::default(),
             spot: Vec2::new(1300.0, g + 2.0),
             home_x: 95.0,
+            step_done: Vec::new(),
+            guide_seen: 0,
         };
         bot.go_home();
         bot.level_ups.clear();
@@ -234,6 +242,9 @@ impl Bot {
         if self.now() >= self.cfg.secs {
             return true;
         }
+        if self.cfg.guide && self.guide_index() >= economy::guide::GUIDE.len() {
+            return true;
+        }
         match (self.cfg.focus, self.cfg.stop_level) {
             (Some(s), Some(l)) => self.levels[skill_index(s)] >= l,
             _ => false,
@@ -247,6 +258,11 @@ impl Bot {
         let crab = self.sim.crab(P0).expect("crab");
         if let Some((item, _)) = crab.events.gathered {
             *self.gathers.entry(item).or_default() += 1;
+        }
+        let guide_at = usize::from(crab.econ.guide.step);
+        while self.guide_seen < guide_at {
+            self.step_done.push((self.guide_seen, now));
+            self.guide_seen += 1;
         }
         for (i, &s) in SKILLS.iter().enumerate() {
             let x = crab.xp(s);
@@ -1178,6 +1194,148 @@ impl Bot {
                 });
             }
             self.run(&c);
+        }
+        self.tag(None);
+    }
+
+    // ---- Following the first-hour guide ----
+
+    /// The guide's current step index.
+    pub fn guide_index(&self) -> usize {
+        usize::from(self.sim.crab(P0).expect("crab").econ.guide.step)
+    }
+
+    /// Get one more of `item` into the bank: gather it, or make it from what
+    /// it takes (one outing or one craft per call).
+    fn acquire(&mut self, item: Item) {
+        if item == Item::Valve {
+            // A valve is what shucking a mussel leaves.
+            if self.bank(Item::Mussel) >= 2 {
+                self.make_word("shucked-mussels");
+            } else {
+                self.acquire(Item::Mussel);
+            }
+            return;
+        }
+        if let Some(kind) = Self::source_of(item)
+            && kind.def().yields == Some(item)
+        {
+            self.guide_gather(kind);
+            return;
+        }
+        let word = ECON_RECIPES
+            .iter()
+            .find(|r| matches!(r.makes, Output::Items(out) if out.iter().any(|&(i, _)| i == item)))
+            .map(|r| r.word)
+            .unwrap_or_else(|| panic!("no way to get {item:?} in the first hour"));
+        self.make_word(word);
+    }
+
+    /// One outing for `kind`; if nothing is ready, wait at home for regrowth.
+    fn guide_gather(&mut self, kind: NodeKind) {
+        if self.ready_nodes(kind).is_empty() {
+            self.tag(None);
+            self.idle_secs(10.0);
+            return;
+        }
+        let label = format!("gather {}", kind.def().name.to_lowercase());
+        self.gather_session(kind, &label);
+    }
+
+    /// Make one of an economy recipe, fetching what it lacks first.
+    fn make_word(&mut self, word: &str) {
+        use crabsim::craft::CantMakeEcon;
+        let r = economy::EconRecipe::parse(word).expect("a recipe word");
+        match self.sim.can_make_econ(P0, r) {
+            Ok(()) => {
+                self.tag(Some(&format!("make {word}")));
+                self.pause_for_ui(UI_CRAFT_SECS);
+                let _ = self.sim.make_econ(P0, r);
+                self.step(Controls::default());
+                self.tag(None);
+            }
+            Err(CantMakeEcon::Missing(item, _)) => self.acquire(item),
+            Err(CantMakeEcon::NoRoom) => self.eat_all(),
+            Err(CantMakeEcon::NotAtHome) => self.go_home(),
+            Err(e) => panic!("the guide asks for {word}, which cannot be made: {e:?}"),
+        }
+    }
+
+    /// One piece of work toward the current guide step.
+    fn guide_work(&mut self) {
+        use crabsim::craft::CantMakeEcon;
+        use economy::guide::{Cond, GUIDE};
+        let step = &GUIDE[self.guide_index()];
+        match step.cond {
+            Cond::Gather(kind, _) => self.guide_gather(kind),
+            Cond::Make(word, _) => self.make_word(word),
+            Cond::Level(Skill::Building, _) => match self.sim.can_make(P0, Recipe::BuildHome) {
+                Ok(()) => {
+                    self.tag(Some("make build"));
+                    self.pause_for_ui(UI_CRAFT_SECS);
+                    let _ = self.sim.make(P0, Recipe::BuildHome);
+                    self.step(Controls::default());
+                    self.tag(None);
+                }
+                Err(_) => self.acquire(Item::Grit),
+            },
+            Cond::Level(Skill::Climbing, _) => self.climb_session(),
+            Cond::Level(Skill::Swimming, _) => {
+                if self.can_swim() {
+                    self.swim_session();
+                } else {
+                    self.climb_session();
+                }
+            }
+            Cond::Level(Skill::Survival, _) | Cond::Band(_) => self.survive_session(),
+            Cond::Beat(_) | Cond::Level(Skill::Fighting, _) => {
+                if self.snapper_up(SNAPPER_A) || self.snapper_up(SNAPPER_B) {
+                    let at = if self.snapper_up(SNAPPER_A) {
+                        SNAPPER_A
+                    } else {
+                        SNAPPER_B
+                    };
+                    let c = Candidate {
+                        label: "fight snapping shrimp".to_string(),
+                        kind: Session::Fight(at),
+                        serves: vec![Skill::Fighting],
+                    };
+                    self.run(&c);
+                } else {
+                    self.tag(None);
+                    self.idle_secs(10.0);
+                }
+            }
+            Cond::Build(piece) => match self.sim.can_build_piece(P0, piece) {
+                Ok(()) => {
+                    self.tag(Some(&format!("build {}", piece.word())));
+                    self.pause_for_ui(UI_BUILD_SECS);
+                    let _ = self.sim.build_piece(P0, piece);
+                    self.step(Controls::default());
+                    self.tag(None);
+                }
+                Err(CantMakeEcon::Missing(item, _)) => self.acquire(item),
+                Err(e) => panic!("the guide asks to build {}: {e:?}", piece.word()),
+            },
+            Cond::Pinned => {
+                self.pause_for_ui(UI_CRAFT_SECS);
+                assert!(self.sim.pin_want(P0, "pry-shell") || self.sim.pin_want(P0, "kelp-rope"));
+                self.step(Controls::default());
+            }
+            Cond::Level(skill, _) => panic!("no guide step plays {skill:?} by level"),
+        }
+    }
+
+    /// Follow the guide step by step until its end (or `secs`).
+    pub fn play_guide(&mut self) {
+        let mut rounds = 0;
+        while !self.done() && rounds < 20_000 {
+            rounds += 1;
+            if self.held_portions() > 0 {
+                self.eat_all();
+                continue;
+            }
+            self.guide_work();
         }
         self.tag(None);
     }
