@@ -647,12 +647,9 @@ mod tests {
             let top = line_top(window);
             let left = (window.x - WIDTH) / 2.0;
             let card = Rect::new(left, top, left + WIDTH, top + 110.0);
-            // The corner buttons' column (Settings, Home, Skills) and Invite.
-            let mut corner: Vec<Rect> = (0..3)
-                .map(|rows| crate::settings::below(window, rows as f32))
-                .collect();
-            corner.push(crate::coop::invite_rect(window));
-            for r in corner {
+            // The corner row.
+            for slot in crate::corner::Slot::ALL {
+                let r = crate::corner::rect(window, slot);
                 assert!(card.intersect(r).is_empty(), "{window}: {card:?} {r:?}");
             }
             if crate::settings::narrow(window) {
