@@ -321,7 +321,7 @@ pub fn lining() -> &'static [Rect] {
 /// Fewer, larger boxes: drop a box inside another and join two that share a
 /// whole edge. (Every rock is looked at by every creature on every tick, so
 /// the corner crumbs where two linings meet cost more than they hold.)
-fn merge(mut rects: Vec<Rect>) -> Vec<Rect> {
+pub(super) fn merge(mut rects: Vec<Rect>) -> Vec<Rect> {
     'again: loop {
         for i in 0..rects.len() {
             for j in 0..rects.len() {

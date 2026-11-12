@@ -15,7 +15,7 @@
 //! The map is *derived* from a [`Level`] on demand and never stored in it
 //! (`Level` derives `PartialEq` and serde; see `world-plan.md`).
 
-use super::{Level, deep_galleries, silt_galleries};
+use super::{Level, deep_galleries, silt_galleries, slope_caves};
 use crate::underwater::{Cell, GAME_BOTTOM, GAME_CELL};
 use bevy_math::{Rect, Vec2};
 use std::sync::Arc;
@@ -512,6 +512,7 @@ fn bedrock_and_sediment(level: &Level) -> Vec<Shape> {
 fn overlay(level: &Level) -> Vec<Shape> {
     let mut shapes = silt_galleries::shapes(level);
     shapes.extend(deep_galleries::shapes(level));
+    shapes.extend(slope_caves::shapes(level));
     shapes
 }
 
