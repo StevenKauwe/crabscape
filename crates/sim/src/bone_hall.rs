@@ -137,38 +137,23 @@ fn carve(r: Rect, cut: Rect) -> Rect {
     .unwrap_or(r)
 }
 
-/// The haze of the hall: the half of the room away from the door, beyond the
-/// prize, shrunk to clear the door, the walk in and every tunnel or mouth.
-/// `None` when nothing is left.
+/// The haze of the hall: the biggest part of the room left once the door, the
+/// walk in to the prize, the prize itself and every tunnel or mouth are kept
+/// clear. (Plate D put the door above the middle of the hall and the prize
+/// west of it, so the haze settles in the deep east corner, under the seep
+/// shaft's mouth.) `None` when nothing is left.
 pub fn haze(level: &Level, hall: &Hall) -> Option<Rect> {
     haze_in(&landmarks_of(level)?, hall)
 }
 
 fn haze_in(marks: &[Landmark], hall: &Hall) -> Option<Rect> {
     let room = hall.rect;
-    let door_x = (hall.door.min.x + hall.door.max.x) * 0.5;
-    let inner = Rect::new(
+    let mut haze = Rect::new(
         room.min.x + INSET,
         room.min.y + INSET,
         room.max.x - INSET,
         room.max.y - INSET,
     );
-    // The far side of the room from the door, beyond the prize.
-    let mut haze = if door_x <= room.center().x {
-        Rect::new(
-            (hall.prize.x + KEEP_CLEAR).max(inner.min.x),
-            inner.min.y,
-            inner.max.x,
-            inner.max.y,
-        )
-    } else {
-        Rect::new(
-            inner.min.x,
-            inner.min.y,
-            (hall.prize.x - KEEP_CLEAR).min(inner.max.x),
-            inner.max.y,
-        )
-    };
     let door_centre = hall.door.center();
     let walk = Rect::from_corners(door_centre, hall.prize);
     haze = carve(haze, grown(hall.door, KEEP_CLEAR));
