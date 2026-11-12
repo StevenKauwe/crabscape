@@ -53,6 +53,10 @@ pub(crate) const MORAY_FORAGE_LEASH: f32 = 400.0;
 #[derive(Clone, Debug, PartialEq)]
 pub struct Tuning {
     pub strain: StrainTuning,
+    /// Reserve strokes lost per second standing in the bone hall's haze
+    /// during a sulfide pulse (a design call; see `bone_hall.rs`). Costs
+    /// reserve only, never health.
+    pub sulfide_drain: f32,
     // --- Walking --------------------------------------------------------
     /// Top walking speed.
     pub walk_speed: f32,
@@ -998,6 +1002,7 @@ impl Tuning {
     pub fn base() -> Self {
         Self {
             strain: StrainTuning::default(),
+            sulfide_drain: 1.5,
             walk_speed: 270.0,
             ground_accel: 1900.0,
             ground_decel: 2600.0,

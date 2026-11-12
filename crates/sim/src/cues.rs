@@ -30,6 +30,11 @@ pub enum Cue {
     VentHum {
         at: Vec2,
     },
+    /// The bone hall's sulfide hiss: a pulse follows in 1.5 s
+    /// ([`crate::bone_hall`]). Heard by everyone; changes no one.
+    Seep {
+        at: Vec2,
+    },
     /// A goliath grouper starts its boom (the warning before a gulp): a very
     /// low, felt thump at `at`. Once per boom.
     Boom {

@@ -265,6 +265,8 @@ pub struct Sim {
     /// This device's part in a co-op game (none in solo play).
     net: Option<Net>,
     empty_shared_base: Option<u64>,
+    /// The bone hall's haze, found once (derived; never hashed).
+    bone_hall: crate::bone_hall::Cache,
 }
 
 /// The seed every world starts with (a replay therefore needs no seed).
@@ -403,6 +405,7 @@ impl Sim {
             owned_rng: None,
             net: None,
             empty_shared_base: None,
+            bone_hall: Default::default(),
         }
     }
 
@@ -3111,6 +3114,15 @@ impl Sim {
             }
         }
         self.step_cues();
+        if let Some(at) = crate::bone_hall::step(
+            self.tick + 1,
+            &self.level,
+            &self.tuning,
+            &mut self.crabs,
+            &mut self.bone_hall,
+        ) {
+            self.sound_cues.emit(self.tick + 1, cues::Cue::Seep { at });
+        }
         self.watchers.step(self.tick, &self.crabs, &self.tuning);
         self.tick += 1;
         self.send_updates(&mut runs);
