@@ -372,6 +372,9 @@ jobs:
         with:
           name: browser-tools-${{ github.sha }}
       - name: Co-op's promises in Chrome, two or three players, each scenario of this part once
+        # Each meeting prints both players' co-op timelines (where a join spends its seconds).
+        env:
+          COOPTEST_TIMELINE: "1"
         run: |
           chmod +x target/art/cooptest tools/introducer/target/release/introducer
           target/art/cooptest --repeat 1 --shard ${{ matrix.part }}/${{ strategy.job-total }} --logs target/webtest
