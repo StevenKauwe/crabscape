@@ -254,6 +254,38 @@ pub struct Level {
     /// The crab can't go further left or right than this (the level's walls).
     pub min_x: f32,
     pub max_x: f32,
+    /// This level's layer map, kept once it is first asked for (derived:
+    /// never saved, never compared; see [`LayerCache`]).
+    #[serde(skip)]
+    pub(crate) layer_cache: LayerCache,
+}
+
+/// A level's layer map, remembered with a stamp of the floor and rocks it was
+/// built from: a level whose floor or rocks have since changed (a test that
+/// clears the rocks, say) misses it and goes to the shared cache as before.
+/// Physics asks for the map under every crab in a cavern, every step, so the
+/// shared cache's full comparison of the floor and every rock was too slow
+/// to pay each time.
+#[derive(Default)]
+pub struct LayerCache(std::sync::Mutex<Option<(u64, std::sync::Arc<layers::LayerMap>)>>);
+
+impl Clone for LayerCache {
+    fn clone(&self) -> Self {
+        let entry = self.0.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        LayerCache(std::sync::Mutex::new(entry))
+    }
+}
+
+impl PartialEq for LayerCache {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl std::fmt::Debug for LayerCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("LayerCache")
+    }
 }
 
 impl Level {
@@ -314,6 +346,39 @@ impl Level {
     /// The layer map, shared between callers that ask for the same terrain
     /// (the cell generator asks once per column).
     pub(crate) fn layers_shared(&self) -> std::sync::Arc<layers::LayerMap> {
+        let stamp = self.layer_stamp();
+        let mut kept = self.layer_cache.0.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((at, map)) = kept.as_ref()
+            && *at == stamp
+        {
+            return std::sync::Arc::clone(map);
+        }
+        let map = self.layers_looked_up();
+        *kept = Some((stamp, std::sync::Arc::clone(&map)));
+        map
+    }
+
+    /// A cheap stamp of the floor and rocks: their counts and end points.
+    fn layer_stamp(&self) -> u64 {
+        let mut words = vec![self.floor.len() as u64, self.rocks.len() as u64];
+        for p in [self.floor.first(), self.floor.last()]
+            .into_iter()
+            .flatten()
+        {
+            words.push(u64::from(p.x.to_bits()) << 32 | u64::from(p.y.to_bits()));
+        }
+        for r in [self.rocks.first(), self.rocks.last()]
+            .into_iter()
+            .flatten()
+        {
+            words.push(u64::from(r.min.x.to_bits()) << 32 | u64::from(r.max.y.to_bits()));
+        }
+        words.iter().fold(0xcbf2_9ce4_8422_2325, |h, w| {
+            (h ^ w).wrapping_mul(0x0100_0000_01b3)
+        })
+    }
+
+    fn layers_looked_up(&self) -> std::sync::Arc<layers::LayerMap> {
         use std::sync::{Arc, Mutex};
         type Entry = (Vec<Vec2>, Vec<Rect>, Arc<layers::LayerMap>);
         static CACHE: Mutex<Vec<Entry>> = Mutex::new(Vec::new());
@@ -688,6 +753,7 @@ impl Level {
             drifting: vec![Vec2::new(7520.0, -5380.0), Vec2::new(7510.0, -5390.0)],
             min_x: 0.0,
             max_x: 8800.0,
+            layer_cache: LayerCache::default(),
         };
         exploration::extend(&mut level);
         coral_rise::shape(&mut level);

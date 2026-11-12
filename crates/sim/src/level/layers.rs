@@ -240,12 +240,19 @@ impl Column {
         // bottom of the cavity carved out of one) with solid just below it and
         // water just above.
         const NUDGE: f32 = 0.01;
-        self.spans
+        // Highest first: the first edge that is a surface is the answer, so
+        // most edges are never tested (each test reads the whole column).
+        let mut edges: Vec<f32> = self
+            .spans
             .iter()
             .flat_map(|s| [s.lo, s.hi])
             .filter(|&t| t <= y + NUDGE)
-            .filter(|&t| self.cell(t - NUDGE) != Cell::Water && self.cell(t + NUDGE) == Cell::Water)
-            .max_by(f32::total_cmp)
+            .collect();
+        edges.sort_by(|a, b| b.total_cmp(a));
+        edges.dedup();
+        edges
+            .into_iter()
+            .find(|&t| self.cell(t - NUDGE) != Cell::Water && self.cell(t + NUDGE) == Cell::Water)
     }
 
     /// The highest solid surface in the column (the ground a creature stands on
