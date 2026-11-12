@@ -921,4 +921,50 @@ mod tests {
             light(water_at(Vec2::new(7000.0, -1500.0))) < light(water_at(Vec2::new(0.0, -1500.0)))
         );
     }
+
+    /// The painted ground's shader code is one block of text in two shaders (the cells' and the floor's and
+    /// rocks'): they must stay the same, or the same material looks different where the two meet.
+    #[test]
+    fn painted_ground_code_is_the_same_in_both_shaders() {
+        fn block(shader: &str) -> &str {
+            let start = shader
+                .find("// ---- painted ground:")
+                .expect("start marker");
+            let end = shader
+                .find("// ---- end painted ground ----")
+                .expect("end marker");
+            &shader[start..end]
+        }
+        assert_eq!(
+            block(include_str!("cellular.wgsl")),
+            block(include_str!("memory.wgsl"))
+        );
+    }
+
+    /// The painted terrain must stay close to the flat shaders' cost (software rendering on CI and slow phones
+    /// pay per pixel; #634's did not): at most two tile fetches, one noise in the shared block (plus the rim's),
+    /// and at most two extra cell reads, none of them in a loop.
+    #[test]
+    fn painted_ground_stays_cheap() {
+        let cells = include_str!("cellular.wgsl");
+        let block = &cells[cells.find("// ---- painted ground:").expect("start")
+            ..cells.find("// ---- end painted ground ----").expect("end")];
+        assert_eq!(block.matches("textureSampleLevel(").count(), 2);
+        assert_eq!(block.matches("noise(").count(), 1, "the rim's noise only");
+        let fragment = &cells[cells.find("@fragment").expect("fragment")..];
+        assert_eq!(
+            fragment.matches("noise(").count(),
+            3,
+            "patch, plus the fade's two"
+        );
+        let rim = &cells[cells.find("fn cell_rim").expect("rim")
+            ..cells.find("fn water_colour").expect("water")];
+        assert_eq!(
+            rim.matches("textureLoad(").count(),
+            2,
+            "the cell above and the cell to the left"
+        );
+        assert!(!rim.contains("for "), "no search over neighbours");
+        assert!(!cells.contains("dominant_layer") && !cells.contains("fn coverage"));
+    }
 }
