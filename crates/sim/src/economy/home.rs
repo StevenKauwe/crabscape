@@ -51,11 +51,35 @@ pub struct PieceDef {
 }
 
 pieces! {
+    ValveStep, "valve-step", "Valve step", 2,
+        "Clam valves laid like paving at the doorway.", [(Valve, 6), (Grit, 2)];
     KelpCurtain, "kelp-curtain", "Kelp curtain", 3,
         "A swaying curtain across the doorway.", [(Kelp, 6), (KelpCord, 2)];
+    SnailCairn, "snail-cairn", "Snail-shell cairn", 4,
+        "Empty snail shells stacked beside the door.", [(Snail, 4), (Grit, 3)];
+    GritPath, "grit-path", "Grit path", 6,
+        "A path of grit edged with polished valves, raked to the door.", [(PolishedValve, 4), (Grit, 8)];
+    GlowJar, "glow-jar", "Glow jar", 7,
+        "A valve jar of shore-glow bacteria: a faint light by the door.", [(ShoreStrain, 2), (Valve, 2), (KelpCord, 1)];
+    ValveChime, "valve-chime", "Valve chime", 8,
+        "Clam valves on kelp cord, clicking in the current.", [(Valve, 6), (KelpCord, 2), (Grit, 2)];
     GlassLamp, "glass-lamp", "Glass lamp", 8,
         "A glass sponge lamp: a warm glow at the home.", [(Glass, 4), (KelpCord, 1)];
-    ShellMosaic, "shell-mosaic", "Shell mosaic", 15,
+    RopeRail, "rope-rail", "Rope rail", 9,
+        "A kelp-rope rail along the doorstep.", [(KelpRope, 2), (Kelp, 4)];
+    KelpGarden, "kelp-garden", "Kelp garden", 10,
+        "Kelp tufts rooted in grit, with shore-glow in the shade.", [(Kelp, 8), (ShoreStrain, 2), (Grit, 3)];
+    ClawRack, "claw-rack", "Claw rack", 11,
+        "Snapper claws hung on kelp rope by the door.", [(SnapperClaw, 2), (KelpRope, 1), (Grit, 2)];
+    ValveShelf, "valve-shelf", "Valve shelf", 12,
+        "A shelf of clam valves, rope-hung against the wall.", [(Valve, 8), (KelpRope, 2), (Grit, 4)];
+    SandSill, "sand-sill", "Sand-dollar sill", 13,
+        "Sand dollars set in shell cement along the sill.", [(SandDollar, 4), (ShellCement, 1), (KelpCord, 2)];
+    EelgrassThatch, "eelgrass-thatch", "Eelgrass thatch", 14,
+        "Eelgrass laid over kelp mats, a soft roof over the door.", [(Eelgrass, 8), (KelpMat, 2), (Grit, 2)];
+    BarnacleWall, "barnacle-wall", "Barnacle wall", 15,
+        "Barnacles set in shell cement, a rough crust on the wall.", [(Barnacle, 6), (ShellCement, 2), (Grit, 2)];
+    ShellMosaic, "shell-mosaic", "Shell mosaic", 17,
         "Clam valves, grit and shed teeth set in a pattern on the wall.", [(Valve, 8), (Grit, 4), (Pearl, 1), (Tooth, 4)];
     WhelkDoor, "whelk-door", "Whelk door", 20,
         "A whelk shell set in clay and edged with seep mussel shells, a door for the doorway.", [(WhelkShell, 1), (Clay, 2), (SeepMussel, 2)];
@@ -69,10 +93,19 @@ pieces! {
         "Warm vent-stone nodules, no fire: the shell mends sooner at home.", [(Nodule, 4), (ScalePlate, 1), (Clay, 4)];
 }
 
-/// Building experience for building a piece of Building `level`:
-/// `40 x level / 5`, at least 40.
+/// Building experience for building a piece of Building `level`.
+///
+/// From level 2 to 15 a piece (and an early station) pays a level and a
+/// fifth of Building: the experience from its own level to the next, plus 20%, so a new crab
+/// that can build one piece at each level climbs without a stall, even if
+/// it never meets clay, quill or glass (the first hours, `ladder.rs`). Above
+/// 15 it is `40 x level / 5`, at least 40.
 pub fn piece_xp(level: u32) -> u32 {
-    (40 * level / 5).max(40)
+    if (2..=crate::economy::ladder::LAST_EARLY).contains(&level) {
+        super::xp::level_step(level) * 6 / 5
+    } else {
+        (40 * level / 5).max(40)
+    }
 }
 
 impl Piece {

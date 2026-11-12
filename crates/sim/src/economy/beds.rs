@@ -63,6 +63,12 @@ impl Economy {
     /// Plant `strain` in the first free bed, ready after its grow time.
     /// False if there is no free bed or no such strain.
     pub fn plant(&mut self, strain: Item, tick: u64) -> bool {
+        self.plant_quicker(strain, tick, 0)
+    }
+
+    /// [`Economy::plant`] with the grow time cut by `quicker` percent (a
+    /// Culturing perk, `ladder.rs`).
+    pub fn plant_quicker(&mut self, strain: Item, tick: u64, quicker: u32) -> bool {
         let Some(def) = StrainDef::of(strain) else {
             return false;
         };
@@ -70,6 +76,7 @@ impl Economy {
             return false;
         };
         let ticks = u64::from(def.grow_secs) * u64::from(TICKS_PER_SECOND);
+        let ticks = ticks * u64::from(100 - quicker.min(90)) / 100;
         *slot = Some(Bed {
             strain,
             ready_at_tick: tick.saturating_add(ticks),

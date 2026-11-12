@@ -184,7 +184,20 @@ pub fn check(crab: &SimCrab, kind: NodeKind, t: &Tuning) -> Result<Plan, GatherB
 
 /// The rare find a completed gather may give, if the roll says so.
 pub fn rare_find(def: &NodeDef, identity: u64, node: usize, gathers_done: u64) -> Option<Item> {
-    if !roll(identity, node as u64, gathers_done).is_multiple_of(64) {
+    rare_find_at(def, identity, node, gathers_done, 1)
+}
+
+/// [`rare_find`] for a crab of skill `level`: a Prying crab's pearl comes
+/// more often as it levels (`ladder.rs`).
+pub fn rare_find_at(
+    def: &NodeDef,
+    identity: u64,
+    node: usize,
+    gathers_done: u64,
+    level: u32,
+) -> Option<Item> {
+    let n = super::ladder::rare_modulus(def.skill, level);
+    if !roll(identity, node as u64, gathers_done).is_multiple_of(n) {
         return None;
     }
     match def.skill {
