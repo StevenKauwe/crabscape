@@ -20,7 +20,8 @@ use crabsim::level::{Climb, Growth, WATER_SURFACE_Y};
 
 use crate::memory::{MemoryMaterial, MemoryTexture};
 use crate::painted_world::{
-    PaintedWorld, RIDGE_TEXELS_HIGH, RidgeMaterial, RidgeUniform, ridge_tops,
+    FarRidgeMaterial, FarRidgeUniform, PaintedWorld, RIDGE_TEXELS_HIGH, RidgeMaterial,
+    RidgeUniform, ridge_mean_colours, ridge_tops,
 };
 
 /// How far down the sea floor is drawn below its surface.
@@ -89,7 +90,18 @@ pub struct Parallax {
     /// How far this layer has sunk into the water at all times (its own colour, painted lit and unlit): zoomed
     /// out it sinks further (`view.rs`).
     pub recede: f32,
-    pub material: Handle<RidgeMaterial>,
+    pub material: RidgePaint,
+}
+
+/// How a ridge layer is painted: the far one as a flat opaque silhouette, the near one as textured paint.
+pub enum RidgePaint {
+    /// Flat colour: the mean lit and unlit paint (linear), then updated per frame by `view.rs`.
+    Flat {
+        material: Handle<FarRidgeMaterial>,
+        lit: Vec3,
+        dark: Vec3,
+    },
+    Textured(Handle<RidgeMaterial>),
 }
 
 /// The ocean is a world-space backdrop: each depth keeps its own colour
@@ -169,6 +181,7 @@ fn draw_level(
     mut remembered: ResMut<Assets<MemoryMaterial>>,
     mut water_materials: ResMut<Assets<DepthWaterMaterial>>,
     mut ridge_materials: ResMut<Assets<RidgeMaterial>>,
+    mut far_materials: ResMut<Assets<FarRidgeMaterial>>,
     painted: Res<PaintedWorld>,
 ) {
     let level = &sim.level;
@@ -298,23 +311,46 @@ fn draw_level(
     // Each ridge's mesh follows its own silhouette (`ridge_mesh`), so software rendering (CI, slow phones) never
     // shades the transparent sky above the spires.
     for (layer, ridge) in RIDGES.iter().enumerate() {
-        let material = ridge_materials.add(RidgeMaterial {
-            paint: RidgeUniform {
-                water: Vec4::ZERO,
-                settings: Vec4::new(layer as f32, 1.0, ridge.recede, 0.0),
-            },
-            ridges: painted.ridges.clone(),
-        });
-        commands.spawn((
+        let (paint, mesh, mut entity) = if layer == 0 {
+            let (lit, dark) = ridge_mean_colours(layer);
+            let material = far_materials.add(FarRidgeMaterial {
+                paint: FarRidgeUniform {
+                    colour: Vec4::ONE,
+                    water: Vec4::ZERO,
+                },
+            });
+            let mesh = meshes.add(far_ridge_mesh(layer, ridge.height));
+            let entity = commands.spawn(MeshMaterial2d(material.clone()));
+            (
+                RidgePaint::Flat {
+                    material,
+                    lit,
+                    dark,
+                },
+                mesh,
+                entity,
+            )
+        } else {
+            let material = ridge_materials.add(RidgeMaterial {
+                paint: RidgeUniform {
+                    water: Vec4::ZERO,
+                    settings: Vec4::new(layer as f32, 1.0, ridge.recede, 0.0),
+                },
+                ridges: painted.ridges.clone(),
+            });
+            let mesh = meshes.add(ridge_mesh(layer, ridge.height));
+            let entity = commands.spawn(MeshMaterial2d(material.clone()));
+            (RidgePaint::Textured(material), mesh, entity)
+        };
+        entity.insert((
             Parallax {
                 factor: ridge.factor,
                 period: RIDGE_PERIOD,
                 base: ridge.base,
                 recede: ridge.recede,
-                material: material.clone(),
+                material: paint,
             },
-            Mesh2d(meshes.add(ridge_mesh(layer, ridge.height))),
-            MeshMaterial2d(material),
+            Mesh2d(mesh),
             Transform::from_xyz(0.0, 0.0, ridge.z),
         ));
     }
@@ -356,12 +392,23 @@ const RIDGES: [RidgeLayer; 2] = [
 
 /// Column groups per repeat of a ridge's picture: each is one quad of the strip, as tall as its highest paint.
 const RIDGE_GROUPS: usize = 64;
+/// The far ridge's silhouette is cut finer: a quad per texel column of the 384-wide sheet.
+const FAR_RIDGE_GROUPS: usize = 384;
+/// The far ridge's flat shape stops this share of its height above its foot: that stretch has already eased into
+/// the water's colour (`far_ridge.wgsl`) and lies 230 units under the floor, so nothing there is worth filling.
+const FAR_FOOT_CUT: f32 = 0.12;
 
 /// One repeat of a ridge's strip as `(left, right, top)` in local units: a column group's quad stands from the foot
 /// (y = 0, where the paint has faded away by its own alpha) up to a texel above its highest paint.
-fn ridge_strips(layer: usize, height: f32) -> Vec<(f32, f32, f32)> {
-    let wide = RIDGE_PERIOD / RIDGE_GROUPS as f32;
-    ridge_tops(layer, RIDGE_GROUPS)
+fn ridge_strips(
+    layer: usize,
+    height: f32,
+    groups: usize,
+    floor: f32,
+    pad: usize,
+) -> Vec<(f32, f32, f32)> {
+    let wide = RIDGE_PERIOD / groups as f32;
+    ridge_tops(layer, groups, floor, pad)
         .into_iter()
         .enumerate()
         .map(|(g, first)| {
@@ -379,17 +426,38 @@ fn ridge_strips(layer: usize, height: f32) -> Vec<(f32, f32, f32)> {
 /// column group from y = 0 (the foot) up to that group's highest paint. The strip's u runs along its length in
 /// repeats, v from the picture's top down.
 fn ridge_mesh(layer: usize, height: f32) -> Mesh {
-    let strips = ridge_strips(layer, height);
+    strip_mesh(
+        &ridge_strips(layer, height, RIDGE_GROUPS, 0.01, 1),
+        height,
+        0.0,
+    )
+}
+
+/// The far ridge's finer silhouette: a quad per texel column (see [`FAR_RIDGE_GROUPS`]).
+fn far_ridge_mesh(layer: usize, height: f32) -> Mesh {
+    strip_mesh(
+        &ridge_strips(layer, height, FAR_RIDGE_GROUPS, 0.5, 0),
+        height,
+        FAR_FOOT_CUT * height,
+    )
+}
+
+fn strip_mesh(strips: &[(f32, f32, f32)], height: f32, bottom: f32) -> Mesh {
     let reach = (RIDGE_HALF_LENGTH / RIDGE_PERIOD).ceil() as i32 + 1;
     let uv = |x: f32, y: f32| [x / RIDGE_PERIOD, (height - y) / height];
     let (mut positions, mut uvs, mut indices) = (Vec::new(), Vec::new(), Vec::new());
     for repeat in -reach..reach {
         let origin = repeat as f32 * RIDGE_PERIOD;
-        for &(left, right, top) in &strips {
+        for &(left, right, top) in strips {
             let (l, r) = (origin + left, origin + right);
             let first = positions.len() as u32;
-            positions.extend([[l, top, 0.0], [r, top, 0.0], [r, 0.0, 0.0], [l, 0.0, 0.0]]);
-            uvs.extend([uv(l, top), uv(r, top), uv(r, 0.0), uv(l, 0.0)]);
+            positions.extend([
+                [l, top, 0.0],
+                [r, top, 0.0],
+                [r, bottom, 0.0],
+                [l, bottom, 0.0],
+            ]);
+            uvs.extend([uv(l, top), uv(r, top), uv(r, bottom), uv(l, bottom)]);
             indices.extend([first, first + 3, first + 2, first, first + 2, first + 1]);
         }
     }
@@ -1097,18 +1165,26 @@ mod ridge_mesh_tests {
     #[test]
     fn ridge_strips_cover_every_painted_texel_at_a_fraction_of_the_old_quad() {
         for (layer, ridge) in RIDGES.iter().enumerate() {
-            let strips = ridge_strips(layer, ridge.height);
+            let (groups, floor, limit, cut) = if layer == 0 {
+                (FAR_RIDGE_GROUPS, 0.5, 0.6, FAR_FOOT_CUT * ridge.height)
+            } else {
+                (RIDGE_GROUPS, 0.01, 0.75, 0.0)
+            };
+            let strips = ridge_strips(layer, ridge.height, groups, floor, usize::from(layer != 0));
             let alpha = ridge_alpha(layer);
             let texel = RIDGE_PERIOD / 384.0;
             for x in 0..384 {
                 for y in 0..RIDGE_TEXELS_HIGH {
-                    if alpha[y * 384 + x] < 0.01 {
+                    if alpha[y * 384 + x] < floor {
                         continue;
                     }
                     let (u, up) = (
                         (x as f32 + 0.5) * texel,
                         ridge.height * (1.0 - (y as f32 + 0.5) / RIDGE_TEXELS_HIGH as f32),
                     );
+                    if up < cut {
+                        continue;
+                    }
                     let covered = strips
                         .iter()
                         .any(|&(l, r, top)| u >= l && u <= r && up <= top);
@@ -1118,14 +1194,17 @@ mod ridge_mesh_tests {
                     );
                 }
             }
-            let area: f32 = strips.iter().map(|&(l, r, top)| (r - l) * top).sum();
+            let area: f32 = strips
+                .iter()
+                .map(|&(l, r, top)| (r - l) * (top - cut).max(0.0))
+                .sum();
             let share = area / (RIDGE_PERIOD * ridge.height);
             println!(
                 "ridge {layer}: strip area is {:.1}% of the old quad",
                 share * 100.0
             );
             assert!(
-                share < 0.75,
+                share < limit,
                 "ridge {layer} strip is {share} of the old quad"
             );
         }

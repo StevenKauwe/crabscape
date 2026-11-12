@@ -125,9 +125,9 @@ const RIDGE_SHEET_LAYER_HEIGHT: usize = 224;
 
 /// For one ridge (0 far, 1 near), the first row (counted from the top of its layer) that holds paint in each of
 /// `groups` equal column groups: the highest painted texel any column in the group (and the texel either side of
-/// it, which linear filtering blends in) reaches. `level.rs` builds each ridge's mesh from these so the transparent
+/// it, which linear filtering blends in, when `pad` is 1; `threshold` is the alpha that counts as paint) reaches. `level.rs` builds each ridge's mesh from these so the transparent
 /// sky above the spires is never rasterised. Reads the lit layer's alpha, as `ridge.wgsl` does.
-pub fn ridge_tops(ridge: usize, groups: usize) -> Vec<usize> {
+pub fn ridge_tops(ridge: usize, groups: usize, threshold: f32, pad: usize) -> Vec<usize> {
     let image = stacked(RIDGES_PNG, RIDGE_LAYERS, false);
     let data = image.data.as_deref().unwrap_or(&[]);
     let (w, h) = (RIDGE_SHEET_WIDTH, RIDGE_SHEET_LAYER_HEIGHT);
@@ -139,18 +139,18 @@ pub fn ridge_tops(ridge: usize, groups: usize) -> Vec<usize> {
     };
     let first_painted = |x: usize| {
         (0..h)
-            .find(|&y| alpha(x, y) as f32 / 255.0 >= 0.01)
+            .find(|&y| alpha(x, y) as f32 / 255.0 >= threshold)
             .unwrap_or(h)
     };
     let per = w / groups;
     (0..groups)
         .map(|g| {
-            let lo = (g * per + w - 1) % w;
-            (0..per + 2)
+            let lo = (g * per + w - pad) % w;
+            (0..per + 2 * pad)
                 .map(|i| first_painted((lo + i) % w))
                 .min()
                 .unwrap_or(h)
-                .saturating_sub(1)
+                .saturating_sub(pad)
         })
         .collect()
 }
@@ -203,12 +203,79 @@ impl Material2d for RidgeMaterial {
     }
 }
 
+/// The mean colour (linear) of ridge `ridge`'s lit and its unlit paint over the texels that are mostly opaque.
+pub fn ridge_mean_colours(ridge: usize) -> (Vec3, Vec3) {
+    let image = stacked(RIDGES_PNG, RIDGE_LAYERS, false);
+    let data = image.data.as_deref().unwrap_or(&[]);
+    let rows = RIDGE_SHEET_LAYER_HEIGHT * RIDGE_SHEET_WIDTH;
+    let linear = |b: u8| {
+        let c = b as f32 / 255.0;
+        if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    let mean = |layer: usize| {
+        let (mut sum, mut count) = (Vec3::ZERO, 0.0_f32);
+        for i in 0..rows {
+            let alpha = data
+                .get((ridge * 2 * rows + i) * 4 + 3)
+                .copied()
+                .unwrap_or(0);
+            if alpha < 128 {
+                continue;
+            }
+            let base = (layer * rows + i) * 4;
+            if let Some(px) = data.get(base..base + 3) {
+                sum += Vec3::new(linear(px[0]), linear(px[1]), linear(px[2]));
+                count += 1.0;
+            }
+        }
+        sum / count.max(1.0)
+    };
+    (mean(ridge * 2), mean(ridge * 2 + 1))
+}
+
+/// What the far ridge is drawn with: one flat colour and the water it eases into at the foot.
+#[derive(ShaderType, Clone, Debug, PartialEq)]
+pub struct FarRidgeUniform {
+    /// The ridge's flat colour, linear (mean paint, lit by the daylight, sunk into the water).
+    pub colour: Vec4,
+    /// The water's colour here, linear.
+    pub water: Vec4,
+}
+
+/// The far ridge: an opaque, untextured silhouette (no sampling, no discard, no blending), so on software rendering
+/// it costs a flat fill and nothing more.
+#[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
+pub struct FarRidgeMaterial {
+    #[uniform(0)]
+    pub paint: FarRidgeUniform,
+}
+
+impl Material2d for FarRidgeMaterial {
+    fn fragment_shader() -> ShaderRef {
+        ShaderRef::Path(
+            bevy::asset::AssetPath::from_path_buf(embedded_path!("far_ridge.wgsl"))
+                .with_source("embedded"),
+        )
+    }
+    fn alpha_mode(&self) -> AlphaMode2d {
+        AlphaMode2d::Opaque
+    }
+}
+
 pub struct PaintedWorldPlugin;
 
 impl Plugin for PaintedWorldPlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "ridge.wgsl");
-        app.add_plugins(Material2dPlugin::<RidgeMaterial>::default());
+        embedded_asset!(app, "far_ridge.wgsl");
+        app.add_plugins((
+            Material2dPlugin::<RidgeMaterial>::default(),
+            Material2dPlugin::<FarRidgeMaterial>::default(),
+        ));
         if let Some(mut images) = app.world_mut().get_resource_mut::<Assets<Image>>() {
             let painted = PaintedWorld {
                 tiles: images.add(stacked(TILES_PNG, TILE_LAYERS, true)),
@@ -242,6 +309,27 @@ mod tests {
         assert_eq!(
             ridges.texture_descriptor.size.depth_or_array_layers,
             RIDGE_LAYERS
+        );
+    }
+
+    /// The far ridge draws opaque and flat: its material is in the opaque phase and its shader never samples.
+    #[test]
+    fn the_far_ridge_is_opaque_and_samples_no_texture() {
+        let material = FarRidgeMaterial {
+            paint: FarRidgeUniform {
+                colour: Vec4::ONE,
+                water: Vec4::ONE,
+            },
+        };
+        assert!(matches!(material.alpha_mode(), AlphaMode2d::Opaque));
+        let shader = include_str!("far_ridge.wgsl");
+        for banned in ["textureSample", "texture_2d", "discard"] {
+            assert!(!shader.contains(banned), "far_ridge.wgsl uses {banned}");
+        }
+        let (lit, dark) = ridge_mean_colours(0);
+        assert!(
+            lit.min_element() > 0.0 && dark.max_element() <= 1.0,
+            "{lit} {dark}"
         );
     }
 }
