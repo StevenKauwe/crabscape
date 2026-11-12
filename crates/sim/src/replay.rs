@@ -53,7 +53,7 @@
 //! | `code=hulk`     | the player typed a code (`crabsim::codes`)               |
 //! | `moult=climbing` | the player moulted, growing that skill's feat (`crabsim::moult`) |
 //! | `craft=lantern` | the player made something at the workbench (`crabsim::craft`) |
-//! | `pin=kelp-cord` | the player pinned a recipe as its goal (`pin=none`: let it go) |
+//! | `pin=kelp-cord` | the player pinned a recipe or home piece as its goal (`pin=none`: let it go) |
 //! | `home`          | the player went straight home (the Home button, `crabsim::home`) |
 //!
 //! Walking and holding jump or dodge last until changed. Presses (`jump`,
@@ -144,7 +144,7 @@ pub struct Replay {
     pub crafts: Vec<(u64, Craft)>,
     /// What player 0 pinned as its goal (a recipe), or let go (`None`), in
     /// tick order.
-    pub pins: Vec<(u64, Option<&'static crate::economy::EconRecipe>)>,
+    pub pins: Vec<(u64, Option<&'static str>)>,
     /// When player 0 went straight home (the Home button), in tick order.
     pub homes: Vec<u64>,
     /// What player 0's crab had already grown, taken and stored when the
@@ -404,7 +404,9 @@ impl Replay {
                 } else {
                     Some(
                         crate::economy::EconRecipe::parse(w)
-                            .ok_or_else(|| err(format!("no recipe `{w}` to pin")))?,
+                            .map(|r| r.word)
+                            .or_else(|| crate::economy::Piece::parse(w).map(|p| p.word()))
+                            .ok_or_else(|| err(format!("no recipe or piece `{w}` to pin")))?,
                     )
                 };
                 replay.pins.push((tick, pin));
@@ -551,7 +553,7 @@ impl Replay {
             out += &format!("@{tick} craft={}\n", recipe.word());
         }
         for (tick, pin) in &self.pins {
-            out += &format!("@{tick} pin={}\n", pin.map_or("none", |r| r.word));
+            out += &format!("@{tick} pin={}\n", pin.unwrap_or("none"));
         }
         for (tick, action) in &self.shell_actions {
             let json = serde_json::to_string(action).expect("shell action serialises");
@@ -810,7 +812,7 @@ impl Replay {
         for (_, pin) in self.pins.iter().filter(|(t, _)| *t == tick) {
             match pin {
                 Some(r) => {
-                    sim.pin_want(crate::PlayerId(0), r.word);
+                    sim.pin_want(crate::PlayerId(0), r);
                 }
                 None => sim.unpin(crate::PlayerId(0)),
             }
@@ -1045,7 +1047,7 @@ impl Recorder {
     }
 
     /// Player 0 pinned a recipe as its goal (`None`: let it go) at `tick`.
-    pub fn note_pin(&mut self, tick: u64, pin: Option<&'static crate::economy::EconRecipe>) {
+    pub fn note_pin(&mut self, tick: u64, pin: Option<&'static str>) {
         self.replay.pins.push((tick - self.first_tick, pin));
     }
 

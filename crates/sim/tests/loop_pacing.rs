@@ -99,7 +99,9 @@ const WANTS: [Want; 3] = [
         piece: Piece::GlassLamp,
         // Harvesting 30 opens the garden; Building 8 the lamp.
         levels: &[(Skill::Harvesting, 30), (Skill::Building, 8)],
-        bank: &[(Item::KelpCord, 1), (Item::Mussel, 2)],
+        // 12 glass already banked from earlier trips: a shell load of 4
+        // finishes the 16 the lamp needs.
+        bank: &[(Item::KelpCord, 2), (Item::Glass, 12), (Item::Mussel, 2)],
         needs: (Item::Glass, 4),
         tool_tier: 2,
         kit: Kit {
@@ -117,7 +119,13 @@ const WANTS: [Want; 3] = [
         piece: Piece::BoneArch,
         // Fighting stays level 1: the win is on skill.
         levels: &[(Skill::Building, 35)],
-        bank: &[(Item::WhaleBone, 2), (Item::Clay, 3), (Item::Mussel, 2)],
+        // One club from an earlier win; the arch needs two.
+        bank: &[
+            (Item::WhaleBone, 2),
+            (Item::Clay, 3),
+            (Item::MantisClub, 1),
+            (Item::Mussel, 2),
+        ],
         needs: (Item::MantisClub, 1),
         tool_tier: 0,
         kit: Kit {
@@ -135,8 +143,8 @@ const WANTS: [Want; 3] = [
         piece: Piece::KelpCurtain,
         levels: &[(Skill::Building, 3)],
         bank: &[(Item::Mussel, 2)],
-        // Six kelp for the curtain and four more for its two cords.
-        needs: (Item::Kelp, 10),
+        // Twenty-two kelp for the curtain and four more for its two cords.
+        needs: (Item::Kelp, 26),
         tool_tier: 0,
         kit: Kit {
             eggs: 0,

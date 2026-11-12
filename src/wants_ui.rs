@@ -32,14 +32,13 @@ pub struct GoalLine;
 /// `None` when nothing is pinned.
 pub fn goal_text(sim: &Sim, id: PlayerId) -> Option<(String, bool)> {
     let status = sim.pinned_status(id)?;
-    let name = status.want.recipe.name.to_lowercase();
+    let name = status.want.name.to_lowercase();
     if status.have_all {
         return Some((format!("Goal: {name}, ready: go home"), true));
     }
     let (item, short) = *status.want.missing.first()?;
     let need = status
         .want
-        .recipe
         .needs
         .iter()
         .find(|n| n.0 == item)

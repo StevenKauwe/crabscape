@@ -52,15 +52,15 @@ pub struct PieceDef {
 
 pieces! {
     KelpCurtain, "kelp-curtain", "Kelp curtain", 3,
-        "A swaying curtain across the doorway.", [(Kelp, 6), (KelpCord, 2)];
+        "A swaying curtain across the doorway.", [(Kelp, 22), (KelpCord, 2)];
     GlassLamp, "glass-lamp", "Glass lamp", 8,
-        "A glass sponge lamp: a warm glow at the home.", [(Glass, 4), (KelpCord, 1)];
+        "A glass sponge lamp: a warm glow at the home.", [(Glass, 16), (KelpCord, 2)];
     ShellMosaic, "shell-mosaic", "Shell mosaic", 15,
         "Clam valves and grit set in a pattern on the wall.", [(Valve, 8), (Grit, 4), (Pearl, 1)];
     WhelkDoor, "whelk-door", "Whelk door", 20,
         "A whelk shell set in clay, a door for the doorway.", [(WhelkShell, 1), (Clay, 2)];
     BoneArch, "bone-arch", "Bone arch", 35,
-        "Whale bone ribs over the home, clay-set.", [(WhaleBone, 2), (Clay, 3), (MantisClub, 1)];
+        "Whale bone ribs over the home, clay-set.", [(WhaleBone, 2), (Clay, 3), (MantisClub, 2)];
     PhotophoreString, "photophore-string", "Photophore string", 40,
         "Photophores on slime thread: a cold light along the roof.", [(Photophore, 3), (SlimeThread, 2)];
     CoralGarden, "coral-garden", "Coral garden", 55,
@@ -199,6 +199,14 @@ impl Sim {
         }
         crab.stash.take(piece.needs());
         crab.econ.crafts_done += 1;
+        if crab
+            .econ
+            .pinned
+            .as_ref()
+            .is_some_and(|p| p.word == piece.word())
+        {
+            crab.econ.pinned = None;
+        }
         self.earn(id, piece.skill(), piece.xp() as f32);
         self.sound(crate::world::cues::Cue::Crafted { crab: id });
     }
