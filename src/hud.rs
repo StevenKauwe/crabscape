@@ -154,8 +154,8 @@ fn spawn(mut commands: Commands, fonts: Res<UiFonts>, window: Single<&Window>) {
                 row_gap: px(8),
                 ..default()
             },
-            // Under the panels (which are 3 and up), over the world.
-            GlobalZIndex(2),
+            // Under every panel and button (it never takes a tap), over the world.
+            GlobalZIndex(-1),
         ))
         .with_children(|line| {
             // The card.
@@ -260,24 +260,29 @@ fn place(window: Single<&Window>, mut line: Single<&mut Node, With<Line>>) {
     }
 }
 
-/// `?hud-demo` in the address (`--hud-demo` on the desktop): two seconds in,
-/// show a level card as Prying 15 would, for screenshots and checking the
-/// look by eye. Changes nothing in the sim.
+/// `?hud-demo` in the address (`--hud-demo` on the desktop): every ten
+/// seconds, show a level card as Prying 15 would, for screenshots and checking
+/// the look by eye. Changes nothing in the sim.
 fn demo(
     time: Res<Time<Real>>,
     sim: Res<Sim>,
     mut cards: ResMut<Cards>,
     crab: Query<&PlayerId, With<LocalPlayer>>,
-    mut done: Local<bool>,
+    mut next: Local<Option<f32>>,
 ) {
-    if *done || time.elapsed_secs() < 2.0 {
-        return;
-    }
-    *done = true;
-    if !demo_asked() {
-        return;
-    }
     let Ok(id) = crab.single() else { return };
+    let now = time.elapsed_secs();
+    let at = *next.get_or_insert_with(|| {
+        if demo_asked() {
+            now + 3.0
+        } else {
+            f32::INFINITY
+        }
+    });
+    if now < at {
+        return;
+    }
+    *next = Some(at + 10.0);
     let more = crate::skill_juice::level_up_lines(&sim, *id, Skill::Prying, 15).split_off(1);
     cards.push(level_card(Skill::Prying, 15, more));
 }
@@ -593,6 +598,41 @@ mod tests {
         assert_eq!(card.lines.len(), MOST_LINES + 1);
         assert_eq!(card.lines[MOST_LINES], "and 3 more: see Skills");
         assert!(card_life(&card) > card_life(&level_card(Skill::Building, 2, vec![])));
+    }
+
+    #[test]
+    fn a_pushed_card_comes_up_with_its_words_then_goes() {
+        let mut app = App::new();
+        app.insert_resource(Time::<Real>::default())
+            .insert_resource(UiFonts {
+                bold: Handle::default(),
+            })
+            .init_resource::<Cards>()
+            .add_systems(Startup, spawn)
+            .add_systems(Update, show_card);
+        app.world_mut().spawn(Window::default());
+        app.update();
+        app.world_mut().resource_mut::<Cards>().push(level_card(
+            Skill::Prying,
+            15,
+            vec!["You can work clam bed.".into()],
+        ));
+        app.update();
+        app.update();
+        let mut q = app.world_mut().query_filtered::<&Node, With<CardBox>>();
+        assert_eq!(q.single(app.world()).unwrap().display, Display::Flex);
+        let mut t = app.world_mut().query_filtered::<&Text, With<CardTitle>>();
+        assert_eq!(t.single(app.world()).unwrap().0, "Prying 15");
+        // Long after its life, it is gone.
+        app.world_mut()
+            .resource_mut::<Cards>()
+            .up
+            .as_mut()
+            .unwrap()
+            .1 = 100.0;
+        app.update();
+        app.update();
+        assert_eq!(q.single(app.world()).unwrap().display, Display::None);
     }
 
     #[test]

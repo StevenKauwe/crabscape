@@ -83,9 +83,10 @@ fn spawn(mut commands: Commands) {
             GlobalZIndex(3),
             Node {
                 position_type: PositionType::Absolute,
-                width: px(258),
+                width: px(LIST_W),
                 flex_wrap: FlexWrap::Wrap,
                 column_gap: px(2),
+                row_gap: px(4),
                 ..default()
             },
         ))
@@ -244,7 +245,7 @@ fn refresh(
     for (choice, mut node, children) in &mut rows {
         let on = |value| if value { "On" } else { "Off" };
         let caption = match *choice {
-            Choice::Open if open.0 => Some(format!("Close{shortcut}")),
+            Choice::Open if open.0 => Some(format!("Close cargo{shortcut}")),
             Choice::Open => Some(format!("Cargo  {carried}{shortcut}")),
             _ if !open.0 => None,
             Choice::Lantern => Some(format!(
@@ -299,9 +300,7 @@ fn refresh(
             }
             text
         });
-        if *choice == Choice::Open {
-            node.width = px(if open.0 { LIST_W } else { CHIP_W });
-        }
+
         let display = if caption.is_some() {
             Display::Flex
         } else {

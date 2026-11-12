@@ -124,6 +124,7 @@ struct WorldWords(f32);
 /// such word at least its own size in screen pixels: grow its font with the
 /// view, in quarter steps (each step is a new glyph atlas, so few), up to
 /// 2.5 times.
+#[allow(clippy::type_complexity)]
 fn readable_world_words(
     mut commands: Commands,
     new: Query<(Entity, &TextFont), (Added<Text2d>, Without<WorldWords>)>,
