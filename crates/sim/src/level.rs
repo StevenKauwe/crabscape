@@ -20,6 +20,7 @@ pub mod bands;
 mod bestiary;
 mod circulation;
 pub(crate) mod coral_rise;
+pub mod deep_galleries;
 mod exploration;
 mod hub;
 pub mod landmarks;
@@ -254,6 +255,61 @@ pub struct Level {
     /// The crab can't go further left or right than this (the level's walls).
     pub min_x: f32,
     pub max_x: f32,
+    /// This level's layer map, kept once it is first asked for (derived:
+    /// never saved, never compared; see [`LayerCache`]).
+    #[serde(skip)]
+    pub(crate) layer_cache: LayerCache,
+}
+
+/// A level's layer map, remembered with a stamp of the floor and rocks it was
+/// built from: a level whose floor or rocks have since changed (a test that
+/// clears the rocks, say) misses it and goes to the shared cache as before.
+/// Physics asks for the map under every crab in a cavern, every step, so the
+/// shared cache's full comparison of the floor and every rock was too slow
+/// to pay each time.
+#[derive(Default)]
+pub struct LayerCache(std::sync::Mutex<Option<(u64, std::sync::Arc<Derived>)>>);
+
+/// What a level derives from its floor and rocks, kept in its [`LayerCache`].
+pub(crate) struct Derived {
+    map: std::sync::Arc<layers::LayerMap>,
+    /// For each `ROCK_STRIP`-wide strip of x from `ROCK_X0`, the indices of
+    /// the rocks reaching into it, in order.
+    rock_strips: Vec<Vec<u32>>,
+    /// Does the level have the Silt Galleries (`has_silt_galleries`)?
+    galleries: bool,
+}
+
+const ROCK_STRIP: f32 = 256.0;
+const ROCK_X0: f32 = -4096.0;
+const ROCK_STRIPS: usize = 128;
+
+fn rock_strip(x: f32) -> usize {
+    let b = ((x - ROCK_X0) / ROCK_STRIP).floor();
+    if b.is_nan() || b < 0.0 {
+        0
+    } else {
+        (b as usize).min(ROCK_STRIPS - 1)
+    }
+}
+
+impl Clone for LayerCache {
+    fn clone(&self) -> Self {
+        let entry = self.0.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        LayerCache(std::sync::Mutex::new(entry))
+    }
+}
+
+impl PartialEq for LayerCache {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl std::fmt::Debug for LayerCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("LayerCache")
+    }
 }
 
 impl Level {
@@ -314,6 +370,62 @@ impl Level {
     /// The layer map, shared between callers that ask for the same terrain
     /// (the cell generator asks once per column).
     pub(crate) fn layers_shared(&self) -> std::sync::Arc<layers::LayerMap> {
+        std::sync::Arc::clone(&self.derived().map)
+    }
+
+    /// The level's derived lookups, built once per floor and rocks.
+    fn derived(&self) -> std::sync::Arc<Derived> {
+        let stamp = self.layer_stamp();
+        let mut kept = self.layer_cache.0.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((at, derived)) = kept.as_ref()
+            && *at == stamp
+        {
+            return std::sync::Arc::clone(derived);
+        }
+        let mut rock_strips = vec![Vec::new(); ROCK_STRIPS];
+        for (i, r) in self.rocks.iter().enumerate() {
+            for strip in rock_strips
+                .iter_mut()
+                .take(rock_strip(r.max.x) + 1)
+                .skip(rock_strip(r.min.x))
+            {
+                strip.push(i as u32);
+            }
+        }
+        let derived = std::sync::Arc::new(Derived {
+            map: self.layers_looked_up(),
+            rock_strips,
+            galleries: self.has_silt_galleries(),
+        });
+        *kept = Some((stamp, std::sync::Arc::clone(&derived)));
+        derived
+    }
+
+    /// A cheap stamp of the floor and rocks: their counts and end points.
+    fn layer_stamp(&self) -> u64 {
+        let mut words = vec![
+            self.floor.len() as u64,
+            self.rocks.len() as u64,
+            self.nets.len() as u64,
+        ];
+        for p in [self.floor.first(), self.floor.last()]
+            .into_iter()
+            .flatten()
+        {
+            words.push(u64::from(p.x.to_bits()) << 32 | u64::from(p.y.to_bits()));
+        }
+        for r in [self.rocks.first(), self.rocks.last()]
+            .into_iter()
+            .flatten()
+        {
+            words.push(u64::from(r.min.x.to_bits()) << 32 | u64::from(r.max.y.to_bits()));
+        }
+        words.iter().fold(0xcbf2_9ce4_8422_2325, |h, w| {
+            (h ^ w).wrapping_mul(0x0100_0000_01b3)
+        })
+    }
+
+    fn layers_looked_up(&self) -> std::sync::Arc<layers::LayerMap> {
         use std::sync::{Arc, Mutex};
         type Entry = (Vec<Vec2>, Vec<Rect>, Arc<layers::LayerMap>);
         static CACHE: Mutex<Vec<Entry>> = Mutex::new(Vec::new());
@@ -381,6 +493,7 @@ impl Level {
     pub fn test_level() -> Self {
         let mut level = Self::before_galleries();
         silt_galleries::shape(&mut level);
+        deep_galleries::shape(&mut level);
         // Last, so every place a creature anchors to (landmarks, refuges, the
         // lower canyon, the galleries) exists.
         bestiary::place(&mut level);
@@ -687,6 +800,7 @@ impl Level {
             drifting: vec![Vec2::new(7520.0, -5380.0), Vec2::new(7510.0, -5390.0)],
             min_x: 0.0,
             max_x: 8800.0,
+            layer_cache: LayerCache::default(),
         };
         exploration::extend(&mut level);
         coral_rise::shape(&mut level);
@@ -774,6 +888,34 @@ impl Level {
     /// behave like rock edges: the crab only drops off once its whole shell
     /// is past the edge, and it can't walk into the side of a cliff.)
     pub fn solids(&self) -> impl Iterator<Item = Rect> + '_ {
+        self.rocks.iter().copied().chain(self.solids_but_rocks())
+    }
+
+    /// [`solids`](Self::solids) that can reach across `x0..=x1`, in the same
+    /// order: physics asks this for each crab several times a step, and most
+    /// of the map's rocks are far away.
+    pub fn solids_across(&self, x0: f32, x1: f32) -> impl Iterator<Item = Rect> + '_ {
+        let derived = self.derived();
+        let mut ids: Vec<u32> = derived.rock_strips
+            [rock_strip(x0)..=rock_strip(x1).max(rock_strip(x0))]
+            .iter()
+            .flatten()
+            .copied()
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids.into_iter()
+            .map(|i| self.rocks[i as usize])
+            .chain(self.solids_but_rocks_with(derived.galleries))
+            .filter(move |r| r.max.x >= x0 && r.min.x <= x1)
+    }
+
+    fn solids_but_rocks(&self) -> impl Iterator<Item = Rect> + '_ {
+        let galleries = self.cells.is_none() && self.derived().galleries;
+        self.solids_but_rocks_with(galleries)
+    }
+
+    fn solids_but_rocks_with(&self, galleries: bool) -> impl Iterator<Item = Rect> + '_ {
         let cliffs = self.floor.windows(2).filter_map(|pair| {
             let (a, b) = (pair[0], pair[1]);
             let is_cliff = (b.x - a.x) < 2.0 && (b.y - a.y).abs() > 1.0;
@@ -791,24 +933,18 @@ impl Level {
         });
         let nets = self.nets.iter().filter(|n| !n.cut).map(|n| n.rect);
         let brittle = self.brittle.iter().filter(|b| !b.cracked).map(|b| b.rect);
-        self.rocks
-            .iter()
-            .copied()
-            .chain(cliffs)
-            .chain(nets)
-            .chain(brittle)
-            .chain(royal::solids())
-            .chain(self.cavern_soil().iter().copied())
-    }
-
-    /// Soil that holds a body up in a cavern when there is no cell world to
-    /// say so (the cells carry it otherwise, so a dug wall stays dug).
-    fn cavern_soil(&self) -> &'static [Rect] {
-        if self.cells.is_none() && self.has_silt_galleries() {
+        // Soil that holds a body up in a cavern when there is no cell world
+        // to say so (the cells carry it otherwise, so a dug wall stays dug).
+        let soil: &'static [Rect] = if self.cells.is_none() && galleries {
             silt_galleries::walls()
         } else {
             &[]
-        }
+        };
+        cliffs
+            .chain(nets)
+            .chain(brittle)
+            .chain(royal::solids())
+            .chain(soil.iter().copied())
     }
 
     /// The trench that needs the double jump: (left edge x, right edge x).

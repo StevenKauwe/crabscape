@@ -80,8 +80,8 @@ Five tiers, one per depth band (`level/bands.rs`). A node's tier sets everything
 |---|---|---|---|---|---|---|---|---|---|
 | 1 | Shallows (> -260) | home side pockets x 222–242 and 432–492; far ledge x 1,850–2,470 | 1 | 0 (bare claw) | 10 | 2.5 | 5 | 45 | 4 |
 | 2 | Basin and mudbanks (-260 to -700) | far basin hub x 4,500–4,940 for all five skills (the home burrow gallery holds none: lead's call, see Where things stand) (the first basin, x 2,800–3,300, holds none: a moray and a hermit crab) | 15 | 1 shell | 110 | 3.0 | 5 | 60 | 3 |
-| 3 | Canyon walls / twilight (-700 to -3,400) | doorstep x 5,443–5,790 (none on the shelf); far rim x 7,905–8,015; the glass gardens in the Silt Galleries' sponge galleries (x 2,060–2,620, floor -1,040: #638); the bone hall's floor (fish falls and tooth beds, y about -2,534, x 3,880–4,130: the chamber prize) | 30 | 2 quill | 160 | 3.5 | 4 | 90 | 3 |
-| 4 | Canyon floor / midnight (-3,400 to -9,500) | canyon floor far end x 7,130–7,610 (y -6,000); the seep garden (seep mussels and the sulfur mat, y about -10,514, x 19,430–19,605) | 45 | 3 glass | 260 | 4.0 | 4 | 150 | 3 |
+| 3 | Canyon walls / twilight (-700 to -3,400) | doorstep x 5,443–5,790 (none on the shelf); far rim x 7,905–8,015; the glass gardens in the Silt Galleries' sponge galleries (x 2,060–2,620, floor -1,040: #638); the bone hall's floor (fish falls and tooth beds, y about -2,534, x 3,880–4,130: the chamber prize); the Deep Galleries' lanternfish hall (fish falls, y -4,200, x 2,100–2,700) | 30 | 2 quill | 160 | 3.5 | 4 | 90 | 3 |
+| 4 | Canyon floor / midnight (-3,400 to -9,500) | canyon floor far end x 7,130–7,610 (y -6,000); the Deep Galleries' nodule hall (black coral, y -6,200) and whale-fall hall (whale-fall bones, y -8,200), x 2,200–4,000; the seep garden (seep mussels and the sulfur mat, y about -10,514, x 19,430–19,605) | 45 | 3 glass | 260 | 4.0 | 4 | 150 | 3 |
 | 5 | Deep (< -9,500) | lower canyon vent field east end (`level::lower_canyon::VENTS`, x 19,730–20,450, west of the crust vault's door) | 60 | 4 bone | 750 | 4.5 | 4 | 240 | 3 |
 
 Placement rule: a tier-k node lies in band k or deeper (by depth alone: a pocket does not change it, so tier 4 cannot lie in the
@@ -545,6 +545,7 @@ A scripted tunnel from the home burrow's silt shaft pays 206 XP/min (tier 1 gath
 - CI flake: `cell_save::native` on Linux (#482): rerun the failed job.
 
 ## Where things stand
+- **#638 (also):** the Deep Galleries' nine node sites are wired in. The nodule hall holds black coral, because tier-5 nodules need the deep band. Next: region 5's `open_canyon::gather_spots()`.
 - **#638:** the lamp's glass grows in the Silt Galleries' sponge galleries. The loop measures 2.63 min (22 s out, 12 s home), down from 5.62, so the galleries are a near loop and the world lane owns the gap. The Deep Galleries' `NODE_SITES` (#637) get wired in once #637 lands.
 - **#633:** death wakes the crab at the nearest rest point it has reached (`level/rest.rs`, `rest_points.rs`). A boss-arena death keeps the load (no cast-off), so a fight for a far part never costs the trip's haul. The grouper is beatable (fair bot 67-70%), so a grouper drop could become a want; none asks for one yet. The Silt Galleries glass hookup is #638.
 - **#631:** wants that send you out (five far-thing pieces and recipes), digging earns Excavating XP, and tier 5's trip is measured for real (307 s round trip through the narrows lock; XP/min by tier at unlock 180 / 403 / 620 / 805 / 1049). Next: point the glass lamp's want at the Silt Galleries' glass when the world lane's loop lands, and re-measure.

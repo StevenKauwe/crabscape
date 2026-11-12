@@ -65,7 +65,14 @@ fn nodes_per_kind_follow_the_tiers() {
     let placed = nodes(&level);
     for def in NODES.iter().filter(|d| d.kind != NodeKind::VentPot) {
         let count = placed.iter().filter(|n| n.kind == def.kind).count();
-        assert_eq!(count, if def.tier == 1 { 4 } else { 3 }, "{:?}", def.kind);
+        // The Deep Galleries' halls add three fish falls, black corals and
+        // whale-fall bones.
+        let deep = matches!(
+            def.kind,
+            NodeKind::FishFall | NodeKind::BlackCoral | NodeKind::WhaleFallBones
+        );
+        let want = if def.tier == 1 { 4 } else { 3 } + if deep { 3 } else { 0 };
+        assert_eq!(count, want, "{:?}", def.kind);
     }
     assert!(placed.iter().any(|n| n.kind == NodeKind::VentPot));
     // A small test level keeps only the spots it contains.
@@ -338,6 +345,19 @@ fn home_of(kind: NodeKind) -> Option<&'static str> {
     }
 }
 
+/// The Deep Galleries' hall a node lies in, if any (they hold kinds that
+/// also grow elsewhere: fish falls, black coral, whale-fall bones).
+fn deep_hall(level: &Level, pos: Vec2) -> Option<&'static str> {
+    ["lanternfish hall", "nodule hall", "whale-fall hall"]
+        .into_iter()
+        .find(|h| {
+            level
+                .landmarks()
+                .iter()
+                .any(|m| m.name == *h && m.rect.contains(pos))
+        })
+}
+
 #[test]
 fn nodes_lie_in_their_places_on_a_floor_and_never_in_a_mouth() {
     use crabsim::level::landmarks::Kind;
@@ -357,7 +377,7 @@ fn nodes_lie_in_their_places_on_a_floor_and_never_in_a_mouth() {
                 m.name
             );
         }
-        let Some(name) = home_of(n.kind) else {
+        let Some(name) = deep_hall(&level, n.pos).or(home_of(n.kind)) else {
             continue;
         };
         *counts.entry(name).or_insert(0) += 1;
@@ -385,6 +405,10 @@ fn nodes_lie_in_their_places_on_a_floor_and_never_in_a_mouth() {
     assert_eq!(counts.get("vent field"), Some(&17));
     // The glass gardens, one in each of the Silt Galleries' sponge galleries.
     assert_eq!(counts.get("upper gallery"), Some(&3));
+    // The Deep Galleries: three of one kind in each hall.
+    assert_eq!(counts.get("lanternfish hall"), Some(&3));
+    assert_eq!(counts.get("nodule hall"), Some(&3));
+    assert_eq!(counts.get("whale-fall hall"), Some(&3));
 }
 
 #[test]
@@ -394,12 +418,12 @@ fn a_level_without_a_pocket_drops_its_nodes_and_keeps_the_rest() {
     let mut bare = level.clone();
     bare.rocks.clear();
     let left = nodes(&bare);
-    // The Silt Galleries go with the rocks too (their roofs are rocks), and
-    // with them the three glass gardens.
+    // The Silt and Deep Galleries go with the rocks too (their roofs are
+    // rocks), and with them the three glass gardens and the halls' nine.
     assert_eq!(
         left.len(),
-        all - 15,
-        "the two pockets' 12 nodes and the galleries' 3 glass gardens are gone"
+        all - 24,
+        "the two pockets' 12 nodes, the galleries' 3 glass gardens and the deep halls' 9 are gone"
     );
     assert!(left.iter().all(|n| home_of(n.kind) != Some("bone hall")));
 }

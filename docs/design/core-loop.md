@@ -49,6 +49,8 @@ Each lead keeps their own lines here. `[x]` means it is in the game; the rest sa
 - [x] Death wakes you at the nearest rest point you have reached (#633): home, a crevice rested in, a region entrance (far basin, lower canyon), or a boss door; `level/rest.rs` derives them (the world lane adds `MARKERS` rows), `rest_points.rs` holds the rules. A death in a boss arena (the octopus's, the grouper's) wakes you at its door with your load kept and no cast-off; an overworld death still leaves a cast-off with the load, and several wait at once
 - [x] The grouper is beatable (#633): the fair bot wins 67-70% (perfect 100%), from 0%; it never gaped at a crab on its slope (aim, range and cone) and its hurtbox was out of reach until the gulp carries the crab up to its head. The sixgill stays a hunter to avoid
 - [x] Silt Galleries glass for the lamp's want (#638): the three glass gardens moved (same node indices) from the doorstep and far rim into the Silt Galleries' first two sponge galleries (the third lies within a hermit crab's reach of the plateau above); the want names "upper gallery". Re-measured: the lamp loop is 2.63 min (22 s out, 12 s home), down from 5.62
+- [x] The Deep Galleries' halls hold nodes (#638): fish falls (lanternfish hall), black coral (nodule hall: too shallow for tier-5 nodules) and whale-fall bones (whale-fall hall), three each at the world lane's sites
+- [ ] Region 5's gather spots (`open_canyon::gather_spots()`) as nodes, once region 5 lands
 
 **Loop world** (map, regions, landmarks: the world lane)
 - [ ] Way out too short: the shallows end at the first open water (the basin, 2,706 units from the door) after 14 to 17 s on foot (measured again on the Plate D map, unchanged by it). The familiar way out is a quarter of its 4 minutes

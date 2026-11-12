@@ -82,6 +82,10 @@ const GARDEN: &str = "seep garden";
 const VENTS: &str = "vent field";
 /// The Silt Galleries' upper gallery (its three sponge galleries; `level::silt_galleries`).
 const GALLERIES: &str = "upper gallery";
+/// The Deep Galleries' three halls (`level::deep_galleries`).
+const LANTERN_HALL: &str = "lanternfish hall";
+const NODULE_HALL: &str = "nodule hall";
+const WHALE_HALL: &str = "whale-fall hall";
 
 /// Every spot, by tier. Nodes of one kind are spread over the tier's places,
 /// at least 30 units apart (the hub's and the pockets' are closer).
@@ -201,6 +205,22 @@ pub const SPOTS: &[NodeSpot] = &[
     at(VENTS, K::NoduleField, 20360.0),
     at(VENTS, K::ScalyFootSnails, 20405.0),
     at(VENTS, K::VentMatSite, 20450.0),
+    // The Deep Galleries under the Drop (`level::deep_galleries::NODE_SITES`,
+    // the world lane's sites; appended, so earlier indices keep their
+    // meaning). The lanternfish hall (floor -4,200) holds fish falls (tier 3)
+    // and the whale-fall hall (-8,200) whale-fall bones (tier 4), as authored.
+    // The nodule hall (-6,200) lies in the midnight band, above the deep band
+    // that tier 5 nodules need, so it holds black coral (tier 4: black corals
+    // do grow this deep, not verified) at the authored sites instead.
+    at(LANTERN_HALL, K::FishFall, 2100.0),
+    at(LANTERN_HALL, K::FishFall, 2400.0),
+    at(LANTERN_HALL, K::FishFall, 2700.0),
+    at(NODULE_HALL, K::BlackCoral, 2200.0),
+    at(NODULE_HALL, K::BlackCoral, 2500.0),
+    at(NODULE_HALL, K::BlackCoral, 2800.0),
+    at(WHALE_HALL, K::WhaleFallBones, 3400.0),
+    at(WHALE_HALL, K::WhaleFallBones, 3700.0),
+    at(WHALE_HALL, K::WhaleFallBones, 4000.0),
 ];
 
 /// Where a spot lies on this level, or `None` when its named place is not
