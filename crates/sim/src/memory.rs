@@ -531,16 +531,6 @@ impl Memory {
         )
     }
 
-    /// [`sample_solid`](Self::sample_solid) with the rocks that can matter
-    /// already picked out (those reaching the sight window).
-    fn sample_solid_among(&self, i: u64, near: &[Rect], level: &Level, t: &MemoryTuning) -> bool {
-        let c = self.centre(i, t);
-        c.x < level.min_x
-            || c.x > level.max_x
-            || near.iter().any(|r| r.contains(c))
-            || c.y < level.floor_height(c.x) - t.cell * 0.5
-    }
-
     /// Capture only changed pages. Clock advancement does not dirty distant pages.
     pub fn dirty_chunks(&self) -> Vec<MemoryChunk> {
         self.dirty
