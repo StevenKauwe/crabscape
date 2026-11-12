@@ -157,7 +157,10 @@ fn sources(item: Item, depth: u32) -> BTreeSet<Source> {
         }
         _ => {}
     }
-    if all_drops().contains(&item) {
+    let far = KINDS
+        .into_iter()
+        .any(|k| crabsim::economy::items::far_drops_of(k).contains(&item));
+    if all_drops().contains(&item) || far {
         out.insert(Source::Fighting);
         if item.tier() >= 4 {
             out.insert(Source::Diving);
@@ -416,7 +419,17 @@ fn a_harvest_at_every_node_is_calm_with_the_real_foes_alive() {
         sim.populate();
         assert!(sim.enemies().len() >= 7, "foes spawned");
         let id = PlayerId(0);
-        sim.add_crab(id, Vec2::new(at.pos.x, sim.level.floor_height(at.pos.x)));
+        // A node in a sealed pocket (the burrow's gallery, the bone hall, the
+        // seep garden) is worked from inside it: the cell window follows the
+        // crab there, as in the game, and the crab must stand on its floor.
+        let sealed = sim.level.pocket_at(at.pos).is_some();
+        if sealed {
+            sim.add_crab(id, at.pos);
+            sim.enable_underwater_cells();
+            sim.crab_mut(id).expect("crab").mover.pos = at.pos;
+        } else {
+            sim.add_crab(id, Vec2::new(at.pos.x, sim.level.floor_height(at.pos.x)));
+        }
         let full = sim.crab(id).expect("crab").fighter.vitals.health;
         sim.set_controls(
             id,
@@ -427,8 +440,21 @@ fn a_harvest_at_every_node_is_calm_with_the_real_foes_alive() {
         );
         // Twelve seconds of holding at the node.
         for _ in 0..1440 {
+            if sealed {
+                let p = sim.crab(id).expect("crab").mover.pos;
+                let mut cells = sim.level.cells.take().expect("cells");
+                cells.follow_player(&sim.level, p.x, p.y);
+                sim.level.cells = Some(cells);
+            }
             sim.tick();
             let c = sim.crab(id).expect("crab");
+            assert!(
+                !sealed || c.mover.pos.distance(at.pos) < 30.0,
+                "node {i} {:?}: the crab left the pocket floor for {:?} (node at {:?})",
+                at.kind,
+                c.mover.pos,
+                at.pos
+            );
             assert!(
                 c.fighter.vitals.health >= full && !c.events.hurt && !c.events.staggered,
                 "node {i} {:?} at {:.0}: a harvest was touched (health {} of {full}, foes near: {:?})",

@@ -191,7 +191,7 @@ fn rows_for(tab: Tab, sim: &Sim, id: crabsim::PlayerId, crab: &SimCrab) -> Vec<R
             if wants.is_empty() {
                 rows.push(Row::NothingNear);
             }
-            rows.extend(wants.iter().map(|w| Row::Want(w.recipe.word)));
+            rows.extend(wants.iter().map(|w| Row::Want(w.word)));
             rows.extend(
                 sim.next_unlocks(id)
                     .into_iter()
@@ -1334,6 +1334,7 @@ fn source_text(sim: &Sim, source: &Source) -> String {
             node,
             remembered_at,
             band,
+            place,
         } => {
             let seen = match remembered_at {
                 Some(at) => format!("you saw one {}", how_far(sim, *at)),
@@ -1342,10 +1343,13 @@ fn source_text(sim: &Sim, source: &Source) -> String {
             format!(
                 "{}, {}: {seen}",
                 node.def().name.to_lowercase(),
-                band.to_lowercase()
+                place.unwrap_or(band).to_lowercase()
             )
         }
         Source::Creature(kind) => format!("from a {}", kind.name().to_lowercase()),
+        Source::Far { kind, place } => {
+            format!("from a {}, {place}", kind.name().to_lowercase())
+        }
         Source::Recipe(word) => EconRecipe::parse(word)
             .map_or_else(String::new, |r| format!("made: {}", r.name.to_lowercase())),
     }
@@ -1368,7 +1372,7 @@ fn missing_text(missing: &[(Item, u32)]) -> String {
 fn want_view(sim: &Sim, w: &Want, pinned: bool) -> RowView {
     let mut tag = missing_text(&w.missing);
     if w.soon {
-        tag = format!("{tag} (at {} {})", w.recipe.skill.name(), w.recipe.level);
+        tag = format!("{tag} (at {} {})", w.skill.name(), w.level);
     }
     let mut line = w
         .sources
@@ -1381,7 +1385,7 @@ fn want_view(sim: &Sim, w: &Want, pinned: bool) -> RowView {
         line = line.chars().take(91).collect::<String>() + "…";
     }
     RowView {
-        name: w.recipe.name.to_string(),
+        name: w.name.to_string(),
         tag,
         line,
         lit: true,
@@ -1441,13 +1445,13 @@ fn piece_view(sim: &Sim, id: crabsim::PlayerId, crab: &SimCrab, piece: Piece) ->
 
 /// The word of the recipe this crab has pinned, if any.
 fn pinned_word(sim: &Sim, id: crabsim::PlayerId) -> Option<&'static str> {
-    sim.pinned_status(id).map(|p| p.want.recipe.word)
+    sim.pinned_status(id).map(|p| p.want.word)
 }
 
 fn row_view(sim: &Sim, id: crabsim::PlayerId, crab: &SimCrab, row: Row) -> RowView {
     let tick = sim.tick_count();
     match row {
-        Row::Want(word) => match sim.wants(id).iter().find(|w| w.recipe.word == word) {
+        Row::Want(word) => match sim.wants(id).iter().find(|w| w.word == word) {
             Some(w) => want_view(sim, w, pinned_word(sim, id) == Some(word)),
             None => RowView {
                 name: String::new(),
@@ -1894,7 +1898,15 @@ fn perform(sim: &mut Sim, id: crabsim::PlayerId, row: Row) {
                 if !cells_action(CellsAction::Pin(None)) {
                     sim.unpin(id);
                 }
-            } else if let Some(i) = ECON_RECIPES.iter().position(|r| r.word == word)
+            } else if let Some(i) = ECON_RECIPES
+                .iter()
+                .position(|r| r.word == word)
+                .or_else(|| {
+                    PIECES
+                        .iter()
+                        .position(|d| d.word == word)
+                        .map(|i| ECON_RECIPES.len() + i)
+                })
                 && !cells_action(CellsAction::Pin(Some(i as u16)))
             {
                 sim.pin_want(id, word);

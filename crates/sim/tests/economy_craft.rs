@@ -146,7 +146,7 @@ fn four_beds_at_most_at_the_building_levels() {
         (Item::Valve, 4),
         (Item::Clay, 20),
         (Item::WhaleBone, 1),
-        (Item::MantisClub, 1),
+        (Item::GreatMantisClub, 1),
         (Item::Nodule, 2),
         (Item::JellyMesoglea, 2),
     ]);
@@ -629,6 +629,7 @@ fn no_soft_lock_fixed_point() {
         // Creature drops: reached by beating the creatures (Fighting).
         for kind in crabsim::enemy::KINDS {
             items.extend(crabsim::economy::items::drops_of(kind));
+            items.extend(crabsim::economy::items::far_drops_of(kind));
         }
         for r in ECON_RECIPES {
             let bench_ok = match r.at {

@@ -145,6 +145,10 @@ pub struct SimCrab {
     /// The gather in progress (see [`crate::economy::gather`]).
     #[serde(default)]
     pub gather: crate::economy::gather::GatherProgress,
+    /// Where it dug lately, for Excavating experience (carried in
+    /// checkpoints so a co-op authority hand-off replays it exactly).
+    #[serde(default)]
+    pub(crate) dig: econ::DigLedger,
     /// Events from between ticks (a hit from outside, a moult, something
     /// made), added to the next tick's.
     pub(crate) pending: StepEvents,
@@ -977,7 +981,7 @@ impl Sim {
 
     /// A crab pinned (or let go of) a goal at `tick`: a running recording
     /// notes it.
-    pub(crate) fn note_pin(&mut self, tick: u64, pin: Option<&'static crate::economy::EconRecipe>) {
+    pub(crate) fn note_pin(&mut self, tick: u64, pin: Option<&'static str>) {
         if let Some(rec) = &mut self.recorder {
             rec.note_pin(tick, pin);
         }
@@ -1039,6 +1043,7 @@ impl Sim {
             stash: Stash::default(),
             econ: crate::economy::Economy::default(),
             gather: crate::economy::gather::GatherProgress::default(),
+            dig: econ::DigLedger::default(),
             pending: StepEvents::default(),
             resting: 0,
             wakes_at: None,
@@ -2224,6 +2229,11 @@ impl Sim {
                         // Smooth changing contact over a few material steps,
                         // so a shifting pebble does not make speed flicker.
                         m.dig_load += (target - m.dig_load) * 0.3;
+                        if target > 0.0 && (dx, dy) != (0, 0) {
+                            // Sediment under the claws: a new block of it is
+                            // Excavating experience (see `Sim::dig_step`).
+                            crab.dig.credit(x, y, dx, dy);
+                        }
                     }
                     if ((digging && crab.controls.dig_up)
                         || (!digging && (crab.controls.jump_held || crab.controls.jump_pressed))
@@ -3102,6 +3112,7 @@ impl Sim {
                 && e.state_tick >= crate::codes::MONKEY_LINGER)
         });
         self.gather_step();
+        self.dig_step();
         self.pin_step();
         // Each crab's memory: what it sees now is seen.
         if self

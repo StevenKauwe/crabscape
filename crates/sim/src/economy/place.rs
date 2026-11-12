@@ -1,14 +1,23 @@
-//! Where the nodes lie on today's map. Placed by anchor: a floor `x` and a
-//! small height above the floor, resolved against the level's heightmap
-//! (`Level::floor_height`), so no `Level` field and no floor or rock edit is
-//! needed. Final placement on the world build's new map is a later package.
+//! Where the nodes lie on the Plate D map. A spot is either a floor `x` and a
+//! small height above the floor (resolved against `Level::floor_height`), or
+//! it names a landmark (`Level::landmarks()`) and lies inside it: on the
+//! floor of the sealed cavity under that landmark's rect (the home burrow's
+//! gallery, the bone hall, the seep garden), or on the floor inside an open
+//! water landmark (the vent field). A named place that a level lacks drops
+//! its spots, as a level that is too short drops a far spot. No `Level` field
+//! and no floor or rock edit is needed.
 //!
-//! The tiers follow the depth bands (`level/bands.rs`): tier 1 on the home
-//! side (x 0 to 1,300) and the far ledge (1,820 to 2,716); tier 2 in the
-//! far basin hub (4,490 to 5,000); tier 3 on the doorstep (5,371 to 5,900)
-//! and the far rim (7,900 to 8,300); tier 4 on the canyon floor's far end
-//! (7,090 to 7,650); tier 5 in the vent field's east end
-//! (`level::lower_canyon::VENTS`).
+//! The tiers follow the depth bands (`level/bands.rs`; a tier-k node lies in
+//! band k or deeper): tier 1 on the home side (x 0 to 1,300) and the far
+//! ledge (1,820 to 2,716); tier 2 in the home burrow's clay gallery (clam
+//! beds and clay banks, a tunnel under the shallows: safe) and, for the
+//! other three skills, the far basin hub (4,490 to 5,000); tier 3 on the
+//! doorstep (5,371 to 5,900), the far rim (7,900 to 8,300) and, as the
+//! chamber prize, the bone hall's floor (a whale-fall's carcass and teeth:
+//! the hall lies at about -2,500, the twilight's depth, so tier 4 cannot be
+//! put there); tier 4 on the canyon floor's far end (7,090 to 7,650) and in
+//! the seep garden (seep mussels and the sulfur mat); tier 5 in the vent
+//! field's east end (`level::lower_canyon::VENTS`).
 //!
 //! Danger guards the way, never the harvest: no node lies within a foe's
 //! danger reach (`tests/economy_every_way_pays.rs`), so the first basin
@@ -20,6 +29,8 @@ use bevy_math::Vec2;
 
 use super::nodes::NodeKind;
 use crate::level::Level;
+use crate::level::landmarks::{Kind as LandmarkKind, Landmark};
+use crate::level::strata::StrataBody;
 
 /// A node placed in the level.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -29,13 +40,17 @@ pub struct PlacedNode {
     pub pos: Vec2,
 }
 
-/// An authored spot: an `x` on today's map and a height above the floor.
+/// An authored spot: an `x` on the map and a height above the floor.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct NodeSpot {
     pub kind: NodeKind,
+    /// The world `x`; for a named place it is clamped inside the place.
     pub x: f32,
-    /// Height above `Level::floor_height(x)`.
+    /// Height above the floor (`Level::floor_height(x)`, or the floor of the
+    /// named place's cavity).
     pub dy: f32,
+    /// The landmark this spot lies inside, by name; `None` for the open map.
+    pub place: Option<&'static str>,
 }
 
 /// How high above the floor a node's centre sits.
@@ -44,120 +59,191 @@ const SIT: f32 = 6.0;
 use NodeKind as K;
 
 const fn s(kind: NodeKind, x: f32) -> NodeSpot {
-    NodeSpot { kind, x, dy: SIT }
+    NodeSpot {
+        kind,
+        x,
+        dy: SIT,
+        place: None,
+    }
 }
+
+/// A spot inside the named landmark.
+const fn at(place: &'static str, kind: NodeKind, x: f32) -> NodeSpot {
+    NodeSpot {
+        kind,
+        x,
+        dy: SIT,
+        place: Some(place),
+    }
+}
+
+const HALL: &str = "bone hall";
+const GARDEN: &str = "seep garden";
+const VENTS: &str = "vent field";
 
 /// Every spot, by tier. Nodes of one kind are spread over the tier's places,
 /// at least 30 units apart (the hub's and the pockets' are closer).
 pub const SPOTS: &[NodeSpot] = &[
     // Tier 1.
     // The home side on foot, in two safe pockets (the snapping shrimp at
-    // 340 and 590 notice a crab within 120 and strike within 72; the mantis
-    // at 1,120 hunts a crab it sees within 300 and roams 800): a pocket
-    // before the first burrow (175 to 247) and one between the burrows and
-    // short of the mantis (435 to 483). One kind of each skill in each, 12
-    // units apart (a crab standing at 211 or 459 reaches the whole pocket
-    // and works all five skills without moving), then two more in the first.
-    s(K::MusselClump, 175.0),
-    s(K::KelpStand, 187.0),
-    s(K::GritHeap, 199.0),
-    s(K::SnailRocks, 211.0),
-    s(K::ShoreGlow, 223.0),
-    s(K::MusselClump, 435.0),
-    s(K::KelpStand, 447.0),
-    s(K::GritHeap, 459.0),
-    s(K::SnailRocks, 471.0),
-    s(K::ShoreGlow, 483.0),
-    s(K::MusselClump, 235.0),
-    s(K::KelpStand, 247.0),
+    // 340 and 590 notice a crab within 120 and strike within 72): one between
+    // the home burrow's first silt shaft (its mouth reaches x 220) and the
+    // first shrimp (x 222 to 242), the other between the shrimp (x 432 to
+    // 492). Ten nodes, two of each skill, 10 units apart (a crab standing in
+    // a pocket reaches the whole of it and works every skill in it).
+    s(K::ShoreGlow, 222.0),
+    s(K::KelpStand, 232.0),
+    s(K::SnailRocks, 242.0),
+    s(K::MusselClump, 432.0),
+    s(K::KelpStand, 442.0),
+    s(K::GritHeap, 452.0),
+    s(K::SnailRocks, 462.0),
+    s(K::ShoreGlow, 472.0),
+    s(K::MusselClump, 482.0),
+    s(K::GritHeap, 492.0),
+    // The far ledge, clear of the snapper at 2,060 and the moray at 2,650.
     s(K::GritHeap, 1850.0),
-    s(K::SnailRocks, 2170.0),
-    s(K::ShoreGlow, 2215.0),
-    s(K::MusselClump, 2260.0),
-    s(K::KelpStand, 2305.0),
-    s(K::GritHeap, 2350.0),
-    s(K::SnailRocks, 2395.0),
-    s(K::ShoreGlow, 2440.0),
+    s(K::SnailRocks, 2165.0),
+    s(K::ShoreGlow, 2200.0),
+    s(K::MusselClump, 2235.0),
+    s(K::KelpStand, 2270.0),
+    s(K::GritHeap, 2305.0),
+    s(K::SnailRocks, 2340.0),
+    s(K::ShoreGlow, 2375.0),
+    s(K::MusselClump, 2410.0),
+    s(K::KelpStand, 2445.0),
     // Tier 2.
-    // The far basin hub; the first basin is held by a moray and a hermit
-    // crab, so no node lies there (danger guards the way, never the harvest).
-    s(K::ClamBed, 4500.0),
-    s(K::SeaPenField, 4534.0),
-    s(K::ClayBank, 4568.0),
-    s(K::WormMud, 4602.0),
-    s(K::PitGlowSite, 4636.0),
-    s(K::ClamBed, 4670.0),
-    s(K::SeaPenField, 4704.0),
-    s(K::ClayBank, 4738.0),
-    s(K::WormMud, 4772.0),
-    s(K::PitGlowSite, 4806.0),
-    s(K::ClamBed, 4840.0),
-    s(K::SeaPenField, 4874.0),
-    s(K::ClayBank, 4908.0),
-    s(K::WormMud, 4942.0),
-    s(K::PitGlowSite, 4976.0),
+    // The home burrow's clay gallery holds no nodes: it is 23.5 s of dig from
+    // the door and safe, so tier 2 there would pay twice the hub (938 XP a
+    // minute); its two clams (the world's own gallery find) are the first
+    // dig's payoff. Lead's call; see `skills-and-resources.md`.
+    s(K::ClamBed, 4527.5),
+    s(K::ClayBank, 4582.5),
+    s(K::ClamBed, 4637.5),
+    s(K::ClayBank, 4692.5),
+    s(K::ClamBed, 4747.5),
+    s(K::ClayBank, 4802.5),
+    // The far basin hub for all five skills; the first basin is held
+    // by a moray and a hermit crab, so no node lies there (danger guards the
+    // way, never the harvest).
+    s(K::SeaPenField, 4500.0),
+    s(K::WormMud, 4555.0),
+    s(K::PitGlowSite, 4610.0),
+    s(K::SeaPenField, 4665.0),
+    s(K::WormMud, 4720.0),
+    s(K::PitGlowSite, 4775.0),
+    s(K::SeaPenField, 4830.0),
+    s(K::WormMud, 4885.0),
+    s(K::PitGlowSite, 4940.0),
     // Tier 3.
-    s(K::ScallopBed, 5385.0),
+    // The canyon's doorstep and the far rim: scallops, glass gardens and
+    // twilight glow.
+    s(K::ScallopBed, 5575.0),
     s(K::GlassSpongeGarden, 5443.0),
-    s(K::ToothBed, 5501.0),
-    s(K::FishFall, 5559.0),
     s(K::TwilightGlow, 5617.0),
     s(K::ScallopBed, 5675.0),
     s(K::GlassSpongeGarden, 5733.0),
-    s(K::ToothBed, 5791.0),
-    s(K::FishFall, 5849.0),
     s(K::TwilightGlow, 7905.0),
     s(K::ScallopBed, 7960.0),
     s(K::GlassSpongeGarden, 8015.0),
-    s(K::ToothBed, 8070.0),
-    s(K::FishFall, 8125.0),
-    s(K::TwilightGlow, 8180.0),
+    s(K::TwilightGlow, 5790.0),
+    // The bone hall's floor: a whale-fall's carcass and teeth, in sight of
+    // the door at 3,800 and the seep shaft at 4,110 (the egg and the tooth
+    // lie further west, at 3,600 and 3,680).
+    at(HALL, K::FishFall, 3880.0),
+    at(HALL, K::ToothBed, 3930.0),
+    at(HALL, K::FishFall, 3980.0),
+    at(HALL, K::ToothBed, 4030.0),
+    at(HALL, K::FishFall, 4080.0),
+    at(HALL, K::ToothBed, 4130.0),
     // Tier 4.
-    s(K::SeepMusselBed, 7090.0),
+    // The canyon floor's far end.
     s(K::BlackCoral, 7130.0),
     s(K::WhaleFallBones, 7170.0),
     s(K::GrenadierCarcass, 7210.0),
-    s(K::SulfurMatSite, 7250.0),
-    s(K::SeepMusselBed, 7290.0),
     s(K::BlackCoral, 7330.0),
     s(K::WhaleFallBones, 7370.0),
     s(K::GrenadierCarcass, 7410.0),
-    s(K::SulfurMatSite, 7450.0),
-    s(K::SeepMusselBed, 7490.0),
     s(K::BlackCoral, 7530.0),
     s(K::WhaleFallBones, 7570.0),
     s(K::GrenadierCarcass, 7610.0),
-    s(K::SulfurMatSite, 7650.0),
+    // The seep garden, east of the door (its find lies at 19,160): seep
+    // mussels and the sulfur mat, clear of the isopod's leash.
+    at(GARDEN, K::SeepMusselBed, 19430.0),
+    at(GARDEN, K::SulfurMatSite, 19465.0),
+    at(GARDEN, K::SeepMusselBed, 19500.0),
+    at(GARDEN, K::SulfurMatSite, 19535.0),
+    at(GARDEN, K::SeepMusselBed, 19570.0),
+    at(GARDEN, K::SulfurMatSite, 19605.0),
     // Tier 5.
-    s(K::VentClamBed, 19730.0),
-    s(K::BambooCoral, 19790.0),
-    s(K::NoduleField, 19850.0),
-    s(K::ScalyFootSnails, 19910.0),
-    s(K::VentMatSite, 19970.0),
-    s(K::VentClamBed, 20030.0),
-    s(K::BambooCoral, 20090.0),
-    s(K::NoduleField, 20150.0),
-    s(K::ScalyFootSnails, 20210.0),
-    s(K::VentMatSite, 20270.0),
-    s(K::VentClamBed, 20330.0),
-    s(K::BambooCoral, 20390.0),
-    s(K::NoduleField, 20450.0),
-    s(K::ScalyFootSnails, 20510.0),
-    s(K::VentMatSite, 20570.0),
-    s(K::VentPot, 19760.0),
-    s(K::VentPot, 20360.0),
+    // The vent field's east end, west of the crust vault's door (x 20,480 to
+    // 20,600).
+    at(VENTS, K::VentClamBed, 19730.0),
+    at(VENTS, K::VentPot, 19775.0),
+    at(VENTS, K::BambooCoral, 19820.0),
+    at(VENTS, K::NoduleField, 19865.0),
+    at(VENTS, K::ScalyFootSnails, 19910.0),
+    at(VENTS, K::VentMatSite, 19955.0),
+    at(VENTS, K::VentClamBed, 20000.0),
+    at(VENTS, K::BambooCoral, 20045.0),
+    at(VENTS, K::NoduleField, 20090.0),
+    at(VENTS, K::ScalyFootSnails, 20135.0),
+    at(VENTS, K::VentMatSite, 20180.0),
+    at(VENTS, K::VentPot, 20225.0),
+    at(VENTS, K::VentClamBed, 20270.0),
+    at(VENTS, K::BambooCoral, 20315.0),
+    at(VENTS, K::NoduleField, 20360.0),
+    at(VENTS, K::ScalyFootSnails, 20405.0),
+    at(VENTS, K::VentMatSite, 20450.0),
 ];
+
+/// Where a spot lies on this level, or `None` when its named place is not
+/// in the level.
+fn place_of(
+    level: &Level,
+    marks: &[Landmark],
+    bodies: &[StrataBody],
+    s: &NodeSpot,
+) -> Option<Vec2> {
+    let Some(name) = s.place else {
+        return Some(Vec2::new(s.x, level.floor_height(s.x) + s.dy));
+    };
+    let mark = marks.iter().find(|l| l.name == name)?;
+    let x = s.x.clamp(mark.rect.min.x + 10.0, mark.rect.max.x - 10.0);
+    // A sealed body: the floor of the cavity under `x` (its water void).
+    if let Some(body) = bodies.iter().find(|b| b.frame == mark.rect) {
+        let floor = body
+            .voids
+            .iter()
+            .filter(|v| {
+                v.min.x <= x
+                    && x < v.max.x
+                    && v.min.y >= body.frame.min.y
+                    && v.max.y <= body.frame.max.y
+            })
+            .map(|v| v.min.y)
+            .min_by(f32::total_cmp)?;
+        return Some(Vec2::new(x, floor + s.dy));
+    }
+    // Open water (the vent field): its seabed. A pocket whose bedrock this
+    // level lacks has nowhere to put a node.
+    (mark.kind == LandmarkKind::OpenWater).then(|| Vec2::new(x, level.floor_height(x) + s.dy))
+}
 
 /// The spots that lie inside the level, placed on its floor. Which node is
 /// which index is fixed by the order of [`SPOTS`] (the shared node state
 /// and co-op messages name nodes by index).
 pub fn nodes(level: &Level) -> Vec<PlacedNode> {
+    let marks = level.landmarks();
+    let bodies = level.strata();
     SPOTS
         .iter()
         .filter(|s| s.x >= level.min_x && s.x <= level.max_x)
-        .map(|s| PlacedNode {
-            kind: s.kind,
-            pos: Vec2::new(s.x, level.floor_height(s.x) + s.dy),
+        .filter_map(|s| {
+            Some(PlacedNode {
+                kind: s.kind,
+                pos: place_of(level, &marks, &bodies, s)?,
+            })
         })
         .collect()
 }

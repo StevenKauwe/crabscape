@@ -32,7 +32,7 @@ That decision, every trip, deeper each time, is the game.
 | Common resources stay useful (repair, cord, food, building) | A tier that is dead once you pass it | "Things get used up" |
 | Every trip ends with a decision (full shell, go deeper or home?) | Unlimited carrying | Inventory pressure is the loop |
 
-Good example: `Prying 30 → glass scallops on the canyon shelf (x 5,900 to 6,150, y about -3,400)`: 200 XP each, needs a
+Good example: `Prying 30 → glass scallops on the canyon shelf (x 5,900 to 6,150, y about -3,400)`: 160 XP each, needs a
 quill pry tip, 4 per shell; the shelf crevice is a refuge, open water around it is frightening. Bad example: a "rune
 ore" glowing rock in the shallows worth 500 XP (made up, no risk, no distance).
 
@@ -78,13 +78,14 @@ Five tiers, one per depth band (`level/bands.rs`). A node's tier sets everything
 
 | Tier | Band (y) | Places on today's map | Level req | Tool tier | XP per gather | Gather s (base) | Charges | Respawn s | Nodes per kind |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | Shallows (> -260) | home side x 0–1,300; far ledge x 1,820–2,716 | 1 | 0 (bare claw) | 10 | 2.5 | 5 | 45 | 4 |
-| 2 | Basin and mudbanks (-260 to -700) | far basin hub x 4,500–5,000 (the first basin, x 2,800–3,300, holds none: a moray and a hermit crab) | 15 | 1 shell | 110 | 3.0 | 5 | 60 | 3 |
-| 3 | Canyon walls / twilight (-700 to -3,400) | doorstep x 5,371–5,900 (none on the shelf); far rim x 7,900–8,200; pit walls | 30 | 2 quill | 200 | 3.5 | 4 | 90 | 3 |
-| 4 | Canyon floor / midnight (-3,400 to -9,500) | canyon floor far end x 7,090–7,650 (y ≈ -9,400); far-wall cave; east of the rim | 45 | 3 glass | 260 | 4.0 | 4 | 150 | 3 |
-| 5 | Deep (< -9,500) | lower canyon vent field east end (`level::lower_canyon::VENTS`, x 19,730–20,570) | 60 | 4 bone | 750 | 4.5 | 4 | 240 | 3 |
+| 1 | Shallows (> -260) | home side pockets x 222–242 and 432–492; far ledge x 1,850–2,470 | 1 | 0 (bare claw) | 10 | 2.5 | 5 | 45 | 4 |
+| 2 | Basin and mudbanks (-260 to -700) | far basin hub x 4,500–4,940 for all five skills (the home burrow gallery holds none: lead's call, see Where things stand) (the first basin, x 2,800–3,300, holds none: a moray and a hermit crab) | 15 | 1 shell | 110 | 3.0 | 5 | 60 | 3 |
+| 3 | Canyon walls / twilight (-700 to -3,400) | doorstep x 5,443–5,790 (none on the shelf); far rim x 7,905–8,015; the bone hall's floor (fish falls and tooth beds, y about -2,534, x 3,880–4,130: the chamber prize) | 30 | 2 quill | 160 | 3.5 | 4 | 90 | 3 |
+| 4 | Canyon floor / midnight (-3,400 to -9,500) | canyon floor far end x 7,130–7,610 (y -6,000); the seep garden (seep mussels and the sulfur mat, y about -10,514, x 19,430–19,605) | 45 | 3 glass | 260 | 4.0 | 4 | 150 | 3 |
+| 5 | Deep (< -9,500) | lower canyon vent field east end (`level::lower_canyon::VENTS`, x 19,730–20,450, west of the crust vault's door) | 60 | 4 bone | 750 | 4.5 | 4 | 240 | 3 |
 
-Placement rule: a tier-k node lies in band k or deeper, and its **route time from home** (route solver, the kit the world
+Placement rule: a tier-k node lies in band k or deeper (by depth alone: a pocket does not change it, so tier 4 cannot lie in the
+bone hall at about -2,500, and the hall holds tier 3), and its **route time from home** (route solver, the kit the world
 expects at that stage) is longer than every tier-(k−1) node's median. The pit floor is deep but close: put only tier 2–3
 there (its existing culture stays the unique lantern pickup), never tier 4–5.
 
@@ -295,28 +296,29 @@ One claw gear at a time (the claw slot); tips replace each other. Zones are desi
 
 ## Every way to play pays (owner's three rules; data tests in `economy_every_way_pays.rs`, pacing in `economy_pacing.rs`)
 **1. Two hours of low-attention gathering near home pays.**
-- *Safe.* The tier 1 nodes on the home side moved into two pockets, 12 units apart, one of each skill in each: x 175 to
-  247 (before the first snapping-shrimp burrow at 340, which notices within 120 and strikes within 72) and x 435 to
-  483 (between the burrows at 340 and 590 and short of the mantis at 1,120, which hunts what it sees within 300 and
-  roams 800). A crab standing at 211 or 459 reaches the whole pocket (reach 70) and works all five skills without moving.
-  Test: no foe of the level or the bestiary lies nearer a home node than its danger distance (a turret: strike range
-  + 20; a roaming hunter: 600); and a bot working the real, populated level for 30 minutes is never hit. The two nodes
-  that stood at 1,010 and 1,090 (inside the mantis's reach) moved into the pockets.
-- *Close.* The farthest home node is 333 units from the door: 1.2 s on foot (test: at most 40 s). The shell's four slots
+- *Safe.* The tier 1 nodes on the home side lie in two pockets, 10 units apart: x 222 to 242 (after the home burrow's
+  first silt shaft, whose mouth reaches x 220, and before the first snapping-shrimp burrow at 340, which notices within
+  120 and strikes within 72) and x 432 to 492 (between the burrows at 340 and 590). Ten nodes, two of each skill (the
+  first pocket holds Culturing, Harvesting and Foraging, the second all five and a second Prying and Excavating); a crab
+  standing in a pocket reaches the whole of it (reach 70). Test: no foe of the level or the bestiary lies nearer a home
+  node than its danger distance (a turret: strike range + 20; a roaming hunter: 600); no node lies in a door's mouth;
+  and a bot working the real, populated level for 30 minutes is never hit. (#610 put the first shaft's mouth at x 124 to
+  220, so the old first pocket at 175 to 247 lost seven of its nodes' places: there were twelve on foot, ten now.)
+- *Close.* The farthest home node is 342 units from the door: 1.2 s on foot (test: at most 40 s). The shell's four slots
   are the only reason to stop; the kelp sack (Weaving 8, 8 kelp) stays where it is: it comes within the first quarter
   hour and the trip home is two seconds, so an earlier sack buys little.
 - *Steady XP and stack, below an attentive dive* (bot on real ticks, 2 sim hours, watching only the full shell):
 
 | Crab | Nodes worked | XP / h | Levels gained | Items banked / h |
 |---|---|---|---|---|
-| Level 1 | mussels only | 9,400 | 32 (Prying 1 to 33) | 950 |
-| Level 1 | all five skills | 15,230 | 104 (summed) | 1,574 |
-| Level 60 | mussels only | 10,030 (167 / min) | 0 | 1,010 |
-| Level 60 | all five skills | 22,970 | 0 | 2,370 |
+| Level 1 | mussels only | 9,850 | 64 (summed) | 988 |
+| Level 1 | all five skills | 13,575 | 92 (summed) | 1,418 |
+| Level 60 | mussels only | 11,155 (186 / min) | 0 | 1,120 |
+| Level 60 | all five skills | 19,571 | 0 | 2,046 |
 
   Tested: a level 1 crab on one kind reaches level 20 or more in 2 h (measured 33); a level 60 crab on one kind earns
-  at least 25% of the tier 3 round trip at level 60 (540 / min; measured 31%) and still less than it (tier 1 stays
-  below tier 3 per minute). The pace is node-bound (3 mussel clumps on foot, 5 charges each, 45 s regrowth).
+  at least 25% of the tier 3 round trip at level 60 (700 / min on the Plate D map; measured 27%) and still less than it (tier 1 stays
+  below tier 3 per minute). The pace is node-bound (2 mussel clumps on foot now, 5 charges each, 45 s regrowth).
 - *Useful.* Every tier 1 item is an input to a repeatable sink or a recipe at level 40 or more (mussel and snail to
   food, kelp to cord, grit to every repair, shore strain to planting); data test.
 
@@ -361,14 +363,23 @@ What is enforced, and by which test (`economy_every_way_pays.rs`):
   event is on it. `a_harvest_at_every_node_is_calm_with_the_real_foes_alive` holds Gather for twelve seconds at all 82
   nodes with the real foes alive and fails on any hit or stagger. The bar emptying on each cancel is in
   `economy_gather.rs`.
-- **Nodes moved to calm places** (`economy/place.rs`; foes never moved): the first basin (a moray in its crevice and a
-  hermit crab leave no calm span) holds no node, so tier 2 lives only in the far basin hub (x 4,500 to 4,976, 34 apart);
-  tier 1 on the far ledge is x 2,170 to 2,440 (clear of the snapper at 2,060 and the moray at 2,650); tier 3 is the
-  doorstep (5,385 to 5,849; none on the shelf, which a moray and the squid's roam hold) and the rim short of the
-  octopus (7,905 to 8,180); tier 4 is the canyon floor's far end (7,090 to 7,650; the lobster holds the near end);
-  tier 5 is the vent field's east end (19,730 to 20,570, and both vent pots there; the amphipods, a hagfish and an
-  isopod hold the west end). Every band, rock, doorway and spacing rule still holds (`economy_core.rs`).
-  Cost: tier 2 is now a longer walk from home, and the early basin is a place to pass, not to work.
+- **Nodes placed on the Plate D map** (`economy/place.rs`, #572; foes never moved). A spot is an `x`, or it names a
+  landmark (`Level::landmarks()`) and lies on the floor of that place; a level that lacks the place drops its nodes.
+  The first basin (a moray in its crevice and a hermit crab leave no calm span) holds no node. Tier 1 is the home side's
+  two pockets and the far ledge (x 1,850 to 2,470, clear of the snapper at 2,060 and the moray at 2,650). Tier 2:
+  the **home burrow's clay gallery** (a tunnel, the fear register "safe") holds NO nodes (lead's call after P8: 23.5 s of dig from the door, tier 2 there paid 938 XP/min against the hub's 403; the clam beds and clay banks moved to the hub, x 4,527 to 4,802) — it was to hold the three clam beds and three clay banks
+  (Prying and Excavating, x 268 to 468, 40 apart; the world's own two gallery clams lie at 330 and 440); the other three
+  skills stay in the far basin hub (x 4,500 to 4,940, 55 apart). Tier 3: the doorstep (5,443 to 5,790) and the rim short
+  of the octopus (7,905 to 8,015) keep the scallops, glass gardens and twilight glow; **the bone hall's floor** (x 3,880
+  to 4,130, 50 apart, in sight of the door at 3,800 and the seep shaft) holds the fish falls and tooth beds as the
+  chamber's prize. Tier 4: the canyon floor's far end (black coral, whale-fall bones, grenadier carcasses; the lobster
+  holds the near end) and **the seep garden** (seep mussels and the sulfur mat, x 19,430 to 19,605, east of the door
+  and out of the isopod's leash). Tier 5: the vent field's east end (x 19,730 to 20,450, both vent pots; west of the
+  crust vault's door; the amphipods, a hagfish and an isopod hold the west end). Every band, rock, doorway, mouth and
+  spacing rule still holds (`economy_core.rs`), and a crab stands on the real cell floor of each pocket node with the
+  real foes alive for twelve seconds of gathering (`economy_every_way_pays.rs`).
+  Cost: tier 2 is now two ways to farm (a 23.5 s dig round trip to the gallery, a 95 s walk to the hub); see Where
+  things stand.
 
 ## Levels and gear: Elden Ring scaling (owner, 2026-11-11; P11)
 
@@ -481,11 +492,11 @@ The home asks "what do you want to make?" before it asks anything else (`core-lo
 Pieces built into the home change it for everyone in that home's world. Eight, each built once per world:
 | Piece | Building | Needs | Does |
 |---|---|---|---|
-| Kelp curtain | 3 | Kelp x6, Kelp cord x2 | a swaying curtain (looks) |
-| Glass lamp | 8 | Glass x4, Kelp cord x1 | a warm glow (looks) |
+| Kelp curtain | 3 | Kelp x22, Kelp cord x2 | a swaying curtain (looks) |
+| Glass lamp | 8 | Glass x16, Kelp cord x2 | a warm glow (looks) |
 | Shell mosaic | 15 | Valve x8, Grit x4, Pearl x1 | a pattern on the wall (looks) |
 | Whelk door | 20 | Whelk shell x1, Clay x2 | a door for the doorway (looks) |
-| Bone arch | 35 | Whale bone x2, Clay x3, Mantis club x1 | ribs over the home (looks) |
+| Bone arch | 35 | Whale bone x2, Clay x3, Mantis club x2 | ribs over the home (looks) |
 | Photophore string | 40 | Photophore x3, Slime thread x2 | cold light on the roof (looks) |
 | Coral garden | 55 | Black coral x2, Bamboo coral x1, Clay x4 | beside the door (looks) |
 | Nodule hearth | 70 | Nodule x4, Scale plate x1, Clay x4 | warm vent-stone, no fire: the shell mends in half the wait |
@@ -499,6 +510,29 @@ Pieces built into the home change it for everyone in that home's world. Eight, e
 - **Saved** with the world part of `Progress` (`Progress::home_pieces`, next to `clams`): in solo and on the host the
   crab's own world is its home. A guest visiting saves its own world's set, not the host's.
 
+## Wants that send you out (#631)
+The board's wants point outward: each piece or recipe below misses ONE far thing, one shell load, and the rest comes
+from the bank's common stock. The distance does the work (guardrail: never padding).
+
+| Want | Missing | Only from |
+|---|---|---|
+| Shell mosaic (Building 15) | 4 shed teeth | the bone hall's tooth beds |
+| Whelk door (Building 20) | 2 seep mussels | the seep garden's beds |
+| Coral garden (Building 55) | 1 mantis telson | the mantis over the clay cathedral (x 16,700) |
+| Culture bed 3 (Building 40) | 1 great mantis club | the mantis past the canyon (x 10,720) |
+| Moray-tooth claw tips (Shellcraft 42) | 3 moray fangs | morays past the canyon (x 9,880, 15,220) |
+
+Creatures beaten past x 9,000 (`BEYOND_CANYON`) or 15,000 (`CORAL_RISE`) leave a far part instead of their near one,
+by where the crab eats the body (`economy::items::drops_at`); near mantises and morays are unchanged. `Sim::wants`
+names the landmark (`Source::Node { place }`) or the far creature (`Source::Far`). The sixgill breaks off and never
+dies, so no want asks for it. The cathedral has no node of its own yet, so its want is the mantis over it. Tests:
+`wants_out.rs`.
+
+**Digging earns Excavating** (#631): 1 XP per 16-unit block of sediment the claws dig into that the crab has not dug
+among its last 96 (`economy::sim::DigLedger`), so re-digging a refilled tunnel or digging in place pays almost nothing.
+A scripted tunnel from the home burrow's silt shaft pays 206 XP/min (tier 1 gathering 180, tier 3 620:
+`a_minute_of_tunnelling_pays_like_tier_one_gathering`).
+
 ## Hidden rules (from the world build; they apply here)
 - Only `underwater*`, `physics/consts.rs`, `level/coral_rise.rs` and the level's floor and rocks force the ~9-minute
   rebake; the probe digest test says "rebake" if terrain behaviour changes. This economy changes none of them.
@@ -511,6 +545,13 @@ Pieces built into the home change it for everyone in that home's world. Eight, e
 - CI flake: `cell_save::native` on Linux (#482): rerun the failed job.
 
 ## Where things stand
+- **#631:** wants that send you out (five far-thing pieces and recipes), digging earns Excavating XP, and tier 5's trip is measured for real (307 s round trip through the narrows lock; XP/min by tier at unlock 180 / 403 / 620 / 805 / 1049). Next: point the glass lamp's want at the Silt Galleries' glass when the world lane's loop lands, and re-measure.
+- **L1 (#622), the loop measured:** `crates/sim/tests/loop_pacing.rs` plays three wants through the beat sheet
+  (glass lamp 4.8 min, bone arch 2.1, kelp curtain 2.8 against 20). Pieces are wants now. Guardrail: the gap to 20 is
+  the world's (distance, route choice, crossing, way home), never padded with costs, slow cuts or repeat trips; piece costs
+  stay at about one good trip (lamp 4 glass + 1 cord, curtain 6 kelp + 2 cords, arch one mantis club). The table and
+  the checklist lines are in
+  `core-loop.md` ("Measured loop").
 - **H1 (#617), sim side:** pick a want, the pinned goal and eight shared home pieces are in `crates/sim`
   (`economy/wants.rs`, `economy/home.rs`, tests in `home_wants.rs`); the board, the HUD line and drawing the pieces are
   presentation work in `src/`. See "Pick a want" and "Home pieces".
@@ -525,10 +566,16 @@ Pieces built into the home change it for everyone in that home's world. Eight, e
   after the nodes moved into the pockets). XP per minute
   on round trips by tier at unlock / at level 60: T1 203 / 489, T2 351 / 506, T3 500 / 540, T4 570 / 603, T5 624 / 629
   (strictly rising). Items per minute fall with distance: 20.3, 3.2, 2.5, 2.2, 0.8. T1 power-gathering 157 to 180 XP/min (3 mussel clumps on foot).
-  Estimated hours to 30 / 45 / 60 / 99: 0.7 / 2.3 / 8.3 / 340. Trips (route solver, full kit, seconds round trip): T2 95,
-  T3 164, T4 187; **T5 is extrapolated (541 s)** because the solver cannot reach the vent field today (the slump dam is
-  one-way and the narrows need the heavy crusher).
-- **Tuning that moved from the first draft:** XP per gather by tier is now 10 / 110 / 200 / 260 / 750 (was 10 / 25 / 50 /
+  Estimated hours to 30 / 45 / 60 / 99: 0.7 / 2.3 / 8.3 / 340 (0.6 / 1.9 / 6.2 / 213 on the Plate D map, with tier 3's
+  XP at 160). Trips (route solver, full kit, seconds round trip): T2 95, T3 164, T4 187 (80 / 96 / 123 on the Plate D map);
+  **T5 is measured (#631): 307 s** (`measure_vent_trip`: the solver to the lower canyon's floor at 151 s, a 1.5 s smash of the
+  narrows lock, the walk to the first vent node at 167 s, then 21 s up the slump and 118 s from Coral Rise home; the solver has no
+  smash move, and the deep-food key still read "available" on the way back, so the 21 s climb is the solver's, not checked against
+  the tether by hand). The extrapolation (329 s) was close: tier 5 pays 1,049 XP / min at its unlock level and 1,063 at level 60,
+  still strictly above tier 4, so its XP per gather is unchanged. The long chimney home (a 33 s free ride after act three) is not
+  in the number.
+- **Tuning that moved (P8, #572): tier 3 XP per gather 200 to 160.** The Plate D map put the tier 3 gardens 40% closer (a 164 s round trip became 96 s), which lifted tier 3 to 774 XP / min at level 30 and 876 at level 60 against 805 / 873 for tier 4, so XP / min no longer rose strictly and a level 60 crab on mussels fell under a quarter of tier 3. At 160: 620 / 700, tier 4 805 / 873, and mussels 27%. The ladder at the unlock level is now 180 / 403 / 620 / 805 / 985 (tiers 1 to 5), at level 60 423 / 587 / 700 / 873 / 998.
+- **Tuning that moved from the first draft:** XP per gather by tier was 10 / 110 / 200 / 260 / 750 (was 10 / 25 / 50 /
   100 / 175; the old numbers made the basin worse than the shallows). Tier-1 nodes on the home side sit in two safe
   pockets at x 175 to 247 and 435 to 483 that a crab reaches on foot (past x about 600 the plateau needs a jump).
 - **"Every way to play pays"** (owner's rules, PR #613 vision): drops for the original creatures, a use below level 20 and
@@ -540,14 +587,26 @@ Pieces built into the home change it for everyone in that home's world. Eight, e
   foe, tested at all 82 nodes; tier 2 is the far basin hub only) and "Levels and gear: Elden Ring scaling" (damage cut
   capped at 40%, claw bonus at 1.35, windows untouched, a level 1 crab wins on skill).
 - **Next, in order:**
-  1. P8 (#572): re-place nodes on the world build's new map once its geometry lands (home burrow clam beds → T2 Prying,
-     bone hall → T4 whale bones, seep chimneys/garden → T4 seep mussels, the vent and chimney hall → T5). Then re-measure
-     T5 with `cargo test -p crabsim --test economy_pacing -- --ignored --nocapture measure_routes` (~18 min) and lower
-     T5 XP if the trip shortens.
+  1. P8 (#572, **done in the loop-pacing PR #626**): nodes re-placed on the Plate D map by landmark name (see "Nodes
+     placed on the Plate D map"). Findings: (a) the bone hall lies at about -2,500, the twilight's depth, so the band
+     rule keeps tier 4 out of it: it holds tier 3 (fish falls and tooth beds), and whale-fall bones stay on the canyon
+     floor; (b) the route solver walks and swims, it does not dig, so the pocket nodes (18) are "dug to" and left out of
+     `TRIPS`; the tier 2 pacing row is still the hub's; (c) **the gallery undercuts the ladder**: a clam bed 23.5 s of dig
+     from the door pays about 860 XP / min at level 15 against the hub's 351 and tier 3's 500 (printed by
+     `experience_per_minute_rises...`, not asserted). Options for the lead, cheapest first: tier 2 clam beds in the
+     gallery pay half XP; a regrowth long enough that the gallery's 3 + 3 nodes bind (they do not now: trip-bound); or
+     only the clay banks in the gallery. (d) the first silt shaft's mouth (x 124 to 220) took the first tier 1 pocket's
+     place: ten tier 1 nodes on foot, not twelve, and a level 1 crab's skills level about 1.5x slower (Culturing L10
+     837 s of the 900 s bound).
   2. P9 (#602, **done in #601**): creature drops; see "Creature drops". The creatures lane owns `creatures/*`; the
      economy owns `economy/*` and `craft.rs`. Known gap: the hermit crab ends itself in its own `die`, so its kill
      pays no win XP (creatures lane).
-  3. Excavating XP from real digging (cellular digging has no clean per-unit amount; needs an engine-package hook).
+  3. Excavating XP from real digging (**done, #631**): the cellular engine has no per-unit amount, so it is measured from
+     outside. Every fourth tick a crab holding dig toward sediment (`game_dig_load` above zero) credits the 16-unit block under
+     its claws; a block not among its last 96 earns 1 XP (`DIG_BLOCK_XP`), deterministic, local crab only, not saved. Digging in
+     place or again in a refilled tunnel earns about nothing (4 XP back along a 60 XP tunnel; 1 XP for a minute in place).
+     The home burrow's shaft and gallery pay 206 XP / min at 17.5 s end to end against 180 for a tier 1 round trip and 620 for
+     tier 3 (asserted 0.5x to 1.5x of tier 1 and below tier 3, `economy_pacing.rs`).
   4. Look at the gather ring, prompt, touch button and crafting tabs in a browser at phone size (never seen running).
 - **Hidden rules found:** node indexes come from `placed_nodes` (spots outside a small level are dropped), so never index
   `place::SPOTS` directly; nodes sit about 60 units apart with a 70-unit reach, so a spent node hands the gather to its

@@ -391,6 +391,30 @@ impl Survey {
         out.reverse();
         out
     }
+    /// Every tick of the route to node `i`: seconds since the start and the
+    /// crab's position (replayed from the saved moves).
+    pub fn trace(&self, i: usize) -> Vec<(f64, Vec2)> {
+        let mut chain = Vec::new();
+        let mut root = i;
+        while let Some(p) = self.nodes[root].parent {
+            chain.push((p, root));
+            root = p;
+        }
+        chain.reverse();
+        let mut out = vec![(self.nodes[root].time, self.nodes[root].mover().pos)];
+        for (p, c) in chain {
+            let Some(mv) = self.nodes[c].how else {
+                continue;
+            };
+            let t0 = self.nodes[p].time;
+            let mut k = 0u32;
+            play(&self.nodes[p], p, mv, &mut |pos| {
+                k += 1;
+                out.push((t0 + f64::from(k) * DT, pos));
+            });
+        }
+        out
+    }
     pub fn describe(&self, i: usize) -> String {
         self.route(i)
             .iter()

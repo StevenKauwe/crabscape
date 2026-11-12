@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use bevy_math::Vec2;
 use serde::{Deserialize, Serialize};
 
+use super::home::{PIECES, Piece};
 use super::recipes::Output;
 use super::{ECON_RECIPES, EconRecipe, Item, NODES, NodeKind, items};
 use crate::SimCrab;
@@ -32,22 +33,37 @@ pub const NEXT_UNLOCKS: usize = 3;
 pub enum Source {
     /// A gathering node of this kind. `remembered_at` is the nearest one
     /// the crab has seen (None: it has never seen one); `band` is the depth
-    /// band this kind grows in.
+    /// band this kind grows in; `place` names the landmark every node of
+    /// the kind lies in (the bone hall, the seep garden), or None for the
+    /// open map.
     Node {
         node: NodeKind,
         remembered_at: Option<Vec2>,
         band: &'static str,
+        place: Option<&'static str>,
     },
     /// Dropped by a beaten creature of this kind.
     Creature(Kind),
+    /// Dropped only by a beaten creature of this kind far out
+    /// ([`items::FAR_DROPS`]), at `place`.
+    Far { kind: Kind, place: &'static str },
     /// Made at home by this recipe (its replay word).
     Recipe(&'static str),
 }
 
-/// A recipe the crab could be making, and what stands in the way.
+/// A recipe or home piece the crab could be making, and what stands in the
+/// way.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Want {
-    pub recipe: &'static EconRecipe,
+    /// The replay word of the recipe or of the home piece.
+    pub word: &'static str,
+    pub name: &'static str,
+    pub skill: Skill,
+    pub level: u32,
+    /// Everything it takes.
+    pub needs: &'static [(Item, u32)],
+    /// `Some` when this is a home piece (built into the shared home).
+    pub piece: Option<Piece>,
     /// What the bank and shell together are short of.
     pub missing: Vec<(Item, u32)>,
     /// Where the missing things come from.
@@ -59,7 +75,7 @@ pub struct Want {
 /// The goal the crab pinned, saved with its economy.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Pinned {
-    /// The recipe's replay word.
+    /// The recipe's or home piece's replay word.
     pub word: String,
     /// Has "you have what you need" been said since it was last short?
     #[serde(default)]
@@ -73,6 +89,41 @@ pub struct PinnedStatus {
     pub have_all: bool,
 }
 
+/// What a want is made of: a recipe's row or a home piece's.
+#[derive(Clone, Copy)]
+struct Goal {
+    word: &'static str,
+    name: &'static str,
+    skill: Skill,
+    level: u32,
+    needs: &'static [(Item, u32)],
+    piece: Option<Piece>,
+}
+
+impl Goal {
+    fn recipe(r: &'static EconRecipe) -> Goal {
+        Goal {
+            word: r.word,
+            name: r.name,
+            skill: r.skill,
+            level: r.level,
+            needs: r.needs,
+            piece: None,
+        }
+    }
+
+    fn piece(d: &'static super::home::PieceDef) -> Goal {
+        Goal {
+            word: d.word,
+            name: d.name,
+            skill: d.piece.skill(),
+            level: d.level,
+            needs: d.needs,
+            piece: Some(d.piece),
+        }
+    }
+}
+
 /// Where an item comes from: nodes, creature drops and recipes, from the
 /// data. `crab` gives the remembered places (None: no memory).
 pub fn sources_of(sim: &Sim, crab: Option<&SimCrab>, item: Item) -> Vec<Source> {
@@ -82,11 +133,21 @@ pub fn sources_of(sim: &Sim, crab: Option<&SimCrab>, item: Item) -> Vec<Source> 
             node: n.kind,
             remembered_at: crab.and_then(|c| remembered_node(sim, c, n.kind)),
             band: kind_band(sim, n.kind),
+            place: node_place(n.kind),
         });
     }
     for kind in crate::enemy::KINDS {
         if items::drops_of(kind).contains(&item) {
             out.push(Source::Creature(kind));
+        }
+        for d in items::FAR_DROPS
+            .iter()
+            .filter(|d| d.kind == kind && d.item == item)
+        {
+            out.push(Source::Far {
+                kind,
+                place: d.place,
+            });
         }
     }
     for r in ECON_RECIPES.iter() {
@@ -98,6 +159,14 @@ pub fn sources_of(sim: &Sim, crab: Option<&SimCrab>, item: Item) -> Vec<Source> 
         }
     }
     out
+}
+
+/// The landmark every spot of this kind lies in, by name (`None`: some lie
+/// on the open map, or it has none).
+fn node_place(kind: NodeKind) -> Option<&'static str> {
+    let mut spots = super::place::SPOTS.iter().filter(|s| s.kind == kind);
+    let first = spots.next()?.place?;
+    spots.all(|s| s.place == Some(first)).then_some(first)
 }
 
 /// The nearest node of `kind` the crab remembers seeing.
@@ -136,10 +205,10 @@ fn holdings(crab: &SimCrab) -> BTreeMap<Item, u32> {
 }
 
 impl Sim {
-    /// The want for one recipe, however many kinds are missing.
-    fn want_for(&self, crab: &SimCrab, r: &'static EconRecipe, soon: bool) -> Want {
+    /// The want for one recipe or piece, however many kinds are missing.
+    fn want_for(&self, crab: &SimCrab, goal: Goal, soon: bool) -> Want {
         let have = holdings(crab);
-        let missing: Vec<(Item, u32)> = r
+        let missing: Vec<(Item, u32)> = goal
             .needs
             .iter()
             .filter_map(|&(item, n)| {
@@ -156,11 +225,24 @@ impl Sim {
             }
         }
         Want {
-            recipe: r,
+            word: goal.word,
+            name: goal.name,
+            skill: goal.skill,
+            level: goal.level,
+            needs: goal.needs,
+            piece: goal.piece,
             missing,
             sources,
             soon,
         }
+    }
+
+    /// The recipe or home piece a replay word names, as a goal.
+    fn goal_of(word: &str) -> Option<Goal> {
+        if let Some(r) = EconRecipe::parse(word) {
+            return Some(Goal::recipe(r));
+        }
+        Piece::parse(word).map(|p| Goal::piece(p.def()))
     }
 
     /// The local crab's wants: every recipe it meets the level and station
@@ -184,14 +266,28 @@ impl Sim {
             if self.recipe_gate(crab, r).is_err() {
                 continue;
             }
-            let want = self.want_for(crab, r, have < r.level);
+            let want = self.want_for(crab, Goal::recipe(r), have < r.level);
+            if want.missing.len() == 1 {
+                out.push(want);
+            }
+        }
+        // Home pieces are wants too, unless the home already has them.
+        for d in PIECES {
+            if self.home_pieces().contains(&d.piece) {
+                continue;
+            }
+            let have = crab.level(d.piece.skill(), &self.tuning);
+            if have + SOON_LEVELS < d.level {
+                continue;
+            }
+            let want = self.want_for(crab, Goal::piece(d), have < d.level);
             if want.missing.len() == 1 {
                 out.push(want);
             }
         }
         out.sort_by_key(|w| {
             let count: u32 = w.missing.iter().map(|m| m.1).sum();
-            (w.soon, count, std::cmp::Reverse(w.recipe.level))
+            (w.soon, count, std::cmp::Reverse(w.level))
         });
         out
     }
@@ -225,28 +321,32 @@ impl Sim {
     pub fn level_up_tasks(&self, id: PlayerId, skill: Skill, level: u32) -> Vec<String> {
         let mut lines = super::unlocks(skill, level);
         for w in self.wants(id) {
-            if w.recipe.skill == skill && w.recipe.level == level {
-                lines.push(format!("New task: make {}.", w.recipe.name.to_lowercase()));
+            if w.skill == skill && w.level == level {
+                lines.push(format!("New task: make {}.", w.name.to_lowercase()));
             }
         }
         lines
     }
 
-    /// Crab `id` pins the recipe `word` as its goal (replacing any other).
-    /// Only a local crab, and only a recipe that exists. A running
+    /// Crab `id` pins the recipe or home piece `word` as its goal (replacing
+    /// any other). Only a local crab, and only a goal that exists (a piece
+    /// not yet built). A running
     /// recording notes it (`pin=<word>`).
     pub fn pin_want(&mut self, id: PlayerId, word: &str) -> bool {
-        let Some(r) = EconRecipe::parse(word) else {
+        let Some(goal) = Self::goal_of(word) else {
             return false;
         };
+        if goal.piece.is_some_and(|p| self.home_pieces().contains(&p)) {
+            return false;
+        }
         let Some(crab) = self.crab_mut(id).filter(|c| !c.remote) else {
             return false;
         };
         crab.econ.pinned = Some(Pinned {
-            word: r.word.to_string(),
+            word: goal.word.to_string(),
             notified: false,
         });
-        self.record_pin(id, Some(r));
+        self.record_pin(id, Some(goal.word));
         true
     }
 
@@ -264,15 +364,19 @@ impl Sim {
     /// has everything (the bank and the shell together).
     pub fn pinned_status(&self, id: PlayerId) -> Option<PinnedStatus> {
         let crab = self.crab(id).filter(|c| !c.remote)?;
-        let r = EconRecipe::parse(&crab.econ.pinned.as_ref()?.word)?;
-        let have = crab.level(r.skill, &self.tuning);
-        let want = self.want_for(crab, r, have < r.level);
+        let goal = Self::goal_of(&crab.econ.pinned.as_ref()?.word)?;
+        if goal.piece.is_some_and(|p| self.home_pieces().contains(&p)) {
+            // Someone built it already: nothing left to want.
+            return None;
+        }
+        let have = crab.level(goal.skill, &self.tuning);
+        let want = self.want_for(crab, goal, have < goal.level);
         let have_all = want.missing.is_empty();
         Some(PinnedStatus { want, have_all })
     }
 
     /// A running recording notes a pin by the recorded crab.
-    fn record_pin(&mut self, id: PlayerId, to: Option<&'static EconRecipe>) {
+    fn record_pin(&mut self, id: PlayerId, to: Option<&'static str>) {
         let recorded = self.crabs().iter().find(|c| !c.remote).map(|c| c.id) == Some(id);
         if recorded {
             let tick = self.tick_count();
