@@ -82,6 +82,11 @@ store_update() {
 }
 
 put_folder() { # site: copy web/ into $FOLDER with its build note
+  if [ -n "${GAME_SELECTED:-}" ]; then
+    bash tools/compose-web.sh "$1/$FOLDER" "$1" preview "${GITHUB_SHA:?}" "$SHA"
+    printf '%s\t%s\t%s\n' "$SHA" "$(date -u +%Y-%m-%dT%H:%MZ)" "${PREVIEW_NOTE:-}" > "$1/$FOLDER/build.txt"
+    return
+  fi
   rm -rf "${1:?}/$FOLDER"
   mkdir -p "$1/$FOLDER"
   cp -r web/. "$1/$FOLDER/"
@@ -91,6 +96,10 @@ put_folder() { # site: copy web/ into $FOLDER with its build note
 put_root() { # site: replace the root build, keep the preview folders
   # Main can finish an intermediate tested commit, but an old rerun must not roll back a newer one.
   # The deploy checkout has full history. Check the actual immutable artifact, not the workflow's current ref.
+  if [ -n "${GAME_SELECTED:-}" ]; then
+    bash tools/compose-web.sh "$1" "$1" main "${GITHUB_SHA:?}" "$GITHUB_SHA"
+    return
+  fi
   local candidate previous
   candidate="$(cat web/pkg/commit.txt)"
   [ "$candidate" = "${GITHUB_SHA:?}" ] || { echo "main artifact does not match the tested commit" >&2; return 1; }
@@ -110,12 +119,12 @@ drop_folder() { rm -rf "${1:?}/$FOLDER"; }
 case "${1:-}" in
   publish)
     FOLDER="$2" SHA="$3"
-    check_stamp
+    if [ -z "${GAME_SELECTED:-}" ]; then check_stamp; fi
     store_update "preview: $FOLDER @ $(short "$SHA")" put_folder
     echo "published /$FOLDER/"
     ;;
   publish-main)
-    check_stamp
+    if [ -z "${GAME_SELECTED:-}" ]; then check_stamp; fi
     store_update "main @ $(short "${GITHUB_SHA:-local}")" put_root
     echo "main build published to the store root"
     ;;

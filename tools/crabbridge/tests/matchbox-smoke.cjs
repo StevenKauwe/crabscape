@@ -1,0 +1,28 @@
+const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
+const fs=require('fs'),path=require('path'),cp=require('child_process');
+const root=path.resolve(__dirname,'..'),bin=path.join(root,'target/debug/codex-harbor'),run=fs.mkdtempSync('/tmp/crabbridge-matchbox-');
+const pause=ms=>new Promise(r=>setTimeout(r,ms));let browser,host,server,fixture;
+const spawn=(exe,args)=>{const p=cp.spawn(exe,args,{stdio:['ignore','pipe','pipe']});p.log='';p.stdout.on('data',b=>p.log+=b);p.stderr.on('data',b=>p.log+=b);return p;};
+async function wait(p,pattern){for(let i=0;i<100;i++){if(p.log.includes(pattern))return;if(p.exitCode!==null)throw new Error('Fixture exited: '+p.log);await pause(100);}throw new Error('Fixture readiness timeout: '+p.log);}
+(async()=>{try{
+ const config=path.join(run,'config.json'),invite=path.join(run,'invite.json'),registration=path.join(run,'cat.json'),password='disposable-matchbox-test-only-123';
+ cp.execFileSync(bin,['init',config]);fs.writeFileSync(registration,JSON.stringify({executable:'/bin/cat',args:[],workspace:run}));cp.execFileSync(bin,['register',config,'cat',registration]);cp.execFileSync(bin,['add-user',config,'tester','control','cat','--password-stdin'],{input:password});cp.execFileSync(bin,['remote-matchbox-test-invite',config,'tester',invite]);
+ fixture=spawn(path.join(root,'target/debug/examples/matchbox_fixture'),[]);await wait(fixture,'ready');
+ server=spawn(bin,['serve',config]);await wait(server,'127.0.0.1');
+ host=spawn(bin,['remote-matchbox-test',config,invite]);await wait(host,'rendezvous ready');
+ browser=await chromium.launch({headless:true,...(process.env.CHROME_BIN?{executablePath:process.env.CHROME_BIN}:{})});const page=await browser.newPage();const frames=[],errors=[];await page.addInitScript(()=>{let constructor;window.__fixtureTerminals=[];Object.defineProperty(window,'Terminal',{configurable:true,get(){return constructor;},set(value){constructor=new Proxy(value,{construct(target,args){const terminal=Reflect.construct(target,args);window.__fixtureTerminals.push(terminal);return terminal;}});}});});
+ page.on('pageerror',e=>errors.push(String(e)));page.on('websocket',ws=>{if(!ws.url().startsWith('ws://127.0.0.1:3536/crabscape-crabbridge-'))throw new Error('Unexpected signaling endpoint');ws.on('framesent',e=>frames.push(String(e.payload)));ws.on('framereceived',e=>frames.push(String(e.payload)));});
+ await page.goto('http://127.0.0.1:7878/remote.html');await page.waitForFunction(()=>document.querySelector('#status').textContent.startsWith('Ready.'));
+ await page.setInputFiles('#invite',invite);await page.waitForFunction(()=>!document.querySelector('#offer').disabled);await page.click('#offer');await page.waitForFunction(()=>!document.querySelector('#login').disabled);
+ await page.fill('#password',password);await page.click('#login');await page.waitForFunction(()=>document.querySelector('#tool').options.length>0);await page.selectOption('#tool','cat');await page.click('#start');await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('running'));
+ const marker='CRABBRIDGE_EXISTING_MATCHBOX_PROOF';await page.locator('.xterm-helper-textarea').pressSequentially(marker);await page.locator('.xterm-helper-textarea').press('Enter');await page.waitForFunction(text=>{const buffer=window.__fixtureTerminals.at(-1).buffer.active;for(let i=0;i<buffer.length;i++)if(buffer.getLine(i)?.translateToString().includes(text))return true;return false;},marker);
+ const secret=JSON.parse(fs.readFileSync(invite));for(const item of [secret.key,password,marker,secret.context.principal,secret.context.session_id])if(frames.some(frame=>frame.includes(item)))throw new Error('Application data leaked into rendezvous');
+ await page.click('#stop');await page.click('#logout');await page.waitForFunction(()=>document.querySelector('#tool').options.length===0);for(let i=0;i<50&&host.exitCode===null;i++)await pause(100);if(host.exitCode!==0)throw new Error('Host failed cleanup');if(errors.length)throw new Error(errors.join('\n'));
+ const original=path.join(run,'wrong-host-invite.json'),wrong=path.join(run,'wrong-browser-invite.json');
+ cp.execFileSync(bin,['remote-matchbox-test-invite',config,'tester',original]);const altered=JSON.parse(fs.readFileSync(original));altered.key='00'.repeat(32);fs.writeFileSync(wrong,JSON.stringify(altered));
+ host=spawn(bin,['remote-matchbox-test',config,original]);await wait(host,'rendezvous ready');await page.reload();await page.waitForFunction(()=>document.querySelector('#status').textContent.startsWith('Ready.'));await page.setInputFiles('#invite',wrong);await page.waitForFunction(()=>!document.querySelector('#offer').disabled);await page.click('#offer');
+ await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('failed')||document.querySelector('#status').textContent.includes('disconnected')||document.querySelector('#status').textContent.includes('Invalid peer'),{},{timeout:20000});
+ if(!(await page.locator('#login').isDisabled())||(await page.locator('#tool').evaluate(e=>e.options.length))!==0)throw new Error('Wrong capability gained authority');
+ console.log('PASS: public-rendezvous peer with wrong private capability cannot reach password login or registered tools.');
+ console.log('PASS: actual Matchbox0.14 fullmesh→Noise→password→registered PTY→logout; captured signaling excludes capability/password/principal/terminal data. No production contact.');
+ }finally{if(browser)await browser.close();for(const child of [host,server,fixture])if(child&&child.exitCode===null){child.kill('SIGINT');await new Promise(resolve=>child.once('exit',resolve));}fs.rmSync(run,{recursive:true,force:true});}})().catch(e=>{console.error(e);process.exit(1)});

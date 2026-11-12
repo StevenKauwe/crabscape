@@ -48,7 +48,9 @@ Each lead keeps their own lines here. `[x]` means it is in the game; the rest sa
 - [x] Tier 5's trip is measured, not extrapolated (#631): 307 s round trip to the vent field (`measure_vent_trip`), tier 5 pays 1,049 XP / min at its unlock level, still above tier 4's 805
 - [x] Death wakes you at the nearest rest point you have reached (#633): home, a crevice rested in, a region entrance (far basin, lower canyon), or a boss door; `level/rest.rs` derives them (the world lane adds `MARKERS` rows), `rest_points.rs` holds the rules. A death in a boss arena (the octopus's, the grouper's) wakes you at its door with your load kept and no cast-off; an overworld death still leaves a cast-off with the load, and several wait at once
 - [x] The grouper is beatable (#633): the fair bot wins 67-70% (perfect 100%), from 0%; it never gaped at a crab on its slope (aim, range and cone) and its hurtbox was out of reach until the gulp carries the crab up to its head. The sixgill stays a hunter to avoid
-- [ ] Silt Galleries glass for the lamp's want, and a re-measure: after the engine and Silt Galleries PR (#634)
+- [x] Silt Galleries glass for the lamp's want (#638): the three glass gardens moved (same node indices) from the doorstep and far rim into the Silt Galleries' first two sponge galleries (the third lies within a hermit crab's reach of the plateau above); the want names "upper gallery". Re-measured: the lamp loop is 2.63 min (22 s out, 12 s home), down from 5.62
+- [x] The Deep Galleries' halls hold nodes (#638): fish falls (lanternfish hall), black coral (black coral hall), whale-fall bones (whale-fall hall) and nodules (the nodule field, the deep band), three each at the world lane's sites
+- [x] Region 5's shelf tops hold nodes (#638): glass gardens and glass scallop beds on the three twilight tops, a sea-pen field and a clam bed on the kelp ledge; the lamp's want still names the Silt Galleries (the nearest place glass grows)
 
 **Loop world** (map, regions, landmarks: the world lane)
 - [ ] Way out too short: the shallows end at the first open water (the basin, 2,706 units from the door) after 14 to 17 s on foot (measured again on the Plate D map, unchanged by it). The familiar way out is a quarter of its 4 minutes
@@ -67,26 +69,27 @@ Each lead keeps their own lines here. `[x]` means it is in the game; the rest sa
 - [ ] The plug shaft is a 1,000-unit climb with no mid-way rest
 - [ ] Regions 4 (the Drop and the Deep Galleries, the octopus lair), 5 (open-canyon shelves, arches, the kelp column home) and 6 (the slope caves and the grouper) are the next big PRs; most of the map is still dead rock until then
 - [ ] Re-measure the loop with the galleries: home, then the sponges, then home through the plug, against 20 minutes
+- [ ] The Silt Galleries are a near loop (found by #638): the solver walks down the silt mouth to the sponge galleries in 22 s and is home in 12, so the lamp's loop fell from 5.6 to 2.6 min. The 20 minutes need the galleries' depth (the lower gallery, the moray hall, the plug's one-way dig) on the way to the glass, or the glass further in; the world lane's call
 
 ## Measured loop (2026-11-11, Plate D map after #610, one-trip piece costs)
 `crates/sim/tests/loop_pacing.rs` plays one loop per want, headless, and prints this table with `--nocapture`.
 Real ticks for the gathers, the fight, the kelp, the cooking and the building; the route solver (cached in `ROUTES`)
 for the way out, crossing and way home, cut at the landmarks by kind; fixed UI time assumed: 60 s at home, 45 s to build,
 15 s per craft. Windows are this file's beat sheet; a beat is OK between half and one and a half of its window.
-The wants' targets are found by kind: the lamp's garden is the farthest glass sponge garden (the far rim's, across the
-canyon; the doorstep's two are 31 s out and a worse crossing), the fight is the mantis of the lowest x (the basin's).
+The wants' targets are found by kind: the lamp's garden is the farthest glass sponge garden (since #638, the Silt
+Galleries' second sponge gallery, under the trench by home), the fight is the mantis of the lowest x (the basin's).
 
 Glass lamp (gather, tier 3): Harvesting 30, Building 8, glass cutter tier 2, 1 cord banked (the lamp needs 4 glass: one shell load); kit 6 eggs + scissors + glass + crusher + dactyls.
 
 | Beat | Window | Minutes | Verdict | Reason |
 |---|---|---|---|---|
 | Home | 0-2 | 1.00 | OK | 60 s assumed UI + 0.2 s of commands; the board pins the lamp |
-| Way out | 2-6 | 0.24 | too short | 14 s to the first open water, 2,706 units from the door |
-| Crossing | 6-12 | 1.59 | too short | 96 s from the basin to the far rim's landing, 5,214 units on; 1 s more to the node |
-| Prize | 12-15 | 0.25 | too short | 4 glass at 3.5 s from 1 garden; calm and quick by design: the beat's length belongs to the getting there |
-| Way home | 15-19 | 1.74 | too short | 100 s of route + 4 s walking in; no tired-leg seconds |
+| Way out | 2-6 | 0.36 | too short | 22 s on foot down the silt mouth to the garden, 2,525 units from the door; no open water on the way |
+| Crossing | 6-12 | 0.00 | n/a | no crossing: the galleries are a walk under the trench |
+| Prize | 12-15 | 0.23 | too short | 4 glass at 3.5 s from 1 garden; calm and quick by design: the beat's length belongs to the getting there |
+| Way home | 15-19 | 0.25 | too short | 12 s of route + 3 s walking in |
 | Build | 19-20 | 0.78 | OK | 45 s assumed UI + 2 s |
-| Total | 20 | 5.62 | | |
+| Total | 20 | 2.63 | | (5.62 when the garden was the far rim's, before #638) |
 
 Bone arch (fight, mantis club): Building 35, whale bone and clay already in the bank (the arch needs one mantis club), Fighting 1; kit 6 eggs + scissors + glass + crusher + dactyls (the whale bone came from the canyon floor; with 1 to 6 eggs and no tools the solver finds no way home from the basin's pit).
 

@@ -221,12 +221,16 @@ async fn message_loop<M: Messenger>(
                     debug!("{event:?}");
                     match event {
                         PeerEvent::IdAssigned(peer_uuid) => {
+                            #[cfg(target_arch = "wasm32")]
+                            wasm::coop_trace("co-op trace: the introducer answered");
                             if id_tx.take().expect("already sent peer id").send(peer_uuid.to_owned()).is_err() {
                                 // Socket receiver was dropped, exit cleanly.
                                 break Ok(());
                             };
                         },
                         PeerEvent::NewPeer(peer_uuid) => {
+                            #[cfg(target_arch = "wasm32")]
+                            wasm::coop_trace("co-op trace: a new peer: offering");
                             let (signal_tx, signal_rx) = futures_channel::mpsc::unbounded();
                             handshake_signals.insert(peer_uuid, signal_tx);
                             let signal_peer = SignalPeer::new(peer_uuid, requests_sender.clone());
@@ -239,6 +243,10 @@ async fn message_loop<M: Messenger>(
                             }
                         },
                         PeerEvent::Signal { sender, data } => {
+                            #[cfg(target_arch = "wasm32")]
+                            if !handshake_signals.contains_key(&sender) {
+                                wasm::coop_trace("co-op trace: an offer: answering");
+                            }
                             let signal_tx = handshake_signals.entry(sender).or_insert_with(|| {
                                 let (from_peer_tx, peer_signal_rx) = futures_channel::mpsc::unbounded();
                                 let signal_peer = SignalPeer::new(sender, requests_sender.clone());
