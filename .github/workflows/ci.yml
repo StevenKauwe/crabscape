@@ -1,7 +1,7 @@
 # Checks every push and pull request and builds the web game once: the browser test plays that build, a pull
 # request publishes it as its playable preview, and on main it is deployed to GitHub Pages.
 # A pull request runs only the checks its files can affect (the `changes` job, tools/changes.sh): words alone pass in
-# seconds. A check skipped that way counts as passed for branch protection. Pushes to main run everything.
+# seconds. A check skipped that way counts as passed for branch protection. Main pushes classify their exact before/after range; unavailable ranges run everything.
 # Independent work runs in parallel on its own machine (CLAUDE.md, "CI hygiene"): a code change's required checks
 # take about 7 minutes. Coverage runs on main only (coverage.yml).
 # Actions are pinned to commit SHAs; the comment says which release that is.
@@ -33,7 +33,7 @@ jobs:
   changes:
     name: what changed
     # Flags for the jobs below, from the files the pull request changed (tools/changes.sh says which flag means
-    # what). Anything else (a push to main, a run by hand) turns every flag on. If this job itself fails, the jobs
+    # what). Manual runs and unavailable push ranges turn every flag on. If this job itself fails, the jobs
     # below run anyway (`needs.changes.result != 'success'`): when in doubt, check.
     runs-on: ubuntu-latest
     outputs:
@@ -46,17 +46,17 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # A pull request is checked out as its merge into the base: its first parent is the base.
-          fetch-depth: 2
+          fetch-depth: 0
       - name: Component classifier regression tests
-        run: bash tools/test-changes.sh
+        run: bash tools/test-changes.sh && bash tools/test-ci-changes.sh
       - id: flags
         name: Which checks this change needs
-        run: |
-          if [ "${{ github.event_name }}" = pull_request ]; then
-            git diff --name-only HEAD^1 HEAD | tee /dev/stderr | tools/changes.sh | tee -a "$GITHUB_OUTPUT"
-          else
-            printf 'docs_only=false\ncode=true\nart=true\nintroducer=true\nbridge=true\n' | tee -a "$GITHUB_OUTPUT"
-          fi
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+        run: bash tools/ci-changes.sh | tee -a "$GITHUB_OUTPUT"
+
 
   game-check:
     name: game fmt, clippy (native + wasm32), tests

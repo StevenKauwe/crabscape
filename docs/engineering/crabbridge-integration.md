@@ -24,7 +24,8 @@ its game lockfile or silently install a different binding-generator version.
 - Bridge-only changes run bridge checks, not game/art/replay checks.
 - Game-only changes run existing game checks, not bridge checks.
 - Shared infrastructure and introducer changes cover both relevant products.
-- Unknown or empty change lists select everything; classifier failures fail the protected gate.
+- PRs classify their merge diff; main pushes classify the exact before/after commit range. Manual runs,
+  new refs, missing commits, unknown or empty change lists select everything; classifier failures fail the protected gate.
 - The existing protected `fmt, clippy (native + wasm32), tests` name is retained as an always-running
   gate over game checks and bridge checks. Branch protection is unchanged.
 - Bridge assets are a separate CI artifact. Publishing/preview assembly must explicitly merge that
