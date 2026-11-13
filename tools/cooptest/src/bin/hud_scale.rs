@@ -92,6 +92,7 @@ fn main() -> Result<()> {
         Options {
             fake_mic: false,
             slow: 1.0,
+            ..Options::default()
         },
     )?;
     for dpr in [1.0, 2.0, 3.0] {

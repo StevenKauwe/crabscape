@@ -123,6 +123,7 @@ fn stages(base: &str, out: &Path, label: &str) -> Result<()> {
                         Options {
                             fake_mic: false,
                             slow: 1.0,
+                            ..Options::default()
                         },
                     )?;
                     b.protocol_viewport(1280, 720)?;
@@ -207,6 +208,7 @@ fn main() -> Result<()> {
                     Options {
                         fake_mic: false,
                         slow: 1.0,
+                        ..Options::default()
                     },
                 )?;
                 if phone {

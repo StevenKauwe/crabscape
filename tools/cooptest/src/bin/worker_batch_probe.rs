@@ -18,6 +18,7 @@ fn main() -> Result<()> {
         Options {
             fake_mic: false,
             slow: 4.0,
+            ..Options::default()
         },
     )?;
     browser.go(&url)?;

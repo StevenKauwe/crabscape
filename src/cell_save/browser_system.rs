@@ -4,8 +4,13 @@ use crabsim::{Mover, Sim};
 
 use crate::player::{LocalPlayer, PlayerId};
 
+/// Autosave cadence and storage retries are wall-clock promises (how much
+/// play a closed tab can lose), so they run on real time. The game clock is
+/// capped at 250 ms a frame: on a device drawing one frame a second, "every
+/// 5 s" on that clock meant every 20 s, and a held co-op transfer could pass
+/// with no private save at all.
 pub fn save_periodically(
-    time: Res<Time>,
+    time: Res<Time<Real>>,
     mut sim: ResMut<Sim>,
     crab: Single<(&Mover, &PlayerId), With<LocalPlayer>>,
 ) {
