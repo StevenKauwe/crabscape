@@ -65,6 +65,16 @@ struct Autosave {
     read_warning: Option<String>,
     read_retry: f32,
     read_started_ms: Option<f64>,
+    /// Why the last frame's autosave check stopped before reserving a save
+    /// (shown in the profiled page state), or `None`.
+    hold: Option<&'static str>,
+    /// The last rejected capture's reason, for the profiled page state.
+    rejected: Option<&'static str>,
+}
+
+/// Note why this frame's autosave stopped short of reserving a save.
+pub fn hold(reason: Option<&'static str>) {
+    AUTOSAVE.with(|slot| slot.borrow_mut().hold = reason);
 }
 
 /// Called exactly once after startup validation. A failed read remains
@@ -160,11 +170,23 @@ pub fn maintain_pages(sim: &mut crabsim::Sim, id: crabsim::PlayerId, elapsed: f3
         .and_then(|document| document.get_element_by_id("crabscape"))
     {
         if canvas.has_attribute("data-cell-work-profile") {
+            // Where the local crab is, and whether autosave would accept that
+            // spot: a save held back by the crab's position shows here.
+            let spot = sim.crab(id).map(|crab| {
+                let ok = crate::player::valid_saved_spot(
+                    crab.mover.pos,
+                    crab.mover.grown(&sim.tuning),
+                    sim,
+                );
+                format!("{ok} at={:.1},{:.1}", crab.mover.pos.x, crab.mover.pos.y)
+            });
             let status = AUTOSAVE.with(|slot| {
                 let state = slot.borrow();
-                format!("revision={} saving={} reading={} retry={:.2} elapsed={:.2} warning={} terrain={} memory={} flush={}",
+                format!("revision={} saving={} reading={} retry={:.2} elapsed={:.2} warning={} terrain={} memory={} flush={} hold={} rejected={} spot={}",
                     state.revision, state.busy, state.read_busy, state.read_retry, state.elapsed,
-                    state.read_warning.is_some(), requests.terrain.len(), requests.memory.len(), requests.flush)
+                    state.read_warning.is_some(), requests.terrain.len(), requests.memory.len(), requests.flush,
+                    state.hold.unwrap_or("none"), state.rejected.unwrap_or("none"),
+                    spot.as_deref().unwrap_or("none"))
             });
             let _ = canvas.set_attribute("data-cell-page-state", &status);
         }
@@ -307,6 +329,11 @@ pub fn capture_failed(generation: u64, reason: super::Error) {
         if state.generation == generation && state.busy {
             state.busy = false;
             state.read_after_capture_failure = matches!(reason, super::Error::Damaged);
+            state.rejected = Some(match reason {
+                super::Error::TooLarge => "too-large",
+                super::Error::Damaged => "damaged",
+                super::Error::Unsupported => "unsupported",
+            });
             let detail = match reason {
                 super::Error::TooLarge => "The world snapshot exceeds the current save limit.",
                 super::Error::Damaged => "Autosave could not capture a consistent world.",
