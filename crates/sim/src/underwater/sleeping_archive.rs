@@ -228,6 +228,19 @@ impl super::World {
         let window = (self.width.div_ceil(side) + 1) * ((self.height + 1).div_ceil(side) + 1);
         self.sleeping.cache.begin_transition(2 * window + 16);
     }
+    /// Moving an owner's archive window to its crab before a save is the
+    /// same discontinuous jump as a Home return: the old and the new window's
+    /// pages are needed at once. Open that one bounded budget for it (once:
+    /// reopening would drop the reads it already asked for), and close it
+    /// when the window has moved.
+    pub(crate) fn begin_save_window_move(&mut self) {
+        if !self.sleeping.cache.in_transition() {
+            self.prepare_home_return();
+        }
+    }
+    pub(crate) fn finish_save_window_move(&mut self) {
+        self.finish_home_return();
+    }
     fn finish_home_return(&mut self) {
         if self.sleeping.cache.finish_transition() {
             self.sleeping.cache.begin_interest();

@@ -119,7 +119,12 @@ impl TerrainStore {
         x: f32,
         y: f32,
     ) -> Result<(), StoreError> {
+        // Without the move's own budget, committing a leased region evicts
+        // the clean pages the move had just read, and the move then reads
+        // them again: an owner save that never happens (cells-solo-save).
+        self.terrain.begin_save_window_move();
         self.terrain.restore_default_window(level, x, y)?;
+        self.terrain.finish_save_window_move();
         Ok(())
     }
     pub fn revision(&self, id: RegionId, epoch: RegionEpoch) -> Option<u64> {

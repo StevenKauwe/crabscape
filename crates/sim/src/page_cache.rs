@@ -64,6 +64,10 @@ impl PageCache {
             .expect("urgent page request lock")
             .clear();
     }
+    /// Whether a discontinuous move's working-set budget is open.
+    pub fn in_transition(&self) -> bool {
+        self.transition_pages != 0
+    }
     /// Existing excess dirty pages stay resident until a valid save acknowledges
     /// them, but ordinary movement cannot keep filling the emergency budget.
     pub fn finish_transition(&mut self) -> bool {
