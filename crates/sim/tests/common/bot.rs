@@ -120,7 +120,9 @@ pub struct Config {
     /// Stop once `focus` reaches this level.
     pub stop_level: Option<u32>,
     /// Follow the first-hour guide step by step (`play_guide`), stopping at
-    /// the end of the chain or at `secs`.
+    /// the end of the chain or at `secs`. Off, the guide still counts what
+    /// the bot does, and when it asks for a pinned want the bot pins one at
+    /// home, as a player would; the next goals follow.
     pub guide: bool,
 }
 
@@ -204,6 +206,15 @@ pub struct Bot {
     /// The minute (in seconds) each guide step finished, by step index.
     pub step_done: Vec<(usize, f64)>,
     guide_seen: usize,
+    /// Every next goal: (serial, what, opened, closed, swapped), in seconds.
+    pub goal_log: Vec<(u32, String, f64, Option<f64>, bool)>,
+}
+
+fn goal_label(aim: &economy::goals::Aim) -> String {
+    match aim {
+        economy::goals::Aim::Level { skill, level } => format!("{} {level}", skill.name()),
+        economy::goals::Aim::Make { word } => format!("make {word}"),
+    }
 }
 
 fn walk(dir: f32) -> Controls {
@@ -252,6 +263,7 @@ impl Bot {
             home_x: 95.0,
             step_done: Vec::new(),
             guide_seen: 0,
+            goal_log: Vec::new(),
         };
         bot.go_home();
         bot.level_ups.clear();
@@ -285,6 +297,22 @@ impl Bot {
         let crab = self.sim.crab(P0).expect("crab");
         if let Some((item, _)) = crab.events.gathered {
             *self.gathers.entry(item).or_default() += 1;
+        }
+        if self.sim.tick_count().is_multiple_of(60) {
+            let goals = &crab.econ.goals.open;
+            let rested = &crab.econ.goals.rested;
+            for (serial, what, _, closed, swapped) in &mut self.goal_log {
+                if closed.is_none() && !goals.iter().any(|g| g.serial == *serial) {
+                    *closed = Some(now);
+                    *swapped = rested.iter().any(|a| goal_label(a) == *what);
+                }
+            }
+            for g in goals {
+                if !self.goal_log.iter().any(|l| l.0 == g.serial) {
+                    self.goal_log
+                        .push((g.serial, goal_label(&g.aim), now, None, false));
+                }
+            }
         }
         let guide_at = usize::from(crab.econ.guide.step);
         while self.guide_seen < guide_at {
@@ -970,6 +998,7 @@ impl Bot {
     /// Bank the haul (done in `go_home`), then make everything it can, lowest
     /// skill first.
     fn home_work(&mut self) {
+        self.pin_when_asked();
         let mut guard = 0;
         while !self.done() && guard < 400 {
             guard += 1;
@@ -1048,6 +1077,26 @@ impl Bot {
         // Portions on the shell take room from the haul: eat before leaving.
         if self.held_portions() > 0 && !self.done() && self.cfg.focus.is_none() {
             self.eat_all();
+        }
+    }
+
+    /// The guide's last step asks for a pinned want: pin the board's first.
+    fn pin_when_asked(&mut self) {
+        let crab = self.sim.crab(P0).expect("crab");
+        let asked = !crab.econ.guide.skipped
+            && crab.econ.pinned.is_none()
+            && crab
+                .econ
+                .guide
+                .current()
+                .is_some_and(|s| s.cond == economy::guide::Cond::Pinned);
+        if !asked {
+            return;
+        }
+        let first = self.sim.wants(P0).into_iter().find(|w| !w.soon);
+        if let Some(w) = first {
+            self.pause_for_ui(UI_CRAFT_SECS);
+            self.sim.pin_want(P0, w.word);
         }
     }
 
@@ -1465,6 +1514,19 @@ impl Bot {
     }
 
     /// Level-ups in each 5-minute window.
+    /// Every goal's open time in seconds (one still open counts to now),
+    /// longest first: (seconds, what, opened at).
+    pub fn goal_waits(&self) -> Vec<(f64, String, f64)> {
+        let now = self.now();
+        let mut out: Vec<(f64, String, f64)> = self
+            .goal_log
+            .iter()
+            .map(|(_, what, open, closed, _)| (closed.unwrap_or(now) - open, what.clone(), *open))
+            .collect();
+        out.sort_by(|a, b| b.0.total_cmp(&a.0));
+        out
+    }
+
     pub fn levelups_per_window(&self) -> Vec<u32> {
         let n = (self.cfg.secs / 300.0).ceil() as usize;
         let mut out = vec![0; n.max(1)];

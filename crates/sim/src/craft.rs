@@ -675,6 +675,7 @@ impl Sim {
         crab.econ
             .guide
             .note(crate::economy::guide::Note::Made(r.word));
+        crab.econ.goals.note_made(r.word);
         if crab.econ.pinned.as_ref().is_some_and(|p| p.word == r.word) {
             crab.econ.pinned = None;
         }

@@ -19,6 +19,7 @@ pub mod beds;
 pub mod food;
 pub mod gather;
 pub mod gear;
+pub mod goals;
 pub mod guide;
 pub mod home;
 pub mod items;
@@ -169,6 +170,9 @@ pub struct Economy {
     /// Where the crab is in the first-hour guide (see [`guide`]).
     #[serde(default)]
     pub guide: guide::Guide,
+    /// The next goals once the guide is done (see [`goals`]).
+    #[serde(default)]
+    pub goals: goals::Goals,
 }
 
 impl Default for Economy {
@@ -185,6 +189,7 @@ impl Default for Economy {
             crafts_done: 0,
             pinned: None,
             guide: guide::Guide::default(),
+            goals: goals::Goals::default(),
         }
     }
 }

@@ -8,7 +8,8 @@
 //! after any change to nodes, XP, recipes, fights, climbing or swimming:
 //! `cargo test --release -p crabsim --test first_hours -- --ignored --nocapture measure_first_hours`
 //! and paste the printed tables over `MIXED`, `LEVELUPS_PER_5MIN`,
-//! `DISTINCT_PER_5MIN`, `LONG_STRETCHES` and `PRYING_FOCUS`.
+//! `DISTINCT_PER_5MIN`, `LONG_STRETCHES`, `PRYING_FOCUS`, `GOALS_DONE` and
+//! `GOAL_LONGEST_OPEN`.
 //!
 //! `first_hours_targets` asserts the owner's targets against the cached
 //! numbers (met since the 1-15 ladder, XP and early recipes).
@@ -31,32 +32,32 @@ const FOCUS_SECS: f64 = 90.0 * 60.0;
 /// Cooking, Shellcraft, Weaving, Building, Survival) in the mixed three hours;
 /// -1 is "not by 3 h".
 const MIXED: [[f64; 3]; 13] = [
-    [11.3, 12.3, 113.1],
-    [2.9, 84.6, 125.3],
-    [14.1, 82.8, 170.6],
-    [37.6, 83.5, 157.6],
-    [37.1, 88.0, 148.4],
-    [38.1, 77.0, 159.3],
-    [30.6, 87.4, 161.3],
-    [30.4, 42.5, 61.4],
-    [14.4, 27.0, 62.0],
-    [36.8, 77.2, 156.7],
-    [31.0, 70.5, 158.8],
-    [36.9, 72.8, 141.4],
-    [32.6, 81.4, 153.1],
+    [11.3, 12.3, 108.1],
+    [2.9, 83.6, 142.1],
+    [14.1, 87.5, 166.8],
+    [37.7, 88.9, 164.0],
+    [37.2, 86.0, 157.2],
+    [38.2, 90.1, 168.1],
+    [30.6, 90.8, 169.1],
+    [30.4, 44.6, 61.7],
+    [14.4, 27.0, 59.8],
+    [36.9, 76.5, 165.7],
+    [31.0, 75.5, 165.8],
+    [37.0, 76.7, 141.1],
+    [32.6, 80.8, 161.4],
 ];
 
 /// Level-ups across all thirteen skills in each 5-minute window of the mixed run.
 const LEVELUPS_PER_5MIN: [u32; 36] = [
-    12, 7, 16, 8, 7, 8, 5, 11, 7, 7, 8, 4, 5, 5, 10, 6, 5, 5, 7, 4, 2, 4, 7, 5, 3, 4, 6, 3, 3, 6,
-    1, 4, 2, 0, 2, 0,
+    12, 7, 16, 8, 7, 8, 5, 10, 9, 7, 5, 7, 4, 6, 8, 5, 6, 6, 7, 2, 5, 7, 4, 6, 3, 4, 2, 4, 6, 1, 2,
+    1, 3, 6, 0, 0,
 ];
 
 /// Distinct kinds of work (node kinds, recipes, fights, climbs...) in each
 /// 5-minute window of the mixed run.
 const DISTINCT_PER_5MIN: [u32; 36] = [
-    14, 7, 9, 15, 15, 13, 6, 15, 13, 14, 15, 7, 14, 16, 18, 13, 8, 16, 14, 11, 20, 10, 8, 13, 10,
-    20, 15, 9, 15, 11, 6, 17, 9, 4, 8, 9,
+    14, 7, 9, 15, 15, 13, 6, 12, 14, 13, 15, 10, 18, 17, 16, 14, 11, 12, 16, 5, 17, 12, 10, 13, 15,
+    16, 7, 15, 11, 8, 13, 10, 8, 16, 8, 13,
 ];
 
 /// Every stretch of over 3 minutes on one node kind or recipe while something
@@ -65,6 +66,12 @@ const LONG_STRETCHES: &[(f64, &str, f64)] = &[];
 
 /// The focused Prying run: minutes to level 5, 10 and 15 (-1: not reached).
 const PRYING_FOCUS: [f64; 3] = [4.9, 9.9, 15.6];
+
+/// Next goals met in the mixed three hours.
+const GOALS_DONE: u32 = 32;
+
+/// The longest any next goal stayed open in the mixed run (minutes).
+const GOAL_LONGEST_OPEN: f64 = 10.1;
 
 // ---- The measurement ----
 
@@ -197,6 +204,25 @@ fn measure_first_hours() {
         shown(focus_row[2]),
         f.now() / 60.0
     );
+    let waits = b.goal_waits();
+    let done = b.goal_log.iter().filter(|g| g.3.is_some() && !g.4).count();
+    let swapped = b.goal_log.iter().filter(|g| g.4).count();
+    let longest = waits.first().map_or(0.0, |w| w.0 / 60.0);
+    println!();
+    println!(
+        "== Next goals (mixed) ==\n{} offered, {done} done, {swapped} swapped for nearer ones; longest open {longest:.1} min",
+        b.goal_log.len()
+    );
+    if let Some(first) = b.goal_log.first() {
+        println!("  the first opened at minute {:.1}", first.2 / 60.0);
+    }
+    for (secs, what, at) in waits.iter().take(5) {
+        println!(
+            "  {what}: open {:.1} min from minute {:.1}",
+            secs / 60.0,
+            at / 60.0
+        );
+    }
     println!();
     println!("Gathers by item (mixed): {:?}", b.gathers);
     println!("Deaths: {} (mixed), {} (focused)", b.deaths, f.deaths);
@@ -223,6 +249,8 @@ fn measure_first_hours() {
         "const PRYING_FOCUS: [f64; 3] = [{:.1}, {:.1}, {:.1}];",
         focus_row[0], focus_row[1], focus_row[2]
     );
+    println!("const GOALS_DONE: u32 = {done};");
+    println!("const GOAL_LONGEST_OPEN: f64 = {longest:.1};");
 }
 
 // ---- Fast tests ----
@@ -313,6 +341,21 @@ fn first_hours_targets() {
             silent.len(),
             silent[0].0.name(),
             silent[0].1
+        ));
+    }
+
+    // 6. Next goals keep coming: none stays open longer than about 10
+    //    minutes of mixed play (10.5), and plenty are met.
+    if GOAL_LONGEST_OPEN > 10.5 {
+        failures.push(format!(
+            "a next goal stayed open {GOAL_LONGEST_OPEN:.1} min; the target is about 10"
+        ));
+    }
+    // (The bot ignores the board, and its guide ends at about minute 36, so
+    // this is a floor; a player who follows the board meets more.)
+    if GOALS_DONE < 25 {
+        failures.push(format!(
+            "{GOALS_DONE} next goals met in 3 h; the target is at least 25"
         ));
     }
 

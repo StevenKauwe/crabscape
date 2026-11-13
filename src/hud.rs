@@ -325,9 +325,18 @@ fn queue_cards(
     };
     let ev = &events.0;
     let t = &sim.tuning;
+    // A level goal met rides on its level's card (one card, not two).
+    let mut goal_done = ev.goal_done;
     if let Some(up) = ev.level_up {
         let mut more =
             crate::skill_juice::level_up_lines(&sim, *id, up.skill, up.level).split_off(1);
+        if let Some(done) = goal_done.filter(|d| d.skill == up.skill && d.level.is_some()) {
+            more.insert(
+                0,
+                format!("Goal done: +{} {} XP", done.xp, done.skill.name()),
+            );
+            goal_done = None;
+        }
         if let Some(crab) = sim.crab(*id)
             && crab.mover.feat_ready(up.skill, t)
             && crabsim::Feat::of(up.skill).is_some_and(|f| !crab.mover.has(f))
@@ -351,6 +360,18 @@ fn queue_cards(
         .and_then(|i| crabsim::economy::guide::GUIDE.get(usize::from(i)))
     {
         cards.push(guide_card(step));
+    }
+    if let Some(done) = goal_done {
+        let mut lines = vec![format!("+{} {} XP", done.xp, done.skill.name())];
+        if let Some(next) = sim.goal_line(*id) {
+            lines.push(format!("Next: {}", next.title));
+        }
+        cards.push(Card {
+            caption: "GOAL DONE",
+            title: done.title(),
+            lines,
+            gold: false,
+        });
     }
     if ev.goal_ready {
         cards.push(Card {

@@ -384,6 +384,18 @@ impl Sim {
         Some(PinnedStatus { want, have_all })
     }
 
+    /// The want for any recipe or home piece by its word, as the goals
+    /// board reads it. `None` for an unknown word or a piece already built.
+    pub(crate) fn want_status(&self, id: PlayerId, word: &str) -> Option<Want> {
+        let crab = self.crab(id).filter(|c| !c.remote)?;
+        let goal = Self::goal_of(word)?;
+        if goal.piece.is_some_and(|p| self.home_pieces().contains(&p)) {
+            return None;
+        }
+        let have = crab.level(goal.skill, &self.tuning);
+        Some(self.want_for(crab, goal, have < goal.level))
+    }
+
     /// A running recording notes a pin by the recorded crab.
     fn record_pin(&mut self, id: PlayerId, to: Option<&'static str>) {
         let recorded = self.crabs().iter().find(|c| !c.remote).map(|c| c.id) == Some(id);
