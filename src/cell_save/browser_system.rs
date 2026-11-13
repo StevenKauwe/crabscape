@@ -4,13 +4,8 @@ use crabsim::{Mover, Sim};
 
 use crate::player::{LocalPlayer, PlayerId};
 
-/// Autosave cadence and storage retries are wall-clock promises (how much
-/// play a closed tab can lose), so they run on real time. The game clock is
-/// capped at 250 ms a frame: on a device drawing one frame a second, "every
-/// 5 s" on that clock meant every 20 s, and a held co-op transfer could pass
-/// with no private save at all.
 pub fn save_periodically(
-    time: Res<Time<Real>>,
+    time: Res<Time>,
     mut sim: ResMut<Sim>,
     crab: Single<(&Mover, &PlayerId), With<LocalPlayer>>,
 ) {
@@ -48,13 +43,16 @@ pub fn save_periodically(
     // replace a good save with a position startup would refuse; try again
     // when the body is in a valid spot.
     if !crate::player::valid_saved_spot(mover.pos, mover.grown(&sim.tuning), &sim) {
+        super::browser::hold(Some("shown-spot"));
         return;
     }
     if let Some(live) = sim.crab(*id)
         && !crate::player::valid_saved_spot(live.mover.pos, live.mover.grown(&sim.tuning), &sim)
     {
+        super::browser::hold(Some("live-spot"));
         return;
     }
+    super::browser::hold(None);
     let Some(generation) = super::browser::reserve_save(time.delta_secs()) else {
         return;
     };

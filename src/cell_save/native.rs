@@ -371,10 +371,8 @@ fn wipe_path(path: &Path) -> Result<(), String> {
     result
 }
 
-/// Real time, like the browser's: the save cadence is a wall-clock promise,
-/// not a game-clock one (which a slow frame caps at 250 ms).
 fn save_periodically(
-    time: Res<Time<Real>>,
+    time: Res<Time>,
     mut sim: ResMut<Sim>,
     crab: Single<(&crabsim::Mover, &PlayerId), With<LocalPlayer>>,
     mut storage: ResMut<Storage>,
