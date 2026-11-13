@@ -1276,13 +1276,13 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             // The game autosaves every 5 s of its own clock, which Bevy caps
             // at 250 ms a frame: on a CI page drawing a frame a second that is
             // about 20 s of wall time. So the budget is three autosave
-            // intervals on the game's clock, read from the autosave state the
-            // game publishes, not 30 wall seconds (which a save that landed
-            // just before the hold could miss). A game whose autosave clock
+            // intervals on the game's clock (and never less than the original
+            // 30 s), read from the autosave state the game publishes. A game whose autosave clock
             // stops advancing still fails after `AUTOSAVE_STALL`.
             guest.b.eval(
                 "document.getElementById('crabscape').setAttribute('data-cell-work-profile','1')",
             )?;
+            let started = Instant::now();
             let mut clock = AutosaveClock::default();
             loop {
                 let head = guest.b.eval(&format!(
@@ -1293,7 +1293,9 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                     break;
                 }
                 let state = guest.b.attr("data-cell-page-state");
-                if clock.observe(state.as_deref(), Instant::now()) {
+                if clock.observe(state.as_deref(), Instant::now())
+                    && started.elapsed().as_secs() > 30
+                {
                     return Err(guest.failed(format!(
                         "guest did not save while the transfer was held: {:.1} s of the game's autosave clock; autosave {state:?}",
                         clock.game_seconds
@@ -1579,14 +1581,27 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 .ok_or("missing deep baseline")?
                 .sim_tick;
             let started = Instant::now();
+            // As for the visiting guest: the owner saves on the game's capped
+            // clock, so the wait is three autosave intervals of it (and never
+            // less than the original 45 s), not 45 s of a slow page's wall time.
+            host.b.eval(
+                "document.getElementById('crabscape').setAttribute('data-cell-work-profile','1')",
+            )?;
+            let mut clock = AutosaveClock::default();
             let connected_save = loop {
                 if let Some(saved) = saved_cells(&mut host)?
                     && saved.sim_tick > previous
                 {
                     break saved;
                 }
-                if started.elapsed().as_secs() > 45 {
-                    return Err(host.failed("deep co-op owner save did not advance".into()));
+                let state = host.b.attr("data-cell-page-state");
+                if clock.observe(state.as_deref(), Instant::now())
+                    && started.elapsed().as_secs() > 45
+                {
+                    return Err(host.failed(format!(
+                        "deep co-op owner save did not advance: {:.1} s of the game's autosave clock; autosave {state:?}",
+                        clock.game_seconds
+                    )));
                 }
                 host.healthy()?;
                 sleep(1.0);
