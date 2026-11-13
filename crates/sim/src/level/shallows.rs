@@ -21,9 +21,10 @@
 //!
 //! Sizes are the crab's: 65 units tall at its biggest, 97 wide.
 
-use super::Level;
 use super::landmarks::{Kind, Landmark};
 use super::layers::{Edges, Shape};
+use super::{Climb, Growth, Level};
+use crate::enemy::Kind as Foe;
 use crate::underwater::Cell;
 use bevy_math::{Rect, Vec2};
 
@@ -60,6 +61,64 @@ pub const LOOKOUT: Rect = Rect::new(368.0, 684.0, 458.0, 704.0);
 pub const LOOKOUT_TOP: f32 = 704.0;
 /// The kelp stand beside home that climbs to it (`royal::ROPE_X`).
 pub const LOOKOUT_KELP_X: f32 = 280.0;
+
+/// More weak creatures near home, for Fighting (`first-hour.md`): snapping
+/// shrimp, which strike only within 72 of their burrow. They stand on the sea
+/// floor whatever `y` says (`Sim::spawn_enemy`), so `y` here is the floor's.
+/// Snapping shrimp live in colonies, so each joins an old one. Almost no
+/// floor is left for more: every node and site keeps a shrimp 92 off, the
+/// creature tests fight on the shelf (x 900 to 1,290), the plug shaft keeps
+/// a hunter's whole reach (294) off, and the co-op walks, the rest points and
+/// the moray rule out the rest of x 0 to 2,700.
+pub const FIGHTS: &[(&str, Foe, Vec2)] = &[
+    // Beside the shrimp at x 590, on the slope at the home burrow's second
+    // mouth (its reach ends at x 916, short of the plug shaft).
+    ("row shrimp", Foe::Snapper, Vec2::new(622.0, 34.7)),
+    // Beside the shrimp at x 2,060, on its far side (the moray hunts the nearer one first).
+    ("block shrimp", Foe::Snapper, Vec2::new(2074.0, 110.0)),
+];
+
+/// A short kelp climb to a small rock ledge: (name, the stalk, the ledge). The
+/// stalk is gripped from the ledge's side and stands 40 over the ledge's top;
+/// its foot is on the floor.
+pub const KELP_LEDGES: &[(&str, Climb, Rect)] = &[
+    // On the block past the trench, 280 up from its top; the ledge lies west
+    // of its stalk, over the far ledge's start and the trench's east rim.
+    (
+        "block kelp ledge",
+        Climb {
+            x: 1980.0,
+            bottom: 200.0,
+            top: 500.0,
+            kind: Growth::Kelp,
+        },
+        Rect::new(1802.0, 440.0, 1892.0, 460.0),
+    ),
+    // Past the far ledge's foot, 180 up (low: a high one would shorten the
+    // cliff's climb); the ledge lies east of its stalk, over the flats the
+    // moray guards (out of its reach).
+    (
+        "flats kelp ledge",
+        Climb {
+            x: 2392.0,
+            bottom: 20.0,
+            top: 240.0,
+            kind: Growth::Kelp,
+        },
+        Rect::new(2480.0, 180.0, 2570.0, 200.0),
+    ),
+];
+
+/// The paddle gap: the lookout's east end to the far lookout, both 704 up.
+/// A jump off the lookout's edge falls short; a stroke carries across. A crab
+/// that falls lands on the floor, 600 and more below, and climbs the kelp again.
+pub const GAP: f32 = 300.0;
+pub const FAR_LOOKOUT: Rect = Rect::new(
+    LOOKOUT.max.x + GAP,
+    LOOKOUT.min.y,
+    LOOKOUT.max.x + GAP + 90.0,
+    LOOKOUT.max.y,
+);
 
 /// The hollow's bay: a cavity in the west wall of the silt mouth shaft, its
 /// door on the shaft. The inside, floor to roof.
@@ -121,14 +180,17 @@ pub const SITES: &[(&str, &str, Vec2)] = &[
     // On the lookout ledge, up the kelp stand beside home.
     ("the lookout", "KelpStand", Vec2::new(390.0, 704.0)),
     ("the lookout", "MusselClump", Vec2::new(430.0, 704.0)),
+    // On the far lookout, across the paddle gap.
+    ("far lookout", "ShoreGlow", Vec2::new(785.0, 704.0)),
+    ("far lookout", "SnailRocks", Vec2::new(820.0, 704.0)),
     // The shrimp row's pocket, between the two shrimp (x 340 and 590).
     ("shrimp row", "MusselClump", Vec2::new(440.0, 0.0)),
     ("shrimp row", "GritHeap", Vec2::new(458.0, 0.0)),
     ("shrimp row", "SnailRocks", Vec2::new(476.0, 0.0)),
     ("shrimp row", "ShoreGlow", Vec2::new(494.0, 0.0)),
     // On top of the boulder half-buried in the slope: a jump up.
-    ("the boulder", "MusselClump", Vec2::new(662.0, 100.0)),
-    ("the boulder", "SnailRocks", Vec2::new(700.0, 100.0)),
+    ("the boulder", "MusselClump", Vec2::new(695.0, 100.0)),
+    ("the boulder", "SnailRocks", Vec2::new(710.0, 100.0)),
     // The shelf's west end, on the slope's top.
     ("the shelf", "KelpStand", Vec2::new(776.0, 94.0)),
     ("the shelf", "MusselClump", Vec2::new(806.0, 105.0)),
@@ -169,6 +231,8 @@ pub const FINDS: &[Vec2] = &[
     Vec2::new(880.0, 150.0),
     // Drifting over the lookout ledge.
     Vec2::new(410.0, 754.0),
+    // Drifting over the far lookout.
+    Vec2::new(800.0, 754.0),
     // Buried at the trench rim.
     Vec2::new(1275.0, 86.0),
     // Drifting in the hollow.
@@ -201,6 +265,14 @@ pub(super) fn shape(level: &mut Level) {
         }
     }
     level.rocks.push(LOOKOUT);
+    level.rocks.push(FAR_LOOKOUT);
+    for (_, climb, ledge) in KELP_LEDGES {
+        level.climbs.push(*climb);
+        level.rocks.push(*ledge);
+    }
+    level
+        .foes
+        .extend(FIGHTS.iter().map(|&(_, kind, at)| (kind, at)));
     // The hollow: the lined bay, with the shaft wall cut for its door.
     if let Some(i) = level.rocks.iter().position(|r| *r == SHAFT_WALL) {
         level.rocks.remove(i);
@@ -288,6 +360,30 @@ pub(super) fn landmarks(level: &Level) -> Vec<Landmark> {
         ),
     );
     add("trench hollow", HOLLOW);
+    add(
+        "far lookout",
+        Rect::new(
+            FAR_LOOKOUT.min.x,
+            LOOKOUT_TOP,
+            FAR_LOOKOUT.max.x,
+            LOOKOUT_TOP + 60.0,
+        ),
+    );
+    add(
+        "paddle gap",
+        Rect::new(
+            LOOKOUT.max.x,
+            LOOKOUT_TOP - 200.0,
+            FAR_LOOKOUT.min.x,
+            LOOKOUT_TOP + 60.0,
+        ),
+    );
+    for (name, _, ledge) in KELP_LEDGES {
+        add(
+            name,
+            Rect::new(ledge.min.x, ledge.max.y, ledge.max.x, ledge.max.y + 60.0),
+        );
+    }
     out
 }
 
