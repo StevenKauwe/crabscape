@@ -169,7 +169,8 @@ fn hollow_rocks() -> [Rect; 5] {
 ///
 /// Groups, west to east: the home pocket, the shrimp row's pocket, the boulder,
 /// the lookout up the kelp beside home, the shelf's west and east ends, the trench rim, the far ledge's
-/// start, its slope, its foot and the crest of the cliff above the basin
+/// start, its slope and its foot (the crest of the cliff above the basin holds none: the loggerhead at
+/// (2,429, 919) reaches it)
 /// (reached only with the strokes the far ledge's eggs give).
 pub const SITES: &[(&str, &str, Vec2)] = &[
     // Home's pocket, between the home burrow's first shaft and the first
@@ -212,9 +213,6 @@ pub const SITES: &[(&str, &str, Vec2)] = &[
     // Further down the far ledge's slope.
     ("far ledge foot", "GritHeap", Vec2::new(2335.0, 33.0)),
     ("far ledge foot", "ShoreGlow", Vec2::new(2355.0, 30.0)),
-    // The crest of the cliff over the basin.
-    ("the crest", "KelpStand", Vec2::new(2745.0, 860.0)),
-    ("the crest", "SnailRocks", Vec2::new(2775.0, 860.0)),
     // Tier 2: the trench hollow, a level-1 crab's first dive.
     ("trench hollow", "ClamBed", Vec2::new(1415.0, -480.0)),
     ("trench hollow", "ClayBank", Vec2::new(1455.0, -480.0)),
