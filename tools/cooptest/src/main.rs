@@ -412,6 +412,49 @@ impl Player {
 /// HUD-density and terrain checks keep their own sizes.
 const PLAYER_DENSITY: f64 = 0.5;
 
+/// The game's autosave clock, as `data-cell-page-state` reports it (`elapsed=`, seconds since the last reserved
+/// save on the game's capped clock, reset to 0 when the next save is reserved).
+#[derive(Default)]
+struct AutosaveClock {
+    /// Game seconds observed since the wait began.
+    game_seconds: f64,
+    last: Option<f64>,
+    progressed: Option<Instant>,
+}
+
+/// Three autosave intervals (5 s each) on the game's clock.
+const AUTOSAVE_BUDGET: f64 = 15.0;
+/// A game whose autosave clock does not advance at all for this long has stopped.
+const AUTOSAVE_STALL: Duration = Duration::from_secs(60);
+
+impl AutosaveClock {
+    /// Add the game time between two published states; true once the budget is spent or the clock stalled.
+    fn observe(&mut self, state: Option<&str>, now: Instant) -> bool {
+        let elapsed = state.and_then(|s| {
+            s.split_whitespace()
+                .find_map(|part| part.strip_prefix("elapsed=")?.parse::<f64>().ok())
+        });
+        let progressed = *self.progressed.get_or_insert(now);
+        if let Some(elapsed) = elapsed {
+            if let Some(last) = self.last {
+                let step = if elapsed >= last {
+                    elapsed - last
+                } else {
+                    // A save was reserved at 5 s and the clock restarted.
+                    (5.0 - last).max(0.0) + elapsed
+                };
+                if step > 0.0 {
+                    self.game_seconds += step;
+                    self.progressed = Some(now);
+                }
+            }
+            self.last = Some(elapsed);
+        }
+        self.game_seconds > AUTOSAVE_BUDGET
+            || now.duration_since(self.progressed.unwrap_or(progressed)) > AUTOSAVE_STALL
+    }
+}
+
 /// How long a stalled game freezes: past the 5 s after which a friend that sent nothing counts as gone, so the
 /// stall really cuts them apart.
 const STALL: f64 = 6.0;
@@ -1230,12 +1273,17 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 "({}).then(r=>r&&r.head)",
                 save_fixture::CAPTURE_SCRIPT
             ))?;
-            let started = Instant::now();
-            // Publish the autosave state (data-cell-page-state) so a miss says
-            // whether a save was due, running or never reserved.
+            // The game autosaves every 5 s of its own clock, which Bevy caps
+            // at 250 ms a frame: on a CI page drawing a frame a second that is
+            // about 20 s of wall time. So the budget is three autosave
+            // intervals on the game's clock, read from the autosave state the
+            // game publishes, not 30 wall seconds (which a save that landed
+            // just before the hold could miss). A game whose autosave clock
+            // stops advancing still fails after `AUTOSAVE_STALL`.
             guest.b.eval(
                 "document.getElementById('crabscape').setAttribute('data-cell-work-profile','1')",
             )?;
+            let mut clock = AutosaveClock::default();
             loop {
                 let head = guest.b.eval(&format!(
                     "({}).then(r=>r&&r.head)",
@@ -1244,10 +1292,11 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 if !head.is_null() && head != previous_head {
                     break;
                 }
-                if started.elapsed().as_secs() > 30 {
-                    let state = guest.b.attr("data-cell-page-state");
+                let state = guest.b.attr("data-cell-page-state");
+                if clock.observe(state.as_deref(), Instant::now()) {
                     return Err(guest.failed(format!(
-                        "guest did not save while the transfer was held; autosave {state:?}"
+                        "guest did not save while the transfer was held: {:.1} s of the game's autosave clock; autosave {state:?}",
+                        clock.game_seconds
                     )));
                 }
                 sleep(0.5);
@@ -3391,6 +3440,38 @@ fn now_ms() -> u64 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn autosave_wait_counts_the_games_clock_across_a_reset_and_catches_a_stall() {
+        let t0 = Instant::now();
+        let at = |s: u64| t0 + Duration::from_secs(s);
+        let mut clock = AutosaveClock::default();
+        // One CI frame a second advances the capped clock 0.25 s.
+        assert!(!clock.observe(Some("revision=3 saving=false elapsed=4.50"), at(0)));
+        assert!(!clock.observe(Some("revision=3 saving=true elapsed=0.25"), at(4)));
+        assert!((clock.game_seconds - 0.75).abs() < 1e-9);
+        // 40 wall seconds is only 10 game seconds: still within budget.
+        let mut e = 0.25;
+        for s in 5..45 {
+            e += 0.25;
+            if e >= 5.0 {
+                e -= 5.0;
+            }
+            assert!(
+                !clock.observe(Some(&format!("elapsed={e:.2}")), at(s)),
+                "{s}"
+            );
+        }
+        // A frozen clock fails after the stall bound, without spending game time.
+        let mut frozen = AutosaveClock::default();
+        assert!(!frozen.observe(Some("elapsed=1.00"), at(0)));
+        assert!(!frozen.observe(Some("elapsed=1.00"), at(60)));
+        assert!(frozen.observe(Some("elapsed=1.00"), at(61)));
+        // So does a page that never publishes its autosave state.
+        let mut silent = AutosaveClock::default();
+        assert!(!silent.observe(None, at(0)));
+        assert!(silent.observe(None, at(61)));
+    }
+
     use super::*;
 
     fn seconds(names: &[&str]) -> u32 {
