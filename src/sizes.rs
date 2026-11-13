@@ -355,8 +355,11 @@ fn rows() -> Vec<Row> {
             measure: "carapace width",
             real: (2.0, 9.0),
             source: "juveniles to adults of about 9 cm across (not verified)",
-            // A placeholder drawn to its sim body (`src/creatures/shore_crab.rs`).
-            drawn: body(Kind::ShoreCrab).0,
+            drawn: w(
+                art!("shore-crab"),
+                crate::creatures::shore_crab::ART_SCALE,
+                &["carapace"],
+            ),
             hit: Some(body(Kind::ShoreCrab).0),
         },
         Row {
@@ -793,6 +796,12 @@ fn lineup() {
                 "hermit crab",
                 oil!("hermit-crab"),
                 crate::creatures::hermit::ART_SCALE,
+                &[],
+            ),
+            puppet(
+                "shore crab",
+                oil!("shore-crab"),
+                crate::creatures::shore_crab::ART_SCALE,
                 &[],
             ),
             puppet(

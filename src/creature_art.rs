@@ -712,6 +712,7 @@ mod tests {
             "goliath-grouper",
             "american-lobster",
             "hermit-crab",
+            "shore-crab",
             "bobbit-worm",
             "giant-isopod",
             "hagfish",

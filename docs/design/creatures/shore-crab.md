@@ -1,6 +1,6 @@
 # Common shore crab, a juvenile (*Carcinus maenas*)
 
-Rig: none yet (a placeholder of plain sprites, `src/creatures/shore_crab.rs`). Shared rules: `README.md`.
+Rig: `crates/crabrig/src/bestiary/shore_crab.rs` (painted; puppet `src/creatures/shore_crab.rs`). Shared rules: `README.md`.
 
 ## Biology that matters
 - **Where and what:** the green crab is a small crab of intertidal and shallow rubble and shores, an opportunistic
