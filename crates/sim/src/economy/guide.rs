@@ -111,7 +111,7 @@ pub const GUIDE: &[Step] = &[
         skill: S::Harvesting,
         title: "Cut kelp by the door",
         how: "Gather at the short kelp stand just outside the door (the tall stalk is for climbing).",
-        cond: Cond::Gather(NodeKind::KelpStand, 6),
+        cond: Cond::Gather(NodeKind::KelpStand, 7),
         known: (S::Harvesting, 2),
         reward: items(&[(I::Grit, 2)]),
     },

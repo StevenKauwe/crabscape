@@ -2219,7 +2219,7 @@ mod tests {
         assert_eq!(rows[0], Row::Guide, "{rows:?}");
         let v = row_view(&sim, id, crab, Row::Guide);
         assert_eq!(v.name, "Cut kelp by the door");
-        assert_eq!(v.tag, "0/6");
+        assert_eq!(v.tag, "0/7");
         assert!(v.line.contains("kelp"), "{}", v.line);
         assert_eq!(v.button, Some(("Skip guide", true)));
         perform(&mut sim, id, Row::Guide);

@@ -202,7 +202,7 @@ mod tests {
         let id = PlayerId(0);
         let words = guide_text(&sim, id).unwrap();
         assert!(words.starts_with("Guide: cut kelp"), "{words}");
-        assert!(words.ends_with("0/6"), "{words}");
+        assert!(words.ends_with("0/7"), "{words}");
         assert!(sim.guide_skip(id));
         assert_eq!(guide_text(&sim, id), None);
         assert!(sim.guide_on(id));
@@ -221,7 +221,7 @@ mod tests {
         {}
         assert!(guide_shell_full(&sim, id));
         let words = guide_text(&sim, id).unwrap();
-        assert_eq!(words, "Guide: shell full, take it home, 0/6");
+        assert_eq!(words, "Guide: shell full, take it home, 0/7");
     }
 
     #[test]

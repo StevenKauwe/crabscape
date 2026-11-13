@@ -658,7 +658,7 @@ The owner's ask: levels 1 to 15 in **all 13 skills** must be a joy for a brand-n
 
 | # | Skill | Step (where) | Done when | Reward | Minute (bot) |
 |---|---|---|---|---|---|
-| 1 | Harvesting | Cut kelp by the door (the home pocket) | 6 kelp gathers | 2 grit | 0.6 |
+| 1 | Harvesting | Cut kelp by the door (the home pocket) | 7 kelp gathers (seven so it pays Harvesting 2) | 2 grit | 0.6 |
 | 2 | Foraging | Forage snails by the door (the home pocket) | 8 snail gathers | 2 mussels | 1.1 |
 | 3 | Prying | Pry mussels past the shrimp (the second pocket) | 8 mussel gathers | 2 kelp | 1.6 |
 | 4 | Excavating | Scoop grit from the heaps (the second pocket) | 8 grit gathers | 2 valves | 2.2 |
