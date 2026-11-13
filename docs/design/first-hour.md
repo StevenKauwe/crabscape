@@ -97,6 +97,10 @@ the main gathering skill about 15 at minute 20, and every skill 15 within three 
   92 off every node and site, off the shelf's creature arena (x 900 to 1,290), 294 off the plug shaft, and clear of the
   co-op walks, the rests and the moray; more shrimp needs nodes moved (see `decisions.md`). A bare level-1 crab beats each
   colony of two untouched.
+- **Three shore crabs** (`shallows::SHORE_CRABS`, passive, walk home x +-120): the slope (x 800, walks 680 to 920), the
+  shelf's east end (x 1,120, 1,000 to 1,240) and the far ledge's slope (x 2,230, 2,110 to 2,350). Walks clear the co-op dig
+  spots, the rests, the home door, the plug shaft's mouth and the moray's reach; none on the trench floor (a rest crevice
+  and a moray at each end). A bare level-1 crab beats each; a gatherer beside one is never hit.
 - **Two kelp ledges** (`KELP_LEDGES`): "block kelp ledge" (stalk x 1,980 on the block's top, ledge x 1,802 to 1,892, top 460)
   and "flats kelp ledge" (stalk x 2,392, ledge x 2,480 to 2,570, top 200). Each is climbed with no upgrade and pays
   Climbing XP. (Nothing under y 664 fits in x 400 to 1,400: the cell-join tests' pebbles lie there.)

@@ -856,3 +856,159 @@ fn the_glow_ledge_waits_for_glass_grips_up_the_bare_face() {
         assert!(got.is_none(), "{eggs} eggs reach the glow ledge: {got:?}");
     }
 }
+
+// --- The shore crabs near home ---------------------------------------------------
+
+/// Reach of the moray's strike (`Tuning::moray.strike_range`).
+fn moray_reach(t: &Tuning) -> f32 {
+    crabsim::Kind::Moray.tuning(t).strike_range
+}
+
+#[test]
+fn the_shore_crabs_are_placed_and_their_walks_keep_clear() {
+    use crabsim::creatures::shore_crab::LEASH;
+    let level = Level::test_level();
+    let t = Tuning::default();
+    assert!((3..=4).contains(&sh::SHORE_CRABS.len()));
+    let placed: Vec<Vec2> = level
+        .foes
+        .iter()
+        .filter(|(k, _)| *k == crabsim::Kind::ShoreCrab)
+        .map(|(_, p)| *p)
+        .collect();
+    assert_eq!(placed.len(), sh::SHORE_CRABS.len());
+    let rests = level.rest_points();
+    let door = level.home;
+    for &(name, x) in sh::SHORE_CRABS {
+        let floor = level.floor_height(x);
+        assert!(placed.contains(&Vec2::new(x, floor)), "{name} not placed");
+        let (lo, hi) = (x - LEASH, x + LEASH);
+        // The whole walk is on one gentle floor, in the open (no rock on it).
+        for i in 0..=24 {
+            let wx = lo + (hi - lo) * i as f32 / 24.0;
+            let y = level.floor_height(wx);
+            assert!((y - floor).abs() < 60.0, "{name} walks a cliff at {wx}");
+            assert!(
+                level.place_at(Vec2::new(wx, y + 5.0)).is_none(),
+                "{name} in a doorway"
+            );
+        }
+        // Dig spots, with 40 to spare.
+        for (a, b) in [(100.0, 240.0), (2400.0, 2540.0)] {
+            assert!(hi + 40.0 <= a || lo - 40.0 >= b, "{name} reaches {a}..{b}");
+        }
+        for r in &rests {
+            if (r.at.y - floor).abs() < 400.0 {
+                assert!(
+                    (r.at.x - x).abs() > LEASH + 40.0,
+                    "{name} walks to {}",
+                    r.name
+                );
+            }
+        }
+        assert!(
+            lo - 40.0 >= door.max.x || hi + 40.0 <= door.min.x,
+            "{name} walks to the home door"
+        );
+        // Neither shaft's mouth is walked across: a stretch at least as wide as
+        // a crab (97) and a half stays open beside the walk.
+        for (a, b) in [(920.0, 1040.0), (1540.0, 1700.0)] {
+            let covered = (hi.min(b) - lo.max(a)).max(0.0);
+            assert!(
+                (b - a) - covered >= 80.0,
+                "{name} walks over the mouth {a}..{b}"
+            );
+        }
+        // The moray's reach.
+        for &(k, p) in &level.foes {
+            if k == crabsim::Kind::Moray && (p.y - floor).abs() < 400.0 {
+                assert!(
+                    (p.x - x).abs() - LEASH >= moray_reach(&t),
+                    "{name} is in reach of the moray at {p}"
+                );
+            }
+        }
+        // Nothing but its own colony of weak foes within the walk: no
+        // hunter's notice reaches it (it keeps no danger distance itself).
+        for &(k, p) in &level.foes {
+            if k != crabsim::Kind::ShoreCrab && k != crabsim::Kind::Snapper {
+                assert!(
+                    (p.x - x).abs() > LEASH + 40.0 || (p.y - floor).abs() > 600.0,
+                    "{name} beside a {k:?} at {p}"
+                );
+            }
+        }
+        println!("{name}: home {x}, walks {lo} to {hi}, floor {floor}");
+    }
+}
+
+#[test]
+fn a_level_one_crab_with_no_kit_beats_each_shore_crab_and_a_gatherer_beside_one_is_never_hit() {
+    use crabsim::enemy::State;
+    let level = Level::test_level();
+    for &(name, x) in sh::SHORE_CRABS {
+        let at = Vec2::new(x, level.floor_height(x));
+        // A gatherer beside it, never striking: nothing hits.
+        let mut sim = route::world(KIT, at + Vec2::new(-40.0, 0.0), false);
+        sim.spawn_enemy(crabsim::Kind::ShoreCrab, at);
+        let full = sim.crab(route::ME).expect("crab").fighter.vitals.health;
+        for _ in 0..20 * 120 {
+            sim.set_controls(
+                route::ME,
+                Controls {
+                    gather_held: true,
+                    ..Default::default()
+                },
+            );
+            sim.tick();
+            let c = sim.crab(route::ME).expect("crab");
+            assert!(c.fighter.vitals.health >= full && !c.events.hurt, "{name}");
+            assert_eq!(sim.enemies()[0].state, State::Idle, "{name}");
+        }
+        // The fair bot beats it: walk up, read the pinch's tell, dodge it,
+        // punish the recovery.
+        let start = Vec2::new(x - 170.0, level.floor_height(x - 170.0));
+        let mut sim = route::world(KIT, start, false);
+        sim.spawn_enemy(crabsim::Kind::ShoreCrab, at);
+        let mut won = false;
+        for tick in 0..20 * 120u32 {
+            let Some(e) = sim.enemies().first().cloned() else {
+                break;
+            };
+            if e.state == State::Gone {
+                won = true;
+                break;
+            }
+            let me = sim.crab(route::ME).expect("crab").mover.pos.x;
+            let dir = (e.pos.x - me).signum();
+            let close = (e.pos.x - me).abs() < 70.0;
+            let answer = e.state == State::Tell && e.state_tick + 4 >= e.state_len;
+            let punish = matches!(e.state, State::Recover | State::Stagger);
+            let first = !matches!(
+                e.state,
+                State::Tell | State::Attack | State::Recover | State::Stagger
+            );
+            sim.set_controls(
+                route::ME,
+                Controls {
+                    walk: if answer {
+                        -dir
+                    } else if close {
+                        0.0
+                    } else {
+                        0.8 * dir
+                    },
+                    jump_pressed: !close && tick % 50 == 0,
+                    jump_held: tick % 50 < 30,
+                    dodge_pressed: answer,
+                    smash_pressed: close && (punish && e.state_tick.is_multiple_of(8) || first),
+                    ..Default::default()
+                },
+            );
+            sim.tick();
+        }
+        let left = sim.crab(route::ME).expect("crab").fighter.vitals.health;
+        println!("{name}: won {won}, {left:.1} health left");
+        assert!(won && left > 0.0, "{name}");
+    }
+}
