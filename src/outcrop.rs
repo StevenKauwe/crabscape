@@ -98,6 +98,24 @@ pub fn slabs(level: &crabsim::Level) -> Vec<Rect> {
     let mut out = vec![CANOPY, GARDEN, LOOKOUT, FAR_LOOKOUT, GLOW_LEDGE];
     out.extend(KELP_LEDGES.iter().map(|(_, _, ledge)| *ledge));
     out.retain(|r| level.rocks.contains(r));
+    // Every other thin slab floating over the shallows' way out (the egg
+    // ledges and the slab over the home pocket): water under it, so it reads
+    // as rock hanging there, not a grey bar.
+    for r in &level.rocks {
+        let floats = level
+            .ground_below(Vec2::new(r.center().x, r.min.y - 1.0))
+            .is_some_and(|g| g < r.min.y - 20.0);
+        if r.min.x >= 0.0
+            && r.max.x <= 2800.0
+            && r.min.y > 0.0
+            && r.height() <= 30.0
+            && r.width() >= 60.0
+            && floats
+            && !out.contains(r)
+        {
+            out.push(*r);
+        }
+    }
     out
 }
 
@@ -349,6 +367,8 @@ mod tests {
         let slabs = slabs(&level);
         assert!(
             slabs.contains(&CANOPY) && slabs.contains(&LOOKOUT) && slabs.contains(&FAR_LOOKOUT)
+                // The slab over the home pocket, a floating rock no list names.
+                && slabs.contains(&Rect::new(400.0, 120.0, 520.0, 150.0))
         );
         assert!(
             slabs.len() >= 7,
