@@ -1,6 +1,9 @@
 //! The pinned goal while out: a small pill in the top-left corner, under the
 //! cargo chip, an amber diamond and "Goal: glass-sponge lamp, 2/4 glass",
-//! turning gold once everything is in hand (the rules are `crabsim`'s:
+//! turning gold once everything is in hand; with nothing pinned, the
+//! first-hour guide's step, and once the guide is done the next goal nearest
+//! done ("Next: Prying 10, 80%"; the board lists all of them). The rules are
+//! `crabsim`'s:
 //! `Sim::pinned_status`, `StepEvents::goal_ready`; the "GOAL READY" card is
 //! `hud.rs`). Hidden at home and when nothing is pinned. The task board and
 //! the home menu are in `interior.rs`.
@@ -110,6 +113,21 @@ pub fn guide_shell_full(sim: &Sim, id: PlayerId) -> bool {
         .is_some_and(|c| !c.mover.room_for(crabsim::Carry::Item(item), &sim.tuning))
 }
 
+/// What the next-goals line says once the guide is done: the open goal
+/// nearest done, one line ("Next: Prying 10, 80%"). `None` while the guide
+/// runs or the board is empty.
+pub fn next_goal_text(sim: &Sim, id: PlayerId) -> Option<(String, bool)> {
+    let g = sim.goal_line(id)?;
+    // "Make kelp mat" reads "kelp mat" here, to keep the pill to one line.
+    let title = g.title.strip_prefix("Make ").unwrap_or(&g.title);
+    let words = if g.ready {
+        format!("Next: {title}, ready: go home")
+    } else {
+        format!("Next: {title}, {}", g.tag)
+    };
+    Some((words, g.ready))
+}
+
 /// What the goal line says, and whether it is ready (gold), for crab `id`:
 /// `None` when nothing is pinned.
 pub fn goal_text(sim: &Sim, id: PlayerId) -> Option<(String, bool)> {
@@ -158,7 +176,9 @@ fn show_goal(
         if inside.on {
             None
         } else {
-            guide_text(&sim, *id).map(|words| (words, false))
+            guide_text(&sim, *id)
+                .map(|words| (words, false))
+                .or_else(|| next_goal_text(&sim, *id))
         }
     });
     // The open cargo panel covers the pill's place: hide it then, not under.
@@ -222,6 +242,20 @@ mod tests {
         assert!(guide_shell_full(&sim, id));
         let words = guide_text(&sim, id).unwrap();
         assert_eq!(words, "Guide: shell full, take it home, 0/7");
+    }
+
+    #[test]
+    fn after_the_guide_the_line_shows_the_next_goal() {
+        let mut sim = Sim::with_one_crab(Vec2::new(900.0, 0.0));
+        let id = PlayerId(0);
+        assert_eq!(next_goal_text(&sim, id), None, "the guide runs");
+        assert!(sim.guide_skip(id));
+        for _ in 0..crabsim::economy::goals::REFILL_TICKS {
+            sim.tick();
+        }
+        let (words, _) = next_goal_text(&sim, id).unwrap();
+        assert!(words.starts_with("Next: "), "{words}");
+        assert!(!words.contains('\n'), "one line: {words}");
     }
 
     #[test]

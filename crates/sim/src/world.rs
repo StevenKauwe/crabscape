@@ -3184,6 +3184,7 @@ impl Sim {
         self.dig_step();
         self.pin_step();
         self.guide_step();
+        self.goals_step();
         // Each crab's memory: what it sees now is seen.
         if self
             .tick

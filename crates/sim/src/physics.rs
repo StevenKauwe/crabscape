@@ -561,6 +561,8 @@ pub struct StepEvents {
     /// A first-hour guide step was just finished (its index in
     /// [`crate::economy::guide::GUIDE`]; the reward is already paid).
     pub guide_done: Option<u8>,
+    /// A next goal was just met (the bonus is already paid).
+    pub goal_done: Option<crate::economy::goals::GoalDone>,
     /// Why a gather did not start (once per press): see
     /// [`crate::economy::gather::GatherBlocked`].
     pub gather_blocked: Option<crate::economy::gather::GatherBlocked>,
@@ -680,6 +682,7 @@ impl StepEvents {
         self.delivered |= other.delivered;
         self.goal_ready |= other.goal_ready;
         self.guide_done = other.guide_done.or(self.guide_done);
+        self.goal_done = other.goal_done.or(self.goal_done);
         self.levelled = self.levelled.or(other.levelled);
         if other.level_up.is_some() {
             self.level_up = other.level_up;

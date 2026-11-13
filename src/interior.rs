@@ -143,6 +143,9 @@ enum Row {
     Guide,
     /// The guide was skipped: a row offers it back.
     GuideOff,
+    /// A next goal (its serial), once the guide is done: what it asks, how
+    /// far, what it opens and pays (no button).
+    Goal(u32),
     /// A want on the task board (the recipe's word): tap to pin it.
     Want(&'static str),
     /// A skill's next unlock, and how far off (no button).
@@ -181,6 +184,7 @@ fn rows_for(tab: Tab, sim: &Sim, id: crabsim::PlayerId, crab: &SimCrab) -> Vec<R
                     rows.push(Row::Guide);
                 }
             }
+            rows.extend(sim.goal_status(id).iter().map(|g| Row::Goal(g.serial)));
             let wants = sim.wants(id);
             if wants.is_empty() {
                 rows.push(Row::NothingNear);
@@ -1524,6 +1528,22 @@ fn row_view(sim: &Sim, id: crabsim::PlayerId, crab: &SimCrab, row: Row) -> RowVi
                 button: None,
             },
         },
+        Row::Goal(serial) => match sim.goal_status(id).into_iter().find(|g| g.serial == serial) {
+            Some(g) => RowView {
+                name: format!("Next: {}", g.title),
+                tag: g.tag,
+                line: format!("{} {}", g.line, g.reward),
+                lit: true,
+                button: None,
+            },
+            None => RowView {
+                name: String::new(),
+                tag: String::new(),
+                line: String::new(),
+                lit: false,
+                button: None,
+            },
+        },
         Row::GuideOff => RowView {
             name: "Guide".into(),
             tag: "off".into(),
@@ -1998,7 +2018,7 @@ fn perform(sim: &mut Sim, id: crabsim::PlayerId, row: Row) {
                 sim.guide_on(id);
             }
         }
-        Row::Bed(_) | Row::NoBeds | Row::Unlock(..) | Row::NothingNear => {}
+        Row::Bed(_) | Row::NoBeds | Row::Unlock(..) | Row::NothingNear | Row::Goal(_) => {}
     }
 }
 
@@ -2229,6 +2249,25 @@ mod tests {
         perform(&mut sim, id, Row::GuideOff);
         let crab = sim.crab(id).unwrap();
         assert_eq!(rows_for(Tab::Goals, &sim, id, crab)[0], Row::Guide);
+    }
+
+    #[test]
+    fn after_the_guide_the_goals_tab_leads_with_the_next_goals() {
+        let mut sim = Sim::with_one_crab(Vec2::new(95.0, 0.0));
+        let id = crabsim::PlayerId(0);
+        assert!(sim.guide_skip(id));
+        for _ in 0..crabsim::economy::goals::REFILL_TICKS {
+            sim.tick();
+        }
+        let crab = sim.crab(id).unwrap();
+        let rows = rows_for(Tab::Goals, &sim, id, crab);
+        assert_eq!(rows[0], Row::GuideOff, "{rows:?}");
+        let goals: Vec<Row> = rows[1..=crabsim::economy::goals::OPEN].to_vec();
+        assert!(goals.iter().all(|r| matches!(r, Row::Goal(_))), "{rows:?}");
+        let v = row_view(&sim, id, crab, goals[0]);
+        assert!(v.name.starts_with("Next: "), "{}", v.name);
+        assert!(v.line.contains("Pays "), "{}", v.line);
+        assert!(!v.tag.is_empty());
     }
 
     #[test]
