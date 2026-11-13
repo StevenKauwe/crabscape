@@ -10,6 +10,7 @@
 
 use bevy::prelude::*;
 use bevy::sprite_render::AlphaMode2d;
+use crabsim::level::silt_galleries::PLUG;
 use crabsim::{Mover, Sim};
 
 use crate::effects::SoftTextures;
@@ -178,8 +179,87 @@ struct Strand(usize);
 const NYLON: Color = Color::srgb(0.30, 0.36, 0.31);
 const NET_Z: f32 = 9.5;
 
+/// The silt gallery plug's cobbles and the silt packed between them (cut as the net is).
+const COBBLES: [Color; 3] = [
+    Color::srgb(0.26, 0.30, 0.30),
+    Color::srgb(0.19, 0.23, 0.24),
+    Color::srgb(0.33, 0.35, 0.32),
+];
+const PLUG_SILT: Color = Color::srgb(0.38, 0.31, 0.20);
+const PLUG_SILT_DARK: Color = Color::srgb(0.27, 0.22, 0.14);
+
+/// Wedged rubble in the plug's own rect: a bed of packed silt and two courses of rounded cobbles, each on a dark
+/// shadow, in the world's rock and sand colours. Drawn on the plug's shape only (the rect is the sim's). It goes
+/// when the plug is cut, as a net's strands do.
+fn spawn_plug(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<ColorMaterial>,
+    i: usize,
+    r: Rect,
+) {
+    let (w, h) = (r.width(), r.height());
+    let mut put = |mesh: Mesh, colour: Color, at: Vec2, turn: f32, z: f32| {
+        commands.spawn((
+            Strand(i),
+            Mesh2d(meshes.add(mesh)),
+            MeshMaterial2d(materials.add(colour)),
+            Transform::from_translation(at.extend(NET_Z + z))
+                .with_rotation(Quat::from_rotation_z(turn)),
+        ));
+    };
+    let middle = r.center();
+    put(
+        Ellipse::new(w * 0.5, h * 0.5).into(),
+        PLUG_SILT_DARK,
+        middle,
+        0.0,
+        0.0,
+    );
+    put(
+        Ellipse::new(w * 0.46, h * 0.36).into(),
+        PLUG_SILT,
+        middle + Vec2::Y * 1.0,
+        0.0,
+        0.01,
+    );
+    let n = ((w / 13.0) as usize).max(4);
+    for k in 0..n * 2 {
+        let row = k % 2;
+        let t = (k / 2) as f32 + 0.5 * row as f32;
+        let hash = (k as u32).wrapping_mul(2654435761).rotate_left(7) as f32 / u32::MAX as f32;
+        let (rx, ry) = (6.0 + 3.5 * hash, (h * 0.22 + 2.5 * hash).min(h * 0.32));
+        let x = r.min.x + 8.0 + (w - 16.0) * t / n as f32;
+        let y = middle.y + if row == 0 { -h * 0.2 } else { h * 0.2 } + 2.0 * (hash - 0.5);
+        let at = Vec2::new(x.min(r.max.x - rx), y);
+        let z = 0.02 + 0.001 * k as f32;
+        put(
+            Ellipse::new(rx + 1.4, ry + 1.4).into(),
+            PLUG_SILT_DARK,
+            at,
+            0.5 * (hash - 0.5),
+            z,
+        );
+        put(
+            Ellipse::new(rx, ry).into(),
+            COBBLES[k % 3],
+            at,
+            0.5 * (hash - 0.5),
+            z + 0.0005,
+        );
+        put(
+            Ellipse::new(rx * 0.5, ry * 0.4).into(),
+            COBBLES[(k + 2) % 3],
+            at + Vec2::new(-rx * 0.15, ry * 0.3),
+            0.0,
+            z + 0.0008,
+        );
+    }
+}
+
 /// A ghost net: a lattice of thin strands across the way, a little wider
-/// than its solid part, with a float snagged in it.
+/// than its solid part, with a float snagged in it. (The silt gallery plug is
+/// drawn as wedged rubble instead.)
 fn spawn_nets(
     mut commands: Commands,
     sim: Res<Sim>,
@@ -189,6 +269,10 @@ fn spawn_nets(
     let nylon = materials.add(NYLON);
     for (i, net) in sim.level.nets.iter().enumerate() {
         let (r, middle) = (net.rect, net.rect.center());
+        if net.rect == PLUG {
+            spawn_plug(&mut commands, &mut meshes, &mut materials, i, r);
+            continue;
+        }
         let (half_w, height): (f32, f32) = (26.0, r.height());
         // Diagonal strands both ways across the mouth.
         let strand = meshes.add(Rectangle::new(2.0, (half_w * 2.0).hypot(46.0)));

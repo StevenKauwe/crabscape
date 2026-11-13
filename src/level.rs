@@ -163,8 +163,7 @@ pub(crate) const KELP_BLADE: Color = Color::srgb(0.26, 0.22, 0.09);
 pub(crate) const KELP_FLOAT: Color = Color::srgb(0.34, 0.28, 0.12);
 const CORAL: Color = Color::srgb(0.30, 0.27, 0.25);
 pub(crate) const CORAL_TIP: Color = Color::srgb(0.55, 0.32, 0.22);
-// Bare rock's pits: a pale crust and the dark holes in it.
-const PITTED: Color = Color::srgb(0.19, 0.22, 0.21);
+// The dark holes in bare rock.
 pub(crate) const PIT: Color = Color::srgb(0.02, 0.04, 0.05);
 /// Plants sit in front of the rock, behind the crab (~10).
 pub(crate) const PLANT_Z: f32 = 2.0;
@@ -992,41 +991,37 @@ fn coral(c: &Climb, draw: &mut Draw) {
     }
 }
 
-/// Bare, pitted rock (for glass grips only): a pale, rough band down the
-/// face of the wall to the climb's left, pocked with pits and cracks, so it
-/// reads as different rock from the smooth walls around it.
+/// The glass stair: a slender spire of bare rock (climbed only with glass grips), built of tapering, slightly offset
+/// courses of the world's painted rock from a broad foot to a narrow tip, with a few glassy glints in its face (a
+/// glint is a pale diamond with a thin streak; they are never animated and never light anything).
 fn bare_rock(c: &Climb, draw: &mut Draw) {
-    let face = c.x - 24.0;
-    // The rough band itself, along the wall's face...
-    rod(
-        draw,
-        Vec2::new(face - 3.0, c.bottom),
-        Vec2::new(face - 3.0, c.top),
-        7.0,
-        PITTED,
-    );
-    // ...chipped and cracked all the way up, never evenly.
-    let mut y = c.bottom + 12.0;
-    let mut k = 0;
-    while y < c.top - 10.0 {
-        let j = (k * 7 % 5) as f32;
-        let chip = Vec2::new(face - 8.0 + j * 1.5, y);
+    let centre = c.x - 20.0;
+    let height = c.top - c.bottom;
+    let mut y = c.bottom;
+    let mut k = 0_u32;
+    while y < c.top - 4.0 {
+        let t = (y - c.bottom) / height;
+        let wobble = (k * 5 % 4) as f32;
+        let w = 32.0 - 22.0 * t + 3.0 * wobble;
+        let h = (70.0 + 12.0 * (k * 3 % 5) as f32).min(c.top - y + 6.0);
+        let lean = 2.5 * ((k * 7 % 5) as f32 - 2.0) * (1.0 - t);
         draw(
-            Rectangle::new(5.0 + j, 3.0).into(),
-            PITTED,
-            chip,
-            0.3 * (j - 2.0),
+            rock_mesh(Vec2::new(w, h)),
+            ROCK_PAINTED,
+            Vec2::new(centre + lean, y + h * 0.5),
+            0.0,
         );
-        let crack = Vec2::new(face - 4.0 + j, y + 8.0);
-        rod(
-            draw,
-            crack,
-            crack + Vec2::new(4.0 - j * 2.0, 12.0 + j * 3.0),
-            1.5,
-            PIT,
-        );
-        y += 26.0 + j * 5.0;
+        y += h - 10.0;
         k += 1;
+    }
+    const GLASS: Color = Color::srgb(0.74, 0.90, 0.95);
+    for g in 0..7 {
+        let at = Vec2::new(
+            centre + ((g * 5 % 3) as f32 - 1.0) * 3.0,
+            c.bottom + 80.0 + height * g as f32 / 7.0,
+        );
+        draw(Rectangle::new(3.4, 3.4).into(), GLASS, at, 0.785);
+        draw(Rectangle::new(1.1, 10.0).into(), GLASS, at, 0.0);
     }
 }
 
