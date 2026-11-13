@@ -48,15 +48,10 @@ fn joiner(token: &str) -> bool {
 fn entries(cellular: bool) -> impl Iterator<Item = (&'static [&'static str], &'static str)> {
     KEYS.into_iter().flat_map(move |(key, text)| {
         let first = key.first().copied();
-        std::iter::once((key, text))
-            .chain(
-                (cellular && first == Some("S"))
-                    .then_some((&["Space", "+", "a way"][..], "dig at bed, turn in water")),
-            )
-            .chain(
-                (cellular && first == Some("F"))
-                    .then_some((&["G", "/", "V"][..], "salvage: first / second choice")),
-            )
+        std::iter::once((key, text)).chain(
+            (cellular && first == Some("S"))
+                .then_some((&["Space", "+", "a way"][..], "dig at bed, turn in water")),
+        )
     })
 }
 
@@ -369,8 +364,8 @@ mod tests {
             .filter(|k| !joiner(k))
             .collect();
         for key in [
-            "A", "D", "Space", "W", "K", "B", "G", "V", "Shift", "J", "S", "E", "L", "Q", "O", "F",
-            "I", "T", "H", "Y", "-", "=", "Enter", "R", "P", "F9", "?", "Home", "C",
+            "A", "D", "Space", "W", "K", "B", "Shift", "J", "S", "E", "L", "Q", "O", "F", "I", "T",
+            "H", "Y", "-", "=", "Enter", "R", "P", "F9", "?", "Home", "C",
         ] {
             assert!(caps.contains(&key), "{key} missing");
         }
