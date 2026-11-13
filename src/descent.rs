@@ -27,7 +27,7 @@ use crabsim::level::silt_galleries as sg;
 use crabsim::{PlayerId, Sim};
 
 use crate::effects::{Burst, BurstKind, SoftTextures};
-use crate::level::{ROCK_PAINTED, rock_mesh};
+use crate::level::{ROCK_PAINTED, rock_mesh, wall_mesh};
 use crate::memory::{Known, MemoryMaterial, MemoryTexture};
 use crate::player::GameSet;
 use crate::sound::{PlaySfx, Sfx};
@@ -52,11 +52,10 @@ const HEARTH: Color = Color::srgb(1.0, 0.78, 0.46);
 /// Shelf light poured down the plug shaft: pale daylight, a little green.
 const SHELF_LIGHT: Color = Color::srgb(0.84, 0.97, 0.92);
 
-/// The back wall's colours. Plain colours are lifted by the depth's light (`memory.wgsl`, `lit`), so they are
-/// authored very dark: what shows is a near-black teal, darker than the water the far ridge sinks into.
-const WALL: Color = Color::srgb(0.05, 0.075, 0.085);
-const WALL_BAND: Color = Color::srgb(0.075, 0.11, 0.12);
-const WALL_SHADE: Color = Color::srgb(0.03, 0.05, 0.057);
+/// The back wall is the world's painted rock, dimmed and cooled by a translucent sprite on the same shape: a
+/// farther, dimmer rock face. Seams are thin, low-contrast curves.
+const WALL_DIM: Color = Color::srgba(0.01, 0.035, 0.05, 0.70);
+const SEAM: Color = Color::srgba(0.0, 0.02, 0.03, 0.30);
 /// The open plug's hole: darker than the shaft.
 const HOLE: Color = Color::srgb(0.003, 0.007, 0.009);
 
@@ -164,55 +163,30 @@ fn unit(i: u32, k: u32) -> f32 {
     (h.wrapping_mul(2246822519).rotate_left(13) as f32) / u32::MAX as f32
 }
 
-/// The wall's detail over one rectangle: bedding bands, dark blotches and a shaded top, as (centre, size, which
-/// colour, whether it is a blotch (an ellipse) rather than a band).
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum Tone {
-    Band,
-    Shade,
-}
-
-fn wall_detail(r: Rect, salt: u32) -> Vec<(Vec2, Vec2, Tone, bool)> {
-    let mut out = vec![];
-    // The ceiling's shade: the rock's top courses sit in their own shadow.
-    out.push((
-        Vec2::new(r.center().x, r.max.y - 26.0),
-        Vec2::new(r.width(), 48.0),
-        Tone::Shade,
-        false,
-    ));
-    // Bedding: thin pale layers running the room's length, each a little shorter than the room.
-    let rows = ((r.height() / 46.0) as u32).max(2);
-    for n in 0..rows {
-        let y = r.min.y
-            + 30.0
-            + (r.height() - 70.0) * (n as f32 + 0.3 * unit(n + salt, 1)) / rows as f32;
-        let len = r.width() * (0.55 + 0.4 * unit(n + salt, 2));
-        let x = r.min.x + (r.width() - len) * unit(n + salt, 3) + len * 0.5;
-        out.push((
-            Vec2::new(x, y),
-            Vec2::new(len, 5.0 + 5.0 * unit(n + salt, 4)),
-            Tone::Band,
-            false,
-        ));
-    }
-    // Blotches of shadow, round and broad.
-    let blots = ((r.width() / 150.0) as u32).clamp(1, 4);
-    for n in 0..blots {
-        let x =
-            r.min.x + r.width() * (n as f32 + 0.5 + 0.3 * (unit(n + salt, 5) - 0.5)) / blots as f32;
-        let y = r.min.y + r.height() * (0.25 + 0.5 * unit(n + salt, 6));
-        out.push((
-            Vec2::new(x, y),
-            Vec2::new(
-                (70.0 + 60.0 * unit(n + salt, 7)).min(r.width()),
-                40.0 + 40.0 * unit(n + salt, 8),
-            ),
-            Tone::Shade,
-            true,
-        ));
-    }
-    out
+/// Gentle bedding seams over one rectangle: a few polylines that wander up and down in long slow waves, never
+/// ruler-straight, each a little shorter than the room.
+fn wall_seams(r: Rect, salt: u32) -> Vec<Vec<Vec2>> {
+    let rows = ((r.height() / 60.0) as u32).max(2);
+    (0..rows)
+        .map(|n| {
+            let y0 = r.min.y
+                + 36.0
+                + (r.height() - 80.0) * (n as f32 + 0.4 * unit(n + salt, 1)) / rows as f32;
+            let len = r.width() * (0.6 + 0.35 * unit(n + salt, 2));
+            let x0 = r.min.x + (r.width() - len) * unit(n + salt, 3);
+            let amp = 5.0 + 7.0 * unit(n + salt, 4);
+            let wave = 0.012 + 0.012 * unit(n + salt, 5);
+            let phase = 6.0 * unit(n + salt, 6);
+            let steps = ((len / 24.0) as usize).max(2);
+            (0..=steps)
+                .map(|k| {
+                    let x = x0 + len * k as f32 / steps as f32;
+                    let y = y0 + amp * ((x - x0) * wave + phase).sin();
+                    Vec2::new(x, y.clamp(r.min.y + 24.0, r.max.y - 24.0))
+                })
+                .collect()
+        })
+        .collect()
 }
 
 /// The ragged west edge of the first bend: dark outcrops along the wall's start, so the cave's interior begins in
@@ -403,43 +377,45 @@ fn draw_door_and_wall(
             stone.at.extend(DOOR_Z + 0.001 * n as f32),
         );
     }
-    // The back wall: a base, bedding, shade and blotches over each room, and the ragged west edge.
-    let (base, band, shade) = (paint(WALL), paint(WALL_BAND), paint(WALL_SHADE));
+    // The back wall: painted rock over each room (no rim: it is a face, not an edge), dimmed by a translucent
+    // sprite, with curved seams, and the ragged west edge of lumpy rock.
+    let wall_rock = paint(ROCK_PAINTED);
     for (i, r) in back_wall_rects().into_iter().enumerate() {
         meshed(
             &mut commands,
-            meshes.add(Rectangle::new(r.width(), r.height())),
-            base.clone(),
+            meshes.add(wall_mesh(r.size())),
+            wall_rock.clone(),
             r.center().extend(WALL_Z),
         );
-        for (n, (at, size, tone, blot)) in wall_detail(r, i as u32 * 7).into_iter().enumerate() {
-            // Keep each piece inside its room.
-            let at = Vec2::new(
-                at.x.clamp(r.min.x + size.x * 0.5, r.max.x - size.x * 0.5),
-                at.y,
-            );
-            let material = if tone == Tone::Band { &band } else { &shade };
-            let mesh = if blot {
-                meshes.add(Ellipse::new(size.x * 0.5, size.y * 0.5))
-            } else {
-                meshes.add(Rectangle::new(size.x, size.y))
-            };
-            meshed(
-                &mut commands,
-                mesh,
-                material.clone(),
-                at.extend(WALL_Z + 0.002 * (n as f32 + 1.0)),
-            );
+        commands.spawn((
+            Sprite::from_color(WALL_DIM, r.size()),
+            Transform::from_translation(r.center().extend(WALL_Z + 0.01)),
+        ));
+        for line in wall_seams(r, i as u32 * 7) {
+            for pair in line.windows(2) {
+                let (a, b) = (pair[0], pair[1]);
+                let d = b - a;
+                commands.spawn((
+                    Sprite::from_color(SEAM, Vec2::new(d.length() + 2.0, 3.0)),
+                    Transform::from_translation(((a + b) * 0.5).extend(WALL_Z + 0.02))
+                        .with_rotation(Quat::from_rotation_z(d.y.atan2(d.x))),
+                ));
+            }
         }
         // Only the first rectangle (the hall's east end) has the ragged west edge.
         if i == 0 {
             for (n, (at, size)) in bend_edge(r).into_iter().enumerate() {
+                let z = WALL_Z + 0.05 + 0.002 * n as f32;
                 meshed(
                     &mut commands,
-                    meshes.add(Ellipse::new(size.x * 0.5, size.y * 0.5)),
-                    base.clone(),
-                    at.extend(WALL_Z + 0.05 + 0.001 * n as f32),
+                    meshes.add(rock_mesh(size)),
+                    wall_rock.clone(),
+                    at.extend(z),
                 );
+                commands.spawn((
+                    Sprite::from_color(WALL_DIM, size),
+                    Transform::from_translation(at.extend(z + 0.001)),
+                ));
             }
         }
     }
@@ -934,19 +910,16 @@ mod tests {
     }
 
     #[test]
-    fn the_wall_detail_stays_inside_its_room() {
+    fn the_wall_seams_stay_inside_their_room_and_wander() {
         for (i, r) in back_wall_rects().into_iter().enumerate() {
-            for (at, size, _, _) in wall_detail(r, i as u32 * 7) {
-                // (Placed pieces are clamped to the room's width; the height must hold on its own.)
-                assert!(
-                    at.y - size.y * 0.5 >= r.min.y - 1.0,
-                    "{at:?} {size:?} in {r:?}"
-                );
-                assert!(
-                    at.y + size.y * 0.5 <= r.max.y + 1.0,
-                    "{at:?} {size:?} in {r:?}"
-                );
-                assert!(size.x <= r.width() + 1.0);
+            let seams = wall_seams(r, i as u32 * 7);
+            assert!(!seams.is_empty());
+            for line in seams {
+                assert!(line.iter().all(|p| r.contains(*p)), "{line:?} in {r:?}");
+                let (lo, hi) = line
+                    .iter()
+                    .fold((f32::MAX, f32::MIN), |(l, h), p| (l.min(p.y), h.max(p.y)));
+                assert!(hi - lo > 1.0, "a seam is never ruler-straight");
             }
         }
         let first = back_wall_rects()[0];

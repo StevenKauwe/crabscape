@@ -521,7 +521,7 @@ fn strip_mesh(strips: &[(f32, f32, f32)], height: f32, bottom: f32) -> Mesh {
 }
 
 /// A plain rectangle that never shows an edge: its distance to a painted rim reads as far away.
-fn wall_mesh(size: Vec2) -> Mesh {
+pub(crate) fn wall_mesh(size: Vec2) -> Mesh {
     let (w, h) = (size.x * 0.5, size.y * 0.5);
     Mesh::new(
         PrimitiveTopology::TriangleList,
