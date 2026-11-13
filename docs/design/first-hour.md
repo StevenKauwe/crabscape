@@ -126,6 +126,45 @@ the main gathering skill about 15 at minute 20, and every skill 15 within three 
   kick off east). With no glass, 0 or 3 eggs never reach it from the rim, the trench, the block or the far ledge (a
   fourth egg's strokes from the block kelp's top do). Two tier-1 sites (ShoreGlow, SnailRocks) and a find.
 - Both are named, in `bands.rs` and in `tests/shallows.rs` with both halves proved (about 90 s for the file).
+## Variety audit: levels 1 to 15 in every skill (2026-11-13)
+Where a new crab trains each skill between levels 1 and 15, what the ladder (`economy/ladder.rs`) opens on the way, and
+how the method changes. "Places" are near home unless named. The bar (coordinator, 2026-11-13): at least two distinct
+places or methods by 15, and something new around level 5 or 10, so no skill is the same click for 15 levels.
+
+| Skill | Where (levels 1 to 15) | Opens on the way | How the method changes | Gap before this audit |
+|---|---|---|---|---|
+| Climbing | Kelp stalk by the door (to the lookout, 704 up, and the surface); block and flats kelp ledges; the silt mouth's coral stalk; the plug shaft (a 1,000-unit climb, ledge halfway) | +8% climb speed a level; gripping dactyls ready at 5 | Short stalks, then ledges you step off, then the long shaft climb with a rest | None |
+| Swimming | The egg over the first pocket; the paddle gap (lookout to far lookout); strokes along the way out | Strokes 5% quicker a level to 10, then legs rest quicker; broad paddles ready at 5 | One stroke, then a gap to cross, then the high garden (two eggs) as the sight of later | None |
+| Fighting | Snapping shrimp (x 340, 590, 622; 2,060, 2,074); shore crabs (x 800, 1,120, 2,230); morays (trench x 1,760, flats x 2,650); the basin's mantis (x 3,880) | Claws 5% harder a level to 10, then 2% more; heavy crusher ready at 5 | Passive shore crabs, then shrimp colonies of two, then a moray, then the mantis | None |
+| Foraging | Snail rocks in every group; brittle-star crevice (8); worm mud (15: trench hollow, basin) | Quicker picks, second-item chance, brittle stars at 8, worms at 15 | Pick by hand throughout | Level 8 node only in the home pockets |
+| Prying | Mussel clumps in most groups; barnacle rock (8); clam bed (15: trench hollow, basin) | Quicker, second item, pearl chance 1 in 64 to 1 in 40, barnacles at 8, clams at 15 | Pry tip from step 9; better tips after 15 | Level 8 node only in the home pockets |
+| Excavating | Grit heaps; digging the cells themselves; sand-dollar bed (8); clay bank (15: trench hollow, basin) | Quicker, second item, sand dollars at 8, clay at 15 | Scoop, plus real digging (the plug from below) | Level 8 node only in the home pockets |
+| Harvesting | Kelp stands; eelgrass bed (8); sea-pen field (15: the basin, x 4,500) | Quicker, second item, eelgrass at 8, quills at 15 | Cutter throughout | Level 8 only at home; the first quill is the basin's (the loom at Building 12 wants 4 quills) |
+| Culturing | Shore glow; purple film (8); pit glow (15: the basin); home culture beds (bed 1, Building 5) | Broths at 2 and 4, beds 10/20/30% quicker at 6/10/14, starter at 9, glow seed at 12, plant culture at 15 | Take wild strains, then plant and tend beds at home | Level 8 only at home; pit glow only in the basin |
+| Cooking | Workbench; brine pot (Building 10) | A dish at nearly every level, 3-portion batches at 4, 9, 14 and 15 | Workbench dishes, then the brine pot (worm paste, 12) | The jelly salad (6) needs the alarm jelly at x 15,180, inked kelp (14) the octopus (x 8,650): neither is near home (other dishes cover those levels) |
+| Shellcraft | Workbench | Polished valve (2), cement (4), plating (5), sand polish (8), barnacle cement (9), plating mend (11), doubled blanks and polish, tools last longer, tier-2 tools at 15 | Workbench only to 15; inputs change (valves, sand dollars, barnacles) | One station for 15 levels (systems lane) |
+| Weaving | Workbench | Rope (2), mat (4), quick twist (5), sack (8), eelgrass cord (9), slime twine (10), eelgrass mat (12), rope coil (14), doubled cord, rope and mats | Workbench only to 15 (the loom's recipes come later) | One station for 15 levels (systems lane) |
+| Building | Home (the Home tab) | A piece or station at every level: valve step (2) to barnacle wall (15); bed 1 (5), brine pot (10), loom (12) | Pieces, then stations that change other skills' methods | None |
+| Survival | The twilight band (below y -700): the upper gallery down the silt mouth (y -1,040), the basin's deep end, the canyon walls | 1% less pressure strain a level, 2% to 15% | Sitting deep; twice as fast under strain | Only percentages; nothing new at 5 or 10 (systems lane) |
+
+### What the world adds (built)
+- **Level-8 places of their own.** Each half-tier node also grows in one place out on the route that fits it, so level 8
+  sends a crab somewhere new rather than back to the home pocket: barnacles on the far lookout's wave-washed top,
+  brittle stars in the cracks of the boulder half-buried in the slope, purple film in the shade under the sea arch at
+  the trench rim, eelgrass on the far ledge's slope and sand dollars on the sand at the far ledge's foot. The home pocket ones stay.
+  Sites: barnacle rock x 838 (far lookout), brittle-star crevice x 720 (the boulder's east edge), purple film x 1,246
+  (trench rim), eelgrass x 2,310 (slope), sand dollars x 2,385 (foot).
+- **Tier 2 for Harvesting and Culturing near home.** A sea-pen field in the trench hollow's mud, and a pit glow site on
+  the plug shaft ledge (the dim niche halfway up the plug shaft, reached from the upper gallery). Level 15 in either
+  skill then has two places (near home and the basin), and the loom's quills come within one trip.
+  Sites: sea-pen field x 1,435 (hollow floor -480), pit glow site x 1,120 (plug shaft ledge, floor -540).
+
+### For the systems lane (proposed, not built here)
+- Survival: something at 5 or 10 beyond the percentage (a longer stay before strain, or slower hunger, as the
+  skills table promises).
+- Shellcraft and Weaving: a second method before 15 (a station or a place to work), so neither is only the workbench.
+- Cooking: the jelly salad (6) and inked kelp (14) name far creatures; a near source or a near swap.
+
 ## Playtest: what to try first (owner, 15 to 20 minutes)
 Start a **new crab** (a fresh save, or a private window on the web) and follow the guide's pill. The bot finishes the
 17 steps by about minute 15 on real ticks (`first_hours.rs`); a person reading the cards will take longer, and that is

@@ -341,6 +341,19 @@ pub const SPOTS: &[NodeSpot] = &[
     on(K::ScallopBed, 880.0, 1300.0),
     on(K::TwilightGlow, 1515.0, 1100.0),
     on(K::ShoreGlow, 1550.0, 1100.0),
+    // The variety audit's sites (`level::shallows::SITES`, `first-hour.md`,
+    // "Variety audit: levels 1 to 15"): a level-8 node in a place of its own
+    // (the far lookout, the boulder, the trench rim, the far ledge's slope
+    // and foot), and tier 2 near home for Harvesting and Culturing (a
+    // sea-pen field in the trench hollow, a pit glow site on the plug shaft
+    // ledge). Appended, so earlier indices hold.
+    on(K::BarnacleRock, 838.0, 704.0),
+    on(K::BrittleStarCrevice, 720.0, 100.0),
+    on(K::PurpleFilmMat, 1246.0, 110.0),
+    on(K::EelgrassBed, 2310.0, 42.0),
+    on(K::SandDollarBed, 2385.0, 24.0),
+    on(K::SeaPenField, 1435.0, -480.0),
+    on(K::PitGlowSite, 1120.0, -540.0),
 ];
 /// Where a spot lies on this level, or `None` when its named place is not
 /// in the level.
