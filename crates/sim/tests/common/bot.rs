@@ -124,6 +124,9 @@ pub struct Config {
     /// the bot does, and when it asks for a pinned want the bot pins one at
     /// home, as a player would; the next goals follow.
     pub guide: bool,
+    /// Follow the next-goals board, as a player who reads it: work that
+    /// serves an open goal comes before the lowest skill, at home and out.
+    pub follow_goals: bool,
 }
 
 /// A stretch of consecutive work on one label.
@@ -1009,12 +1012,24 @@ impl Bot {
             let now = self.now();
             let stale = self.craft_label.clone();
             let stuck = !stale.is_empty() && now - self.craft_start >= STRETCH_SWITCH_SECS;
+            let (goal_skills, _, goal_words) = self.goal_wants();
+            let wanted = |a: &HomeAct, skill: Skill| {
+                let word = match a {
+                    HomeAct::Econ(r) => Some(r.word),
+                    HomeAct::Piece(p) => Some(p.word()),
+                    _ => None,
+                };
+                word.is_some_and(|w| goal_words.iter().any(|g| g == w))
+                    || goal_skills.contains(&skill)
+            };
             let pick = |skip: Option<&str>| {
                 acts.iter()
                     .filter(|(a, _, _)| skip.is_none_or(|s| Self::act_label(a) != s))
                     .min_by(|a, b| {
                         let (ka, kb) = (self.key(a.1), self.key(b.1));
-                        ka.0.cmp(&kb.0)
+                        wanted(&b.0, b.1)
+                            .cmp(&wanted(&a.0, a.1))
+                            .then(ka.0.cmp(&kb.0))
                             .then(ka.1.total_cmp(&kb.1))
                             .then(b.2.cmp(&a.2))
                     })
@@ -1245,7 +1260,43 @@ impl Bot {
         out
     }
 
+    /// The skills and node kinds the open goals want (following the board).
+    fn goal_wants(&self) -> (Vec<Skill>, Vec<NodeKind>, Vec<String>) {
+        let (mut skills, mut kinds, mut words) = (Vec::new(), Vec::new(), Vec::new());
+        if !self.cfg.follow_goals {
+            return (skills, kinds, words);
+        }
+        let crab = self.sim.crab(P0).expect("crab");
+        for g in &crab.econ.goals.open {
+            match &g.aim {
+                economy::goals::Aim::Level { skill, .. } => skills.push(*skill),
+                economy::goals::Aim::Make { word } => {
+                    words.push(word.clone());
+                    let needs = economy::EconRecipe::parse(word)
+                        .map(|r| r.needs)
+                        .or_else(|| Piece::parse(word).map(|p| p.needs()))
+                        .unwrap_or(&[]);
+                    for &(item, n) in needs {
+                        if self.bank(item) < n
+                            && let Some(kind) = Self::source_of(item)
+                        {
+                            kinds.push(kind);
+                        }
+                    }
+                }
+            }
+        }
+        (skills, kinds, words)
+    }
+
     fn rank(&self, c: &Candidate) -> (u32, f32) {
+        let (skills, kinds, _) = self.goal_wants();
+        let pulled = matches!(c.kind, Session::Gather(k) if kinds.contains(&k))
+            || c.serves.first().is_some_and(|s| skills.contains(s));
+        if pulled {
+            // A goal's work first, the nearest-to-done skill first.
+            return (0, -c.serves.first().map_or(0.0, |&s| self.progress(s)));
+        }
         c.serves
             .iter()
             .map(|&s| self.key(s))

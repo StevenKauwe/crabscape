@@ -9,7 +9,8 @@
 //!   a skill that lags (the lowest), one for the skill the crab trained most
 //!   lately ("one more level"). A level that opens a node the crab has seen
 //!   (a sight of later) comes first in both; the skill nearest its next level
-//!   breaks ties.
+//!   breaks ties. Only skills within [`LEAD`] levels of the lowest are
+//!   offered, so a player who follows the board keeps every skill moving.
 //!
 //! A goal the crab has not moved on for [`SWAP_TICKS`] (it went off to do
 //! something else) is quietly swapped for one nearer what it is doing: the
@@ -39,6 +40,8 @@ pub const BONUS_DIVISOR: u32 = 10;
 pub const REFILL_TICKS: u64 = 30;
 /// A goal with no progress for this long is swapped (4 minutes).
 pub const SWAP_TICKS: u32 = 4 * 60 * crate::TICKS_PER_SECOND;
+/// A level goal is for a skill at most this many levels above the lowest.
+pub const LEAD: u32 = 3;
 /// How many swapped goals are rested (not offered again) at once.
 const RESTED: usize = 4;
 
@@ -242,13 +245,24 @@ impl Sim {
         let t = &self.tuning;
         let recent = &crab.econ.goals.recent;
         let lagging = !open.iter().any(|g| matches!(g.aim, Aim::Level { .. }));
+        // No level goal for a skill more than [`LEAD`] levels above the
+        // lowest: following the board keeps every skill moving.
+        let lowest = Skill::ALL
+            .into_iter()
+            .filter(|s| s.uses_table())
+            .map(|s| crab.level(s, t))
+            .min()
+            .unwrap_or(1);
         let mut best: Option<((bool, usize, f32), Skill, u32)> = None;
         for skill in Skill::ALL.into_iter().filter(|s| s.uses_table()) {
             if Self::on_board(open, rested, Some(skill), None) {
                 continue;
             }
             let next = crab.level(skill, t) + 1;
-            if next > xp::MAX_LEVEL || super::unlocks(skill, next).is_empty() {
+            if next > lowest + 1 + LEAD
+                || next > xp::MAX_LEVEL
+                || super::unlocks(skill, next).is_empty()
+            {
                 continue;
             }
             let sight = Self::sight_at(crab, skill, next).is_some();
