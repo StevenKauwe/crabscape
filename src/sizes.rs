@@ -351,6 +351,15 @@ fn rows() -> Vec<Row> {
             hit: Some(body(Kind::Hagfish).0),
         },
         Row {
+            animal: "Shore crab (juvenile green crab)",
+            measure: "carapace width",
+            real: (2.0, 9.0),
+            source: "juveniles to adults of about 9 cm across (not verified)",
+            // A placeholder drawn to its sim body (`src/creatures/shore_crab.rs`).
+            drawn: body(Kind::ShoreCrab).0,
+            hit: Some(body(Kind::ShoreCrab).0),
+        },
+        Row {
             animal: "Bluntnose sixgill",
             measure: "total length",
             real: (65.0, 480.0),

@@ -12,7 +12,9 @@ fn bestiary() -> Vec<Kind> {
         .filter(|k| {
             !matches!(
                 k,
-                Kind::Fixture | Kind::Mantis | Kind::Snapper | Kind::Moray
+                // The shore crab is the world lead's to place (its `spots` are
+                // empty for now); `tests/shore_crab.rs` covers it.
+                Kind::Fixture | Kind::Mantis | Kind::Snapper | Kind::Moray | Kind::ShoreCrab
             )
         })
         .filter(|k| creatures::tuning(*k).is_some())
@@ -44,6 +46,7 @@ fn module_consts_agree_with_the_dispatch() {
     assert_eq!(drops(Kind::GoliathGrouper), grouper::DROPS);
     assert_eq!(drops(Kind::Lobster), lobster::DROPS);
     assert_eq!(drops(Kind::HermitCrab), hermit::DROPS);
+    assert_eq!(drops(Kind::ShoreCrab), shore_crab::DROPS);
     assert_eq!(drops(Kind::BobbitWorm), bobbit::DROPS);
     assert_eq!(drops(Kind::GiantIsopod), isopod::DROPS);
     assert_eq!(drops(Kind::Hagfish), hagfish::DROPS);
@@ -54,6 +57,7 @@ fn module_consts_agree_with_the_dispatch() {
     assert_eq!(midwater(Kind::GoliathGrouper), grouper::MIDWATER);
     assert_eq!(midwater(Kind::Lobster), lobster::MIDWATER);
     assert_eq!(midwater(Kind::HermitCrab), hermit::MIDWATER);
+    assert_eq!(midwater(Kind::ShoreCrab), shore_crab::MIDWATER);
     assert_eq!(midwater(Kind::BobbitWorm), bobbit::MIDWATER);
     assert_eq!(midwater(Kind::GiantIsopod), isopod::MIDWATER);
     assert_eq!(midwater(Kind::Hagfish), hagfish::MIDWATER);

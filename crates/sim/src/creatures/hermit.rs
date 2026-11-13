@@ -270,12 +270,12 @@ fn come_out(e: &mut Enemy, s: &mut State, mend: bool) {
 
 /// Solid ground under both feet, no rock in the way, and not over the mouth
 /// of a burrow or tunnel.
-fn footing(level: &Level, x: f32, y: f32, half: f32) -> bool {
+fn footing(level: &Level, x: f32, y: f32, half: f32, height: f32) -> bool {
     let (a, b) = (x - half * 0.6, x + half * 0.6);
     if (level.floor_height(a) - level.floor_height(b)).abs() > MAX_STEP * 4.0 {
         return false;
     }
-    let body = bevy_math::Rect::new(x - half * 0.65, y + 2.0, x + half * 0.65, y + BODY.1 * 0.5);
+    let body = bevy_math::Rect::new(x - half * 0.65, y + 2.0, x + half * 0.65, y + height * 0.5);
     if level.solids().any(|r| !r.intersect(body).is_empty()) {
         return false;
     }
@@ -288,17 +288,22 @@ fn footing(level: &Level, x: f32, y: f32, half: f32) -> bool {
 
 /// Walk the floor: its own legs plus any knock dying away.
 fn walk(e: &mut Enemy, want: f32, t: &Tuning, level: &Level) {
-    let k = tuning();
+    walk_body(e, want, t, level, BODY);
+}
+
+/// The same for any floor walker with a body box of `body` (the shore crab
+/// walks the same way).
+pub(crate) fn walk_body(e: &mut Enemy, want: f32, t: &Tuning, level: &Level, body: (f32, f32)) {
     let decel = t.knock_decel * STEP;
     e.vel_x = if e.vel_x.abs() <= decel {
         0.0
     } else {
         e.vel_x - decel * e.vel_x.signum()
     };
-    let half = k.body.0 / 2.0;
+    let half = body.0 / 2.0;
     let x = (e.pos.x + (e.vel_x + e.facing * want) * STEP)
         .clamp(level.min_x + half, level.max_x - half);
-    if !footing(level, x, e.pos.y, half) {
+    if !footing(level, x, e.pos.y, half, body.1) {
         e.vel_x = 0.0;
         return;
     }
@@ -320,7 +325,7 @@ fn walk(e: &mut Enemy, want: f32, t: &Tuning, level: &Level) {
     }
     if (y - e.pos.y).abs() <= MAX_STEP {
         let next = Vec2::new(x, y);
-        if level.cells.is_none() || !crate::enemy::swimmer_blocked(level, next, half, k.body.1) {
+        if level.cells.is_none() || !crate::enemy::swimmer_blocked(level, next, half, body.1) {
             e.pos = next;
         } else {
             e.vel_x = 0.0;
