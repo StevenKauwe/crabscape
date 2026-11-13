@@ -97,6 +97,7 @@ mod eggs;
 mod ending;
 mod feel;
 mod fight;
+mod flats;
 mod foes;
 mod food;
 mod gather_ui;
@@ -259,6 +260,7 @@ fn run_app() {
             shell_inventory::ShellInventoryPlugin,
             nodes::NodesPlugin,
             signposts::SignpostsPlugin,
+            flats::FlatsPlugin,
             gather_ui::GatherUiPlugin,
             skills_panel::SkillsPanelPlugin,
             skill_juice::SkillJuicePlugin,
