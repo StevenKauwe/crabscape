@@ -2,7 +2,7 @@
 //! jumps out of, a lookout reached by kelp, the trench hollow, and the sites the
 //! economy places its first nodes from.
 mod common;
-use bevy_math::Vec2;
+use bevy_math::{Rect, Vec2};
 use common::route::{self, Kit};
 use crabsim::level::landmarks::Kind;
 use crabsim::level::shallows as sh;
@@ -63,6 +63,8 @@ fn every_new_place_has_a_name() {
         "the crest",
         "the lookout",
         "trench hollow",
+        "high garden",
+        "glow ledge",
         "home",
         "silt mouth",
         "basin",
@@ -241,7 +243,7 @@ fn every_site_is_on_a_floor_in_its_band_and_out_of_every_foes_reach() {
     let level = Level::test_level();
     let t = Tuning::default();
     let foes = foes(&level);
-    for &(place, kind, at) in sh::SITES {
+    for &(place, kind, at) in sh::SITES.iter().chain(sh::SIGHT_SITES) {
         let ground = level
             .ground_below(at + Vec2::Y * 16.0)
             .unwrap_or_else(|| panic!("{place} {at}: no ground"));
@@ -250,7 +252,10 @@ fn every_site_is_on_a_floor_in_its_band_and_out_of_every_foes_reach() {
             "{place} {kind} {at}: ground {ground}"
         );
         let tier = tier_of(kind);
-        if at.y > -260.0 {
+        if place == "high garden" {
+            assert_eq!(tier, 3, "{place} {kind} is a tier-3 want");
+            assert!(at.y > 1000.0);
+        } else if at.y > -260.0 {
             assert_eq!(tier, 1, "{place} {kind} is above -260");
         } else {
             assert_eq!(tier, 2, "{place} {kind} is in the tier-2 band");
@@ -278,7 +283,11 @@ fn the_sites_make_groups_of_different_skills_along_the_way() {
             None => groups.push((place, vec![(kind, at.x, at.y)])),
         }
     }
-    let tier1: Vec<_> = groups.iter().filter(|g| g.1[0].2 > -260.0).collect();
+    // The sights of later are not on the way: no one walks to them.
+    let tier1: Vec<_> = groups
+        .iter()
+        .filter(|g| g.1[0].2 > -260.0 && g.0 != "high garden" && g.0 != "glow ledge")
+        .collect();
     assert!(tier1.len() >= 6, "{} tier-1 groups", tier1.len());
     let skill = |k: &str| {
         let def = crabsim::economy::NODES
@@ -718,4 +727,132 @@ fn the_paddle_gap_is_crossed_with_a_stroke_or_two_and_a_miss_lands_on_the_floor(
         }
     }
     assert!(best.is_some(), "no stroke or two crosses the gap");
+}
+
+/// Every place a crab with `kit` can rest, searching from each of `starts`
+/// (and never past `bounds`: nodes outside it are seen but not expanded).
+/// The first resting place where `target` holds, with the moves that got there.
+fn reaches(
+    kit: Kit,
+    starts: &[Vec2],
+    bounds: Rect,
+    target: impl Fn(Vec2) -> bool + Copy,
+) -> Option<String> {
+    for &at in starts {
+        let start = route::start_node(kit, at, false);
+        let s = route::survey_from(
+            start,
+            kit,
+            |n| target(n.mover().pos) || !bounds.contains(n.mover().pos),
+            3000,
+        );
+        if let Some(i) = (0..s.nodes.len()).find(|&i| target(s.nodes[i].mover().pos)) {
+            return Some(format!("{:?}: {}", s.nodes[i].mover().pos, s.describe(i)));
+        }
+    }
+    None
+}
+
+/// Resting on the garden's top.
+fn on_garden(p: Vec2) -> bool {
+    p.x > sh::GARDEN.min.x - 30.0
+        && p.x < sh::GARDEN.max.x + 30.0
+        && (p.y - sh::GARDEN_TOP).abs() < 6.0
+}
+
+#[test]
+fn the_high_garden_waits_for_two_eggs_strokes_from_the_kelp() {
+    let level = Level::test_level();
+    // Plain sight: higher than every place a new crab stands, and the sites
+    // lie on its top.
+    for &(place, _, at) in sh::SIGHT_SITES.iter().filter(|s| s.0 == "high garden") {
+        assert!(
+            at.x >= sh::GARDEN.min.x && at.x <= sh::GARDEN.max.x,
+            "{place}"
+        );
+        assert_eq!(at.y, sh::GARDEN_TOP);
+        assert!(level.place_at(at).is_none());
+    }
+    assert!(
+        sh::SIGHT_SITES
+            .iter()
+            .filter(|s| s.0 == "high garden")
+            .count()
+            >= 2
+    );
+    // Out of every creature's reach.
+    let t = Tuning::default();
+    for &(kind, at) in &foes(&level) {
+        for &(_, _, site) in sh::SIGHT_SITES.iter().filter(|s| s.0 == "high garden") {
+            assert!(site.distance(at) > danger(kind, &t), "{kind:?} at {at}");
+        }
+    }
+    // Where a crab can start near home: the floor, both lookouts, the kelp.
+    let starts = [
+        Vec2::new(300.0, 0.0),
+        Vec2::new(410.0, sh::LOOKOUT_TOP),
+        Vec2::new(800.0, sh::LOOKOUT_TOP),
+    ];
+    let bounds = Rect::new(0.0, -60.0, 1000.0, 3000.0);
+    for eggs in [0, 1] {
+        let got = reaches(Kit::eggs(eggs), &starts, bounds, on_garden);
+        println!("{eggs} eggs: {got:?}");
+        assert!(got.is_none(), "{eggs} eggs reach the garden: {got:?}");
+    }
+    let got = reaches(Kit::eggs(2), &starts, bounds, on_garden);
+    println!("2 eggs: {got:?}");
+    assert!(got.is_some(), "two eggs never reach the high garden");
+}
+
+/// Resting on the glow ledge's top.
+fn on_glow_ledge(p: Vec2) -> bool {
+    p.x > sh::GLOW_LEDGE.min.x - 30.0
+        && p.x < sh::GLOW_LEDGE.max.x + 30.0
+        && (p.y - sh::GLOW_LEDGE_TOP).abs() < 6.0
+}
+
+#[test]
+fn the_glow_ledge_waits_for_glass_grips_up_the_bare_face() {
+    let level = Level::test_level();
+    assert_eq!(sh::GLASS_STAIR.kind, crabsim::level::Growth::Rock);
+    assert!(level.climbs.contains(&sh::GLASS_STAIR));
+    // Its sites lie on its top, out of every creature's reach.
+    let t = Tuning::default();
+    let sites: Vec<_> = sh::SIGHT_SITES
+        .iter()
+        .filter(|s| s.0 == "glow ledge")
+        .collect();
+    assert!(sites.len() >= 2);
+    for &&(_, _, at) in &sites {
+        assert!(at.x >= sh::GLOW_LEDGE.min.x && at.x <= sh::GLOW_LEDGE.max.x);
+        assert_eq!(at.y, sh::GLOW_LEDGE_TOP);
+        for &(kind, fp) in &foes(&level) {
+            assert!(at.distance(fp) > danger(kind, &t), "{kind:?} at {fp}");
+        }
+    }
+    // A crab with glass grips climbs the face from the trench's west rim.
+    let rim = [Vec2::new(300.0, 0.0)];
+    let bounds = Rect::new(0.0, -60.0, 1600.0, 3000.0);
+    let glass = Kit {
+        glass: true,
+        ..Kit::eggs(0)
+    };
+    let got = reaches(glass, &rim, bounds, on_glow_ledge);
+    println!("glass grips: {got:?}");
+    assert!(got.is_some(), "glass grips never reach the glow ledge");
+    // A crab without them does not, with nothing but strokes (a fourth egg's
+    // would reach it from the block's kelp: glass is the way up the face),
+    // from the rim, the trench, the block and the far ledge.
+    let starts = [
+        Vec2::new(1290.0, 110.0),
+        Vec2::new(1500.0, -260.0),
+        Vec2::new(1850.0, 110.0),
+        Vec2::new(1850.0, sh::KELP_LEDGES[0].2.max.y),
+    ];
+    let bounds = Rect::new(0.0, -300.0, 2300.0, 3000.0);
+    for eggs in [0, 3] {
+        let got = reaches(Kit::eggs(eggs), &starts, bounds, on_glow_ledge);
+        println!("{eggs} eggs: {got:?}");
+        assert!(got.is_none(), "{eggs} eggs reach the glow ledge: {got:?}");
+    }
 }

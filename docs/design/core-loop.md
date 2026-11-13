@@ -65,10 +65,13 @@ Each lead keeps their own lines here. `[x]` means it is in the game; the rest sa
 - [x] Terrain authored as a 2D layer map (caverns under ground), baked per chunk: a region edit rebakes 2 chunks in about 26 s, not the whole map
 - [x] The crust vault has a second door (a duct and shaft); the lower canyon descent has a refuge every 904 or less (was 1,946)
 - [x] The world painted like its creatures: oil-painted material tiles, ink rims, painted parallax ridges that never end or drift on a dive (`painted-world.md`)
-- [ ] Rest-point markers at every region entrance and boss door (octopus lair, sixgill at the kelp foot, grouper cave) in the systems lead's `level/rest.rs`, once it lands
-- [ ] Map memory still draws cavern interiors as solid (`src/memory.rs` reads `floor_height`); other creature walkers too
-- [ ] The plug shaft is a 1,000-unit climb with no mid-way rest
-- [ ] Regions 4 (the Drop and the Deep Galleries, the octopus lair), 5 (open-canyon shelves, arches, the kelp column home) and 6 (the slope caves and the grouper) are the next big PRs; most of the map is still dead rock until then
+- [x] Rest-point markers at the region entrances and boss doors (`level/rest.rs` MARKERS): the Drop's top ledge, the slope mouth (region 6), the octopus lair's door; the far basin and lower canyon entrances and the grouper's and far rim octopus's doors are derived. The sixgill stays a hunter, not a boss, so the kelp column's foot is a refuge, not a boss door
+- [x] Map memory draws cavern interiors as water (#637: memory tests a cell against the cavern mask, not `floor_height`)
+- [x] The plug shaft has a mid-way rest: "plug shaft ledge", 540 above its foot (#637)
+- [x] Regions 4 (the Drop, the Deep Galleries, the octopus lair, the nodule field: #637, #654), 5 (the open canyon's shelves, arches and the kelp column: #651) and 6 (the slope caves, the sunken reef and the reef passage west: #662) are built; new regions are frozen (owner, 2026-11-12) and `world-regions.md` stays the long-term map
+- [x] The first-hour world near home for a level 1 to 15 crab (`first-hour.md`, `level/shallows.rs`, #664, #680): names a new player can say along the way out, the lookout (the first climb), a paddle gap to the far lookout, two kelp ledges, the trench hollow's tier-2 sites seen on the first dive, ten mixed tier-1 site groups and nine finds, and two more snapping shrimp (more need open floor: the home side is packed with nodes)
+- [x] Sights of places a new crab cannot reach yet, near home (`first-hour.md`, part 3): the high garden under its canopy (two eggs reach it) and the glow ledge up a bare face (glass grips)
+- [ ] More weak fights near home, once the systems lead frees open floor spans
 - [ ] Re-measure the loop with the galleries: home, then the sponges, then home through the plug, against 20 minutes
 - [ ] The Silt Galleries are a near loop (found by #638): the solver walks down the silt mouth to the sponge galleries in 22 s and is home in 12, so the lamp's loop fell from 5.6 to 2.6 min. The 20 minutes need the galleries' depth (the lower gallery, the moray hall, the plug's one-way dig) on the way to the glass, or the glass further in; the world lane's call
 

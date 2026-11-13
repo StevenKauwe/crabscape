@@ -120,6 +120,41 @@ pub const FAR_LOOKOUT: Rect = Rect::new(
     LOOKOUT.max.y,
 );
 
+/// The high garden: a bedrock ledge 1,300 up, over the shelf, in plain sight from
+/// the lookout, the far lookout and the floor, and out of reach of a new crab.
+///
+/// Why a crab cannot just glide to it: the kelp stand beside home climbs to the
+/// surface, and a crab that kicks off the stalk drifts east a long way (about
+/// two units across for every one it sinks, and a kick-off hops it 190 higher
+/// first). So the garden lies under a **canopy**, a bedrock slab 230 over its
+/// top that runs back west almost to the stalk: under it a drifting crab has
+/// 165 to sink, and only the paddle strokes carry it the rest of the way. With
+/// the strokes of one egg a crab lands about 640 east of the stalk; two eggs
+/// carry it onto the ledge (which starts at 760), from a kick-off at about
+/// 1,224 where the stalk is climbed in three steps.
+pub const GARDEN: Rect = Rect::new(760.0, 1280.0, 940.0, 1300.0);
+/// The garden's standing top.
+pub const GARDEN_TOP: f32 = 1300.0;
+/// The slab over the garden (its underside is 230 over the garden's top); its
+/// east end meets the sea arch (x 1,250).
+pub const CANOPY: Rect = Rect::new(350.0, 1530.0, 1250.0, 1550.0);
+
+/// The glass stair: a bare rock face over the trench's west rim, east of the
+/// sea arch (x 1,250 to 1,300: a crab that hangs west of it climbs into its
+/// underside), up to the glow ledge. A crab's leg tips slide off it; only glass
+/// grips climb it (`Growth::Rock`). A crab jumps to it off the rim and grips
+/// on the way in. It stands 40 over the ledge's top, as the kelp ledges' do.
+pub const GLASS_STAIR: Climb = Climb {
+    x: 1400.0,
+    bottom: 60.0,
+    top: 1140.0,
+    kind: Growth::Rock,
+};
+/// The glow ledge the stair climbs to: east of the stalk, over the trench.
+pub const GLOW_LEDGE: Rect = Rect::new(1488.0, 1080.0, 1578.0, 1100.0);
+/// The glow ledge's standing top.
+pub const GLOW_LEDGE_TOP: f32 = 1100.0;
+
 /// The hollow's bay: a cavity in the west wall of the silt mouth shaft, its
 /// door on the shaft. The inside, floor to roof.
 pub const HOLLOW: Rect = Rect::new(1380.0, -480.0, 1520.0, -340.0);
@@ -172,6 +207,17 @@ fn hollow_rocks() -> [Rect; 5] {
 /// start, its slope and its foot (the crest of the cliff above the basin holds none: the loggerhead at
 /// (2,429, 919) reaches it)
 /// (reached only with the strokes the far ledge's eggs give).
+/// Sights of later, seen from the way out and not reached by a new crab: the high garden (two eggs' strokes from the
+/// kelp) and the glow ledge (glass grips). `(place, suggested node kind, point on its top)`, apart from `SITES` until
+/// the systems lead wires them (every `SITES` entry holds a node: `economy_core`), tier 3 and tier 1 kinds for it to
+/// decide.
+pub const SIGHT_SITES: &[(&str, &str, Vec2)] = &[
+    ("high garden", "GlassSpongeGarden", Vec2::new(810.0, 1300.0)),
+    ("high garden", "TwilightGlow", Vec2::new(880.0, 1300.0)),
+    ("glow ledge", "ShoreGlow", Vec2::new(1515.0, 1100.0)),
+    ("glow ledge", "SnailRocks", Vec2::new(1550.0, 1100.0)),
+];
+
 pub const SITES: &[(&str, &str, Vec2)] = &[
     // Home's pocket, between the home burrow's first shaft and the first
     // snapping shrimp (x 340).
@@ -233,6 +279,10 @@ pub const FINDS: &[Vec2] = &[
     Vec2::new(800.0, 754.0),
     // Buried at the trench rim.
     Vec2::new(1275.0, 86.0),
+    // Drifting over the high garden.
+    Vec2::new(850.0, 1350.0),
+    // Drifting over the glow ledge.
+    Vec2::new(1535.0, 1150.0),
     // Drifting in the hollow.
     Vec2::new(1400.0, -440.0),
     // Drifting on the far ledge.
@@ -264,6 +314,10 @@ pub(super) fn shape(level: &mut Level) {
     }
     level.rocks.push(LOOKOUT);
     level.rocks.push(FAR_LOOKOUT);
+    level.rocks.push(GARDEN);
+    level.rocks.push(CANOPY);
+    level.rocks.push(GLOW_LEDGE);
+    level.climbs.push(GLASS_STAIR);
     for (_, climb, ledge) in KELP_LEDGES {
         level.climbs.push(*climb);
         level.rocks.push(*ledge);
@@ -374,6 +428,19 @@ pub(super) fn landmarks(level: &Level) -> Vec<Landmark> {
             LOOKOUT_TOP - 200.0,
             FAR_LOOKOUT.min.x,
             LOOKOUT_TOP + 60.0,
+        ),
+    );
+    add(
+        "high garden",
+        Rect::new(GARDEN.min.x, GARDEN_TOP, GARDEN.max.x, GARDEN_TOP + 60.0),
+    );
+    add(
+        "glow ledge",
+        Rect::new(
+            GLOW_LEDGE.min.x,
+            GLOW_LEDGE_TOP,
+            GLOW_LEDGE.max.x,
+            GLOW_LEDGE_TOP + 60.0,
         ),
     );
     for (name, _, ledge) in KELP_LEDGES {

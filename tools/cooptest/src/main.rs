@@ -405,6 +405,13 @@ impl Player {
     }
 }
 
+/// Co-op players draw at half density: the same 1200 x 800 CSS layout, clicks and checks, a quarter of the pixels.
+/// CI draws WebGL in software (SwiftShader) for three browsers on one 4-core machine; at full density each page
+/// made 4 to 5 frames a second under 6x CPU throttling and 8 to 11 at half, so the page that just loaded gets the
+/// CPU it needs to answer its friends. These checks are about playing together, not how the world looks; the
+/// HUD-density and terrain checks keep their own sizes.
+const PLAYER_DENSITY: f64 = 0.5;
+
 /// How long a stalled game freezes: past the 5 s after which a friend that sent nothing counts as gone, so the
 /// stall really cuts them apart.
 const STALL: f64 = 6.0;
@@ -1163,6 +1170,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
     let o = Options {
         fake_mic: voice,
         slow: site.slow,
+        density: PLAYER_DENSITY,
     };
     if name == "cells-three-players" || name == "cell-probe-eight-players" {
         let count = if name == "cells-three-players" { 3 } else { 8 };
@@ -1223,6 +1231,11 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 save_fixture::CAPTURE_SCRIPT
             ))?;
             let started = Instant::now();
+            // Publish the autosave state (data-cell-page-state) so a miss says
+            // whether a save was due, running or never reserved.
+            guest.b.eval(
+                "document.getElementById('crabscape').setAttribute('data-cell-work-profile','1')",
+            )?;
             loop {
                 let head = guest.b.eval(&format!(
                     "({}).then(r=>r&&r.head)",
@@ -1232,9 +1245,10 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                     break;
                 }
                 if started.elapsed().as_secs() > 30 {
-                    return Err(
-                        guest.failed("guest did not save while the transfer was held".into())
-                    );
+                    let state = guest.b.attr("data-cell-page-state");
+                    return Err(guest.failed(format!(
+                        "guest did not save while the transfer was held; autosave {state:?}"
+                    )));
                 }
                 sleep(0.5);
             }
@@ -3077,6 +3091,7 @@ fn stress(site: &mut Site, seed: u64, steps: usize, voice: bool) -> Result<()> {
     let o = Options {
         fake_mic: voice,
         slow: site.slow,
+        density: PLAYER_DENSITY,
     };
     let mut host = Player::new(site, "host", o)?;
     let mut guest = Player::new(site, "guest", o)?;
