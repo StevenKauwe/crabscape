@@ -123,9 +123,16 @@ pub fn tuning() -> &'static EnemyTuning {
     })
 }
 
-/// Where it lives. The world lead places it later; none for now.
-pub fn spots(_level: &Level) -> Vec<Vec2> {
-    Vec::new()
+/// Where it lives: the named places along the way out from home
+/// (`level::shallows::SHORE_CRABS`), on the floor.
+pub fn spots(level: &Level) -> Vec<Vec2> {
+    if !level.has_shallows() {
+        return Vec::new();
+    }
+    crate::level::shallows::SHORE_CRABS
+        .iter()
+        .map(|&(_, x)| Vec2::new(x, level.floor_height(x)))
+        .collect()
 }
 
 pub fn state_of(e: &Enemy) -> State {

@@ -12,8 +12,17 @@ const FLOOR: f32 = 110.0;
 /// Where the crab's home is; the crab starts well away.
 const HOME: f32 = 1000.0;
 
+/// A sim with none of the level's own shore crabs (the world places some).
+fn bare(crab_x: f32) -> Sim {
+    let mut level = crabsim::Level::test_level();
+    level.foes.retain(|(k, _)| *k != Kind::ShoreCrab);
+    let mut sim = Sim::new(crabsim::Tuning::default(), level);
+    sim.add_crab(P, Vec2::new(crab_x, FLOOR));
+    sim
+}
+
 fn world(crab_x: f32) -> Sim {
-    let mut sim = Sim::with_one_crab(Vec2::new(crab_x, FLOOR));
+    let mut sim = bare(crab_x);
     sim.spawn_enemy(Kind::ShoreCrab, Vec2::new(HOME, FLOOR));
     sim
 }
@@ -80,7 +89,7 @@ fn it_is_a_passive_roamer_with_a_leash() {
     assert!(
         crabsim::creatures::spots(&level)
             .iter()
-            .all(|(k, _)| *k != Kind::ShoreCrab)
+            .any(|(k, _)| *k == Kind::ShoreCrab)
     );
 }
 
@@ -139,6 +148,8 @@ fn a_crab_gathering_beside_it_is_never_touched() {
         .find(|n| n.pos.x < 600.0 && (n.pos.y - level.floor_height(n.pos.x)).abs() < 20.0)
         .copied()
         .expect("a node on foot");
+    let mut level = level;
+    level.foes.retain(|(k, _)| *k != Kind::ShoreCrab);
     let mut sim = Sim::new(crabsim::Tuning::default(), level);
     let at = Vec2::new(node.pos.x, sim.level.floor_height(node.pos.x));
     sim.add_crab(P, at);
