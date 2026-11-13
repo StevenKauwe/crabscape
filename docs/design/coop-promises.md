@@ -101,7 +101,7 @@ checked by fast tests (the browser runs can't, without downloading the 110 MB mo
 
 | What | Command | Where |
 |---|---|---|
-| Every scenario once, voice off (CI, every PR) | `cargo cooptest --repeat 1 --shard I/3` | the `co-op promises, part I of 3` jobs, at once (behind the required `browser` check) |
+| Every scenario once, voice off (CI, every PR) | `cargo cooptest --repeat 1 --shard I/4` | the `co-op promises, part I of 4` jobs, at once (behind the required `browser` check) |
 | Cellular session and delayed guest reconnect with voice on, live site and real introducer | `cargo cooptest --url https://stevenkauwe.github.io/crabscape/ --only cells-session,guest-reload --repeat 1 --voice on` | `coop.yml`, after each successful main CI |
 | Every scenario 3 times, voice off and on, and a stress run | `cargo cooptest --voice both --shard I/3`, `cargo cooptest --stress --steps 12` | `coop.yml`, daily or manually, local introducer |
 | Every scenario once in both voice modes, live site and real introducer | `cargo cooptest --url https://stevenkauwe.github.io/crabscape/ --repeat 1 --voice both --shard I/3` | `coop.yml`, daily or manually |
