@@ -1164,8 +1164,9 @@ impl Test<'_> {
     fn feel_strips(&mut self, prefix: &str) -> Result<()> {
         self.go("index.html")?;
         // The new creatures' tells, 10x slow: walk up to a snapping shrimp (it feels the steps), stand by a
-        // moray's crevice (it smells the crab).
-        for (kind, x, y, walk) in [("snapper", 210, 0, true), ("moray", 2480, 20, false)] {
+        // moray's crevice (it smells the crab). The snapper is the one at x 590, nearest home since #719 took the
+        // x 340 one away: start 130 short of it, on the shrimp row pocket's floor.
+        for (kind, x, y, walk) in [("snapper", 460, 0, true), ("moray", 2480, 20, false)] {
             self.go("assets/crab/crab-atlas-oil.png")?;
             self.eval(&format!(
                 r#"(localStorage.clear(),
