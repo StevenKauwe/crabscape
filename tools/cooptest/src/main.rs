@@ -1588,6 +1588,9 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 "document.getElementById('crabscape').setAttribute('data-cell-work-profile','1')",
             )?;
             let mut clock = AutosaveClock::default();
+            // Each change in whether autosave would accept the owner's spot
+            // (the page state's `spot=`), for a failure to show what held it.
+            let mut spots: Vec<String> = Vec::new();
             let connected_save = loop {
                 if let Some(saved) = saved_cells(&mut host)?
                     && saved.sim_tick > previous
@@ -1595,11 +1598,23 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                     break saved;
                 }
                 let state = host.b.attr("data-cell-page-state");
+                if let Some(spot) = state.as_deref().and_then(|s| s.split(" spot=").nth(1)) {
+                    let valid = spot.split(' ').next().unwrap_or_default();
+                    if spots
+                        .last()
+                        .is_none_or(|last| !last.contains(&format!(" {valid} ")))
+                    {
+                        spots.push(format!(
+                            "{:.0}s {valid} {spot}",
+                            started.elapsed().as_secs_f32()
+                        ));
+                    }
+                }
                 if clock.observe(state.as_deref(), Instant::now())
                     && started.elapsed().as_secs() > 45
                 {
                     return Err(host.failed(format!(
-                        "deep co-op owner save did not advance: {:.1} s of the game's autosave clock; autosave {state:?}",
+                        "deep co-op owner save did not advance: {:.1} s of the game's autosave clock; autosave {state:?}; spot changes {spots:?}",
                         clock.game_seconds
                     )));
                 }
@@ -1614,7 +1629,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                     host.failed("connected save did not contain the owner's newer position".into())
                 );
             }
-            eprintln!("deep-world autosave advanced while connected");
+            eprintln!("deep-world autosave advanced while connected; spot changes {spots:?}");
             guest.b.go("about:blank")?;
             host.until(30.0, "deep-world guest departure", |p| {
                 p.b.attr("data-cell-session").as_deref() == Some("solo")
