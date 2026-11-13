@@ -1007,7 +1007,9 @@ fn a_level_one_crab_with_no_kit_beats_each_shore_crab_and_a_gatherer_beside_one_
                     } else {
                         0.8 * dir
                     },
-                    jump_pressed: !close && tick % 50 == 0,
+                    // No hops in the last 150: the pocket crab walks under a
+                    // low slab (x 400 to 520, 120 up) a hop would land on.
+                    jump_pressed: (e.pos.x - me).abs() > 150.0 && tick % 50 == 0,
                     jump_held: tick % 50 < 30,
                     dodge_pressed: answer,
                     smash_pressed: close && (punish && e.state_tick.is_multiple_of(8) || first),

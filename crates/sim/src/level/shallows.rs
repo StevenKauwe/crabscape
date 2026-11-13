@@ -96,6 +96,10 @@ pub const SHORE_CRABS: &[(&str, f32)] = &[
     ("slope shore crab", 800.0),
     ("shelf shore crab", 1120.0),
     ("ledge shore crab", 2230.0),
+    // Where the home pocket's snapping shrimp stood (x 340): a passive
+    // fight a new crab can choose, never an ambush at its first gather
+    // (walks 280 to 520, 40 clear of the co-op dig spots at x 100 to 240).
+    ("pocket shore crab", 400.0),
 ];
 
 /// A short kelp climb to a small rock ledge: (name, the stalk, the ledge). The
