@@ -12,6 +12,9 @@
 //!   beside it shows through sponge door 1 from the shaft's foot.
 //! - **The rest at the mouth is legible.** The same hollow under a slab as every rest, a little larger and paler,
 //!   with a cairn of stones and a low warm glow.
+//! - **The way in pays at 15.** The entry hall's silt floor shows what its tier-2 nodes are before the crab is
+//!   on them: a seam of clay banded through the silt round the clay bank, worm casts and tube tips round the worm
+//!   mud, and a faint green-cyan mat glow on sponge door 1's floor that runs toward the glass beyond.
 //! - **Opening the plug is a reward.** When a crab below digs it open (`Net::cut`, read from the sim), shelf light
 //!   pours down the plug shaft, a small burst of grit falls at the opening and the rock grumbles; from above the
 //!   open plug is a dark hole with a stone rim in the shelf.
@@ -50,6 +53,8 @@ const GLASS: Color = Color::srgb(0.62, 0.95, 0.90);
 /// A rest's low light: warm, like home.
 const HEARTH: Color = Color::srgb(1.0, 0.78, 0.46);
 /// Shelf light poured down the plug shaft: pale daylight, a little green.
+/// The pit glow mat's light: greener than the glass, so the mat and the garden read as two things.
+const MAT_GLOW: Color = Color::srgb(0.45, 0.95, 0.70);
 const SHELF_LIGHT: Color = Color::srgb(0.84, 0.97, 0.92);
 
 /// The back wall is the world's painted rock, dimmed and cooled by a translucent sprite on the same shape: a
@@ -338,6 +343,110 @@ fn rest_glow() -> [(Vec2, Vec2, f32); 2] {
     ]
 }
 
+/// A drawn piece of the way in's dressing: ellipse (0) or rectangle (1), size, colour, centre (z as an offset
+/// over the dressing's depth) and turn.
+type Piece = (u8, Vec2, Color, Vec3, f32);
+
+/// The dressing round the upper gallery's tier-2 nodes, from where each lies (`foot` is the node's floor point):
+/// a clay seam in the silt round a clay bank, worm casts and tube tips round worm mud. Every piece lies within
+/// 60 of its node and on or just over its floor, so it dresses the node and blocks no way.
+fn haul_dressing(kind: NodeKind, foot: Vec2) -> Vec<Piece> {
+    let clay = Color::srgb(0.47, 0.30, 0.22);
+    let clay_pale = Color::srgb(0.60, 0.42, 0.31);
+    let silt = Color::srgb(0.30, 0.29, 0.25);
+    let cast = Color::srgb(0.40, 0.36, 0.29);
+    let tube = Color::srgb(0.72, 0.64, 0.52);
+    let at = |dx: f32, dy: f32, dz: f32| Vec3::new(foot.x + dx, foot.y + dy, dz);
+    match kind {
+        // Clay banded through the silt: two long low strata and a cut face, as a seam shows where water scours.
+        NodeKind::ClayBank => vec![
+            (0, Vec2::new(54.0, 5.0), clay, at(-6.0, 3.0, 0.00), 0.02),
+            (
+                0,
+                Vec2::new(40.0, 3.5),
+                clay_pale,
+                at(10.0, 9.0, 0.01),
+                -0.03,
+            ),
+            (0, Vec2::new(30.0, 3.0), clay, at(-28.0, 13.0, 0.02), 0.05),
+            (1, Vec2::new(5.0, 16.0), silt, at(34.0, 8.0, 0.03), 0.12),
+        ],
+        // Worm mud: soft mounds of casts and a few pale tube tips standing out of the silt.
+        NodeKind::WormMud => {
+            let mut out: Vec<Piece> = [
+                (-34.0, 9.0, 6.0),
+                (-20.0, 7.0, 5.0),
+                (26.0, 10.0, 6.5),
+                (44.0, 7.0, 4.5),
+            ]
+            .into_iter()
+            .enumerate()
+            .map(|(i, (dx, w, h))| {
+                (
+                    0,
+                    Vec2::new(w, h),
+                    cast,
+                    at(dx, h * 0.5, 0.01 * i as f32),
+                    0.0,
+                )
+            })
+            .collect();
+            for (i, (dx, h, turn)) in [(-27.0, 9.0, 0.15), (18.0, 11.0, -0.1), (36.0, 8.0, 0.2)]
+                .into_iter()
+                .enumerate()
+            {
+                out.push((
+                    1,
+                    Vec2::new(2.0, h),
+                    tube,
+                    at(dx, h * 0.5, 0.05 + 0.01 * i as f32),
+                    turn,
+                ));
+            }
+            out
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// The pit glow mat's light on sponge door 1's floor: a pool on the mat and a fainter one further east, so the
+/// eye runs on from the mat to the glass. (centre, size, colour, alpha)
+fn mat_glow(foot: Vec2) -> Vec<Spot> {
+    vec![
+        (
+            foot + Vec2::new(0.0, 6.0),
+            Vec2::new(90.0, 34.0),
+            MAT_GLOW,
+            0.26,
+        ),
+        (
+            foot + Vec2::new(0.0, 22.0),
+            Vec2::new(70.0, 60.0),
+            MAT_GLOW,
+            0.12,
+        ),
+        (
+            foot + Vec2::new(58.0, 5.0),
+            Vec2::new(60.0, 22.0),
+            MAT_GLOW,
+            0.08,
+        ),
+    ]
+}
+
+/// The upper gallery's tier-2 nodes on the way in: those in the entry hall or sponge door 1.
+fn way_in_nodes(sim: &Sim) -> Vec<(NodeKind, Vec2)> {
+    let rooms: Vec<Rect> = ["entry hall", "sponge door 1"]
+        .into_iter()
+        .filter_map(room)
+        .collect();
+    sim.placed_nodes()
+        .iter()
+        .filter(|p| p.kind.def().tier == 2 && rooms.iter().any(|r| r.contains(p.pos)))
+        .map(|p| (p.kind, p.pos))
+        .collect()
+}
+
 /// The shaft of shelf light poured down the open plug: from the plug's underside to the entry hall's floor, as
 /// the plug shaft's width. (centre x, top y, length, width)
 fn plug_beam(plug: Rect, floor: f32) -> (f32, f32, f32, f32) {
@@ -417,6 +526,22 @@ fn draw_door_and_wall(
                     Transform::from_translation(at.extend(z + 0.001)),
                 ));
             }
+        }
+    }
+    // The way in's dressing, under the nodes (2.6).
+    for (kind, foot) in way_in_nodes(&sim) {
+        for (shape, size, colour, at, turn) in haul_dressing(kind, foot) {
+            let mesh = if shape == 0 {
+                Mesh::from(Ellipse::new(size.x * 0.5, size.y * 0.5))
+            } else {
+                Mesh::from(Rectangle::new(size.x, size.y))
+            };
+            commands.spawn((
+                Mesh2d(meshes.add(mesh)),
+                MeshMaterial2d(paint(colour)),
+                Transform::from_translation(Vec3::new(at.x, at.y, 2.3 + at.z))
+                    .with_rotation(Quat::from_rotation_z(turn)),
+            ));
         }
     }
     // The mouth rest's marker: found by its door among the level's crevices.
@@ -517,6 +642,14 @@ fn spawn_glows(mut commands: Commands, sim: Res<Sim>, soft: Res<SoftTextures>) {
             .map(|p| p.pos - Vec2::Y * 6.0);
         for spot in sponge_glow(sponge, garden, door) {
             spawn(&mut commands, spot);
+        }
+    }
+    // The pit glow mat by sponge door 1.
+    for (kind, foot) in way_in_nodes(&sim) {
+        if kind == NodeKind::PitGlowSite {
+            for spot in mat_glow(foot) {
+                spawn(&mut commands, spot);
+            }
         }
     }
     // The mouth rest's hearth.
@@ -860,6 +993,41 @@ mod tests {
             .filter(|r| r.name.starts_with(prefix))
             .map(|r| r.rect)
             .collect()
+    }
+
+    #[test]
+    fn the_way_in_holds_a_clay_bank_worm_mud_and_a_pit_glow_mat_and_each_is_dressed_on_its_floor() {
+        let sim = Sim::new(crabsim::Tuning::default(), crabsim::Level::test_level());
+        let nodes = way_in_nodes(&sim);
+        let kinds: Vec<NodeKind> = nodes.iter().map(|n| n.0).collect();
+        for want in [NodeKind::ClayBank, NodeKind::WormMud, NodeKind::PitGlowSite] {
+            assert!(kinds.contains(&want), "{want:?} on the way in: {kinds:?}");
+        }
+        let mat = nodes
+            .iter()
+            .find(|n| n.0 == NodeKind::PitGlowSite)
+            .unwrap()
+            .1;
+        assert!(
+            room("sponge door 1").unwrap().contains(mat),
+            "the mat lies in the door: {mat}"
+        );
+        for (kind, foot) in nodes {
+            assert!(
+                (foot.y - sg::UPPER_FLOOR).abs() < 12.0,
+                "{kind:?} on the gallery floor: {foot}"
+            );
+            for (_, size, _, at, _) in haul_dressing(kind, foot) {
+                assert!(
+                    (at.x - foot.x).abs() <= 60.0,
+                    "{kind:?}'s dressing stays by it"
+                );
+                assert!(
+                    at.y - size.y * 0.5 >= foot.y - 6.0 && at.y <= foot.y + 30.0,
+                    "{kind:?}'s dressing lies low on its floor"
+                );
+            }
+        }
     }
 
     #[test]

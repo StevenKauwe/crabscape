@@ -210,6 +210,11 @@ fn nodes_per_kind_follow_the_tiers() {
             NodeKind::GritHeap => 3,
             NodeKind::SeaPenField | NodeKind::ClamBed | NodeKind::ToothBed => 1,
             _ => 0,
+        } + match def.kind {
+            // The upper gallery's way in pays at 15: a clay bank, worm mud
+            // and a pit glow mat.
+            NodeKind::ClayBank | NodeKind::WormMud | NodeKind::PitGlowSite => 1,
+            _ => 0,
         } + shallows_sites(def.kind)
             + sights(def.kind);
         // The half-tier kinds (level 8) have three spots each.
@@ -636,13 +641,13 @@ fn a_level_without_a_pocket_drops_its_nodes_and_keeps_the_rest() {
     let left = nodes(&bare);
     // The Silt and Deep Galleries and region 5's shelves go with the rocks
     // too (their roofs and tops are rocks), and with them the three glass
-    // gardens, the halls' twelve and the shelves' eight; region 6's caves and
+    // gardens and the way in's three tier-2 nodes, the halls' twelve and the shelves' eight; region 6's caves and
     // reef (rocks too) take their seven, and the shallows' lookouts, boulder
     // and trench hollow (rocks) theirs.
     assert_eq!(
         left.len(),
-        all - 59,
-        "the pockets' 12, the galleries' 3, the deep halls' 12, the shelves' 8, region 6's 7 and the shallows' 9 and the sights' 4 and the audit's 4 (far lookout, boulder, hollow, plug ledge) are gone"
+        all - 62,
+        "the pockets' 12, the galleries' 6, the deep halls' 12, the shelves' 8, region 6's 7 and the shallows' 9 and the sights' 4 and the audit's 4 (far lookout, boulder, hollow, plug ledge) are gone"
     );
     assert!(left.iter().all(|n| home_of(n.kind) != Some("bone hall")));
 }
