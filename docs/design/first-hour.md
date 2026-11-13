@@ -108,6 +108,20 @@ the main gathering skill about 15 at minute 20, and every skill 15 within three 
   from home pass the row shrimp (x 622) and the block shrimp (x 2,074); the flats ledge's stalk (x 2,392) stands just
   west of the cells check's dig at about x 2,470.
 
+### Built, part 3 (`level/shallows.rs`: sights a new crab sees and cannot reach yet)
+- **The high garden** ("high garden": ledge x 760 to 940, top 1,300; a canopy slab x 350 to 1,250, underside 1,530, over
+  it). In plain sight over the shelf from the lookout, the far lookout and the floor. The kelp stand by home climbs
+  to the surface, and a crab that kicks off it drifts east about two units per one it sinks, so a bare ledge would have
+  been a free glide; the canopy leaves 165 to sink under it, so only strokes carry the crab. Measured (route solver
+  from home, both lookouts and the floor): 0 and 1 eggs never rest on it; **2 eggs do** (stalk climbed in steps to
+  1,224, kick off east, two strokes, then a hop). Two sites (`shallows::SIGHT_SITES`, apart from `SITES` until wired) for a tier-3 want ("GlassSpongeGarden", "TwilightGlow",
+  place "high garden") and one find. The existing band rule (tier 1 above y -260) is waived for this place only.
+- **The glow ledge** ("glow ledge": ledge x 1,488 to 1,578, top 1,100, east of the sea arch over the trench's west rim)
+  and its **glass stair**, a bare rock stalk (`Growth::Rock`) at x 1,400 from y 60 to 1,140. Only glass grips climb it:
+  a glass-gripped crab with no egg reaches the ledge from home (walk to the rim, jump to the stalk, climb in steps,
+  kick off east). With no glass, 0 or 3 eggs never reach it from the rim, the trench, the block or the far ledge (a
+  fourth egg's strokes from the block kelp's top do). Two tier-1 sites (ShoreGlow, SnailRocks) and a find.
+- Both are named, in `bands.rs` and in `tests/shallows.rs` with both halves proved (about 90 s for the file).
 ## Playtest: what to try first (owner, 15 to 20 minutes)
 Start a **new crab** (a fresh save, or a private window on the web) and follow the guide's pill. The bot finishes the
 17 steps by about minute 15 on real ticks (`first_hours.rs`); a person reading the cards will take longer, and that is
