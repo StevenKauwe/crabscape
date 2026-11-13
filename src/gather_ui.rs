@@ -37,10 +37,20 @@ const WHY: Color = Color::srgba(0.85, 0.92, 0.95, 0.8);
 /// choose (`Sim`'s gather takes the nearest node it can work), a workable
 /// node with charges first, then any with charges, then the nearest; and
 /// whether it has charges. So a new crab beside a level-8 node and a level-1
-/// one is offered the one it can gather, not "Foraging 8".
+/// one is offered the one it can gather, not "Foraging 8"; and among those,
+/// the kind the guide's current step asks for.
 pub fn in_reach(sim: &Sim, id: crabsim::PlayerId) -> Option<(usize, bool)> {
     let crab = sim.crab(id).filter(|c| c.fighter.dead.is_none())?;
-    let mut best: Option<(usize, bool, bool, f32)> = None;
+    // The kind the guide's current step asks for, which the rules prefer
+    // among workable nodes in reach.
+    let wanted = (!crab.econ.guide.skipped)
+        .then(|| crab.econ.guide.current())
+        .flatten()
+        .and_then(|step| match step.cond {
+            crabsim::economy::guide::Cond::Gather(kind, _) => Some(kind),
+            _ => None,
+        });
+    let mut best: Option<(usize, (bool, bool), bool, f32)> = None;
     for (i, p) in sim.placed_nodes().iter().enumerate() {
         let d = p.pos.distance(crab.mover.pos);
         if d > gather::REACH {
@@ -48,12 +58,13 @@ pub fn in_reach(sim: &Sim, id: crabsim::PlayerId) -> Option<(usize, bool)> {
         }
         let ready = sim.shared.nodes.get(i).is_some_and(|n| n.charges > 0);
         let workable = ready && gather::check(crab, p.kind, &sim.tuning).is_ok();
+        let rank = (workable, workable && wanted == Some(p.kind));
         let better = match best {
             None => true,
-            Some((_, was_ok, was, far)) => (workable, ready, -d) > (was_ok, was, -far),
+            Some((_, was_rank, was, far)) => (rank, ready, -d) > (was_rank, was, -far),
         };
         if better {
-            best = Some((i, workable, ready, d));
+            best = Some((i, rank, ready, d));
         }
     }
     best.map(|(i, _, ready, _)| (i, ready))

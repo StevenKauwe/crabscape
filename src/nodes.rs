@@ -441,7 +441,7 @@ struct GuideMarker;
 /// so: past that the pill's words lead).
 const MARK_REACH: f32 = 900.0;
 /// How high over the node's centre it hangs, and how far it bobs.
-const MARK_ABOVE: f32 = 34.0;
+const MARK_ABOVE: f32 = 40.0;
 const MARK_BOB: f32 = 4.0;
 
 fn spawn_guide_marker(mut commands: Commands) {
@@ -455,10 +455,10 @@ fn spawn_guide_marker(mut commands: Commands) {
         ))
         .with_children(|m| {
             m.spawn((
-                Sprite::from_color(INK, Vec2::splat(11.0)),
+                Sprite::from_color(INK, Vec2::splat(15.0)),
                 Transform::from_xyz(0.0, 0.0, -0.01),
             ));
-            m.spawn(Sprite::from_color(gold, Vec2::splat(7.5)));
+            m.spawn(Sprite::from_color(gold, Vec2::splat(10.5)));
         });
 }
 

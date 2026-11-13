@@ -35,7 +35,7 @@ pub const RECIPE_XP_PERCENT: u32 = 300;
 /// Percent a tier 1 node's gather experience is paid at below level 15,
 /// fading to 100% by level 30 (the table in `nodes.rs` keeps the old 10 and
 /// 8, so the tier-by-tier pacing at higher levels is unchanged).
-pub const NODE_XP_PERCENT: u32 = 110;
+pub const NODE_XP_PERCENT: u32 = 120;
 
 /// The experience a gather of `def` pays a crab at skill `level`.
 pub fn node_xp(def: &super::nodes::NodeDef, level: u32) -> u32 {
