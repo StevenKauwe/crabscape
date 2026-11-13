@@ -243,8 +243,7 @@ pub const SIGHT_SITES: &[(&str, &str, Vec2)] = &[
 ];
 
 pub const SITES: &[(&str, &str, Vec2)] = &[
-    // Home's pocket, between the home burrow's first shaft and the first
-    // snapping shrimp (x 340).
+    // Home's pocket, past the home burrow's first shaft (no shrimp stands by the door: the first gather is calm).
     ("home pocket", "ShoreGlow", Vec2::new(224.0, 0.0)),
     ("home pocket", "KelpStand", Vec2::new(234.0, 0.0)),
     ("home pocket", "SnailRocks", Vec2::new(244.0, 0.0)),
@@ -255,7 +254,7 @@ pub const SITES: &[(&str, &str, Vec2)] = &[
     ("far lookout", "ShoreGlow", Vec2::new(785.0, 704.0)),
     ("far lookout", "SnailRocks", Vec2::new(820.0, 704.0)),
     ("far lookout", "BarnacleRock", Vec2::new(838.0, 704.0)),
-    // The shrimp row's pocket, between the two shrimp (x 340 and 590).
+    // The shrimp row's pocket, short of the shrimp at x 590.
     ("shrimp row", "MusselClump", Vec2::new(440.0, 0.0)),
     ("shrimp row", "GritHeap", Vec2::new(458.0, 0.0)),
     ("shrimp row", "SnailRocks", Vec2::new(476.0, 0.0)),

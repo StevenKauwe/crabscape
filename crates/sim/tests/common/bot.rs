@@ -80,8 +80,7 @@ pub const STRETCH_CAP_SECS: f64 = 180.0;
 /// The bot leaves a label for something else after this long on it.
 const STRETCH_SWITCH_SECS: f64 = 60.0;
 
-/// The home side: the snapping shrimps of the safe pockets.
-const SNAPPER_A: f32 = 340.0;
+/// The home side: the snapping shrimp past the second pocket (none stands by the door: the first gather is calm).
 const SNAPPER_B: f32 = 590.0;
 /// The row shrimp (`level::shallows`), just past the second pocket.
 const SNAPPER_C: f32 = 622.0;
@@ -398,10 +397,6 @@ impl Bot {
     /// Walk home and tuck in; the shell empties into the bank.
     fn go_home(&mut self) {
         self.wait_alive();
-        // The snapper at the first pocket's far side may stand in the way.
-        if self.pos().x > SNAPPER_A + 20.0 {
-            self.cross_snapper(SNAPPER_A - 60.0);
-        }
         self.go_home_plain();
     }
 
@@ -450,25 +445,15 @@ impl Bot {
         }
     }
 
-    /// The snapper at the first pocket's edge stands between the door and the
-    /// second pocket: if the crab is about to pass it and it is up, fight it
-    /// first (it is the weakest beatable foe near home).
+    /// The snapper past the second pocket stands between the door and the shelf: if the crab is about to pass it and
+    /// it is up, fight it first (it is the weakest beatable foe near home).
     fn cross_snapper(&mut self, to_x: f32) -> bool {
         let from = self.pos().x;
-        for at in [SNAPPER_A, SNAPPER_B] {
-            let crossing = (from < at) != (to_x < at);
-            if crossing && self.snapper_up(at) {
-                // The second one is reached through the first.
-                if at > SNAPPER_A && from < SNAPPER_A && self.snapper_up(SNAPPER_A) {
-                    self.fight(SNAPPER_A);
-                } else {
-                    if at > SNAPPER_A {
-                        self.walk_to(at - 190.0, 4.0);
-                    }
-                    self.fight(at);
-                }
-                return true;
-            }
+        let crossing = (from < SNAPPER_B) != (to_x < SNAPPER_B);
+        if crossing && self.snapper_up(SNAPPER_B) {
+            self.walk_to(SNAPPER_B - 190.0, 4.0);
+            self.fight(SNAPPER_B);
+            return true;
         }
         false
     }
@@ -1146,7 +1131,7 @@ impl Bot {
         if focus.is_some() {
             return out;
         }
-        let home = [SNAPPER_A, SNAPPER_B, SNAPPER_C]
+        let home = [SNAPPER_B, SNAPPER_C]
             .into_iter()
             .find(|&at| self.snapper_up(at));
         let far = self.snapper_up(SNAPPER_FAR) || self.snapper_up(SNAPPER_BLOCK);
@@ -1217,9 +1202,6 @@ impl Bot {
             Session::Fight(at) => {
                 self.tag(None);
                 self.leave_home();
-                if at > SNAPPER_A && self.snapper_up(SNAPPER_A) {
-                    self.fight(SNAPPER_A);
-                }
                 if at > SNAPPER_B && !self.dead() && self.snapper_up(SNAPPER_B) {
                     self.walk_to(SNAPPER_B - 190.0, 4.0);
                     self.fight(SNAPPER_B);
@@ -1416,15 +1398,10 @@ impl Bot {
             }
             Cond::Level(Skill::Survival, _) | Cond::Band(_) => self.survive_session(),
             Cond::Beat(_) | Cond::Level(Skill::Fighting, _) => {
-                if self.snapper_up(SNAPPER_A) || self.snapper_up(SNAPPER_B) {
-                    let at = if self.snapper_up(SNAPPER_A) {
-                        SNAPPER_A
-                    } else {
-                        SNAPPER_B
-                    };
+                if self.snapper_up(SNAPPER_B) {
                     let c = Candidate {
                         label: "fight snapping shrimp".to_string(),
-                        kind: Session::Fight(at),
+                        kind: Session::Fight(SNAPPER_B),
                         serves: vec![Skill::Fighting],
                     };
                     self.run(&c);
