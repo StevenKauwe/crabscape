@@ -294,12 +294,18 @@ fn danger(kind: crabsim::Kind, t: &Tuning) -> f32 {
     }
 }
 
-/// The tier 1 nodes on foot from home.
+/// The tier 1 nodes on foot from home, on the seabed (the lookout's, 700
+/// up the kelp stand, are out of the shrimp's reach; the calm-harvest test
+/// below checks them with the real foes).
 fn home_cluster() -> Vec<(NodeKind, f32)> {
     let level = Level::test_level();
     nodes(&level)
         .into_iter()
-        .filter(|n| n.kind.def().tier == 1 && n.pos.x < 600.0)
+        .filter(|n| {
+            n.kind.def().tier == 1
+                && n.pos.x < 600.0
+                && (n.pos.y - level.floor_height(n.pos.x)).abs() < 20.0
+        })
         .map(|n| (n.kind, n.pos.x))
         .collect()
 }

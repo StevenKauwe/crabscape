@@ -51,6 +51,10 @@ pub struct NodeSpot {
     pub dy: f32,
     /// The landmark this spot lies inside, by name; `None` for the open map.
     pub place: Option<&'static str>,
+    /// A ledge's height: the spot lies on the ground under this `y` (just
+    /// above it), not on the seabed under `x`. For the shallows' raised sites
+    /// (`level::shallows::SITES`: the lookout, the boulder, the crest).
+    pub ground: Option<f32>,
 }
 
 /// How high above the floor a node's centre sits.
@@ -64,6 +68,19 @@ const fn s(kind: NodeKind, x: f32) -> NodeSpot {
         x,
         dy: SIT,
         place: None,
+        ground: None,
+    }
+}
+
+/// A spot on the ground at a site (`x`, `y`): a ledge or rise the seabed
+/// under `x` does not give.
+const fn on(kind: NodeKind, x: f32, y: f32) -> NodeSpot {
+    NodeSpot {
+        kind,
+        x,
+        dy: SIT,
+        place: None,
+        ground: Some(y),
     }
 }
 
@@ -74,6 +91,7 @@ const fn at(place: &'static str, kind: NodeKind, x: f32) -> NodeSpot {
         x,
         dy: SIT,
         place: Some(place),
+        ground: None,
     }
 }
 
@@ -278,8 +296,32 @@ pub const SPOTS: &[NodeSpot] = &[
     at("reef west bay", K::BlackCoral, 12500.0),
     at("reef great hall", K::BlackCoral, 13850.0),
     at("reef east bay", K::BlackCoral, 14550.0),
+    // The shallows' sites (`level::shallows::SITES`, the world lane's), the
+    // ones no spot above already covers: the lookout up the kelp stand, the
+    // boulder, the shelf and its east end, the trench rim, the far ledge's
+    // start, slope and foot; and the trench hollow's tier 2, a level-1
+    // crab's first dive. The crest's two (x 2,745 and 2,775 at 860) hold no
+    // node: the loggerhead turtle's bite reaches a crab working there. Each lies on the ground at its site's
+    // height. Appended, so earlier indices hold.
+    on(K::KelpStand, 390.0, 704.0),
+    on(K::MusselClump, 430.0, 704.0),
+    on(K::MusselClump, 662.0, 100.0),
+    on(K::SnailRocks, 700.0, 100.0),
+    on(K::KelpStand, 776.0, 94.0),
+    on(K::MusselClump, 806.0, 105.0),
+    on(K::SnailRocks, 836.0, 110.0),
+    on(K::GritHeap, 1070.0, 110.0),
+    on(K::ShoreGlow, 1100.0, 110.0),
+    on(K::SnailRocks, 1264.0, 110.0),
+    on(K::GritHeap, 1284.0, 110.0),
+    on(K::ShoreGlow, 1876.0, 110.0),
+    on(K::MusselClump, 1906.0, 110.0),
+    on(K::SnailRocks, 2190.0, 76.0),
+    on(K::GritHeap, 2335.0, 33.0),
+    on(K::ClamBed, 1415.0, -480.0),
+    on(K::ClayBank, 1455.0, -480.0),
+    on(K::WormMud, 1495.0, -480.0),
 ];
-
 /// Where a spot lies on this level, or `None` when its named place is not
 /// in the level.
 fn place_of(
@@ -288,6 +330,12 @@ fn place_of(
     bodies: &[StrataBody],
     s: &NodeSpot,
 ) -> Option<Vec2> {
+    if let Some(y) = s.ground {
+        // A site the world lane authored at the ground's height: the ground
+        // just under it (a level without that ledge drops the spot).
+        let floor = level.ground_below(Vec2::new(s.x, y + 16.0))?;
+        return ((floor - y).abs() <= 24.0).then(|| Vec2::new(s.x, floor + s.dy));
+    }
     let Some(name) = s.place else {
         return Some(Vec2::new(s.x, level.floor_height(s.x) + s.dy));
     };
