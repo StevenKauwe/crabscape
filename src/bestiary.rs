@@ -17,6 +17,7 @@ impl Plugin for BestiaryPlugin {
             grouper::GrouperPlugin,
             lobster::LobsterPlugin,
             hermit::HermitPlugin,
+            shore_crab::ShoreCrabPlugin,
             bobbit::BobbitPlugin,
             isopod::IsopodPlugin,
             hagfish::HagfishPlugin,

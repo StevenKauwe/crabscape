@@ -283,6 +283,10 @@ fn danger(kind: crabsim::Kind, t: &Tuning) -> f32 {
     use crabsim::Kind;
     let e = kind.tuning(t);
     match kind {
+        // A passive roamer never strikes first: a crab at a node beside it is
+        // never touched, so it keeps no distance (docs/design/decisions.md,
+        // "The shore crab is passive").
+        Kind::ShoreCrab => 0.0,
         Kind::Octopus => e.notice_range + 20.0,
         Kind::HermitCrab | Kind::GiantIsopod | Kind::Lobster => {
             e.give_up_range + e.strike_range + 20.0
