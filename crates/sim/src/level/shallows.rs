@@ -207,6 +207,17 @@ fn hollow_rocks() -> [Rect; 5] {
 /// start, its slope and its foot (the crest of the cliff above the basin holds none: the loggerhead at
 /// (2,429, 919) reaches it)
 /// (reached only with the strokes the far ledge's eggs give).
+/// Sights of later, seen from the way out and not reached by a new crab: the high garden (two eggs' strokes from the
+/// kelp) and the glow ledge (glass grips). `(place, suggested node kind, point on its top)`, apart from `SITES` until
+/// the systems lead wires them (every `SITES` entry holds a node: `economy_core`), tier 3 and tier 1 kinds for it to
+/// decide.
+pub const SIGHT_SITES: &[(&str, &str, Vec2)] = &[
+    ("high garden", "GlassSpongeGarden", Vec2::new(810.0, 1300.0)),
+    ("high garden", "TwilightGlow", Vec2::new(880.0, 1300.0)),
+    ("glow ledge", "ShoreGlow", Vec2::new(1515.0, 1100.0)),
+    ("glow ledge", "SnailRocks", Vec2::new(1550.0, 1100.0)),
+];
+
 pub const SITES: &[(&str, &str, Vec2)] = &[
     // Home's pocket, between the home burrow's first shaft and the first
     // snapping shrimp (x 340).
@@ -248,13 +259,6 @@ pub const SITES: &[(&str, &str, Vec2)] = &[
     // Further down the far ledge's slope.
     ("far ledge foot", "GritHeap", Vec2::new(2335.0, 33.0)),
     ("far ledge foot", "ShoreGlow", Vec2::new(2355.0, 30.0)),
-    // Sights of later, seen from the way out and not reached by a new crab:
-    // the high garden (two eggs' strokes from the kelp) and the glow ledge
-    // (glass grips), tier 3 and tier 1 kinds, for the systems lead to decide.
-    ("high garden", "GlassSpongeGarden", Vec2::new(810.0, 1300.0)),
-    ("high garden", "TwilightGlow", Vec2::new(880.0, 1300.0)),
-    ("glow ledge", "ShoreGlow", Vec2::new(1515.0, 1100.0)),
-    ("glow ledge", "SnailRocks", Vec2::new(1550.0, 1100.0)),
     // Tier 2: the trench hollow, a level-1 crab's first dive.
     ("trench hollow", "ClamBed", Vec2::new(1415.0, -480.0)),
     ("trench hollow", "ClayBank", Vec2::new(1455.0, -480.0)),

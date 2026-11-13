@@ -239,7 +239,7 @@ fn every_site_is_on_a_floor_in_its_band_and_out_of_every_foes_reach() {
     let level = Level::test_level();
     let t = Tuning::default();
     let foes = foes(&level);
-    for &(place, kind, at) in sh::SITES {
+    for &(place, kind, at) in sh::SITES.iter().chain(sh::SIGHT_SITES) {
         let ground = level
             .ground_below(at + Vec2::Y * 16.0)
             .unwrap_or_else(|| panic!("{place} {at}: no ground"));
@@ -761,7 +761,7 @@ fn the_high_garden_waits_for_two_eggs_strokes_from_the_kelp() {
     let level = Level::test_level();
     // Plain sight: higher than every place a new crab stands, and the sites
     // lie on its top.
-    for &(place, _, at) in sh::SITES.iter().filter(|s| s.0 == "high garden") {
+    for &(place, _, at) in sh::SIGHT_SITES.iter().filter(|s| s.0 == "high garden") {
         assert!(
             at.x >= sh::GARDEN.min.x && at.x <= sh::GARDEN.max.x,
             "{place}"
@@ -769,11 +769,17 @@ fn the_high_garden_waits_for_two_eggs_strokes_from_the_kelp() {
         assert_eq!(at.y, sh::GARDEN_TOP);
         assert!(level.place_at(at).is_none());
     }
-    assert!(sh::SITES.iter().filter(|s| s.0 == "high garden").count() >= 2);
+    assert!(
+        sh::SIGHT_SITES
+            .iter()
+            .filter(|s| s.0 == "high garden")
+            .count()
+            >= 2
+    );
     // Out of every creature's reach.
     let t = Tuning::default();
     for &(kind, at) in &foes(&level) {
-        for &(_, _, site) in sh::SITES.iter().filter(|s| s.0 == "high garden") {
+        for &(_, _, site) in sh::SIGHT_SITES.iter().filter(|s| s.0 == "high garden") {
             assert!(site.distance(at) > danger(kind, &t), "{kind:?} at {at}");
         }
     }
@@ -808,7 +814,10 @@ fn the_glow_ledge_waits_for_glass_grips_up_the_bare_face() {
     assert!(level.climbs.contains(&sh::GLASS_STAIR));
     // Its sites lie on its top, out of every creature's reach.
     let t = Tuning::default();
-    let sites: Vec<_> = sh::SITES.iter().filter(|s| s.0 == "glow ledge").collect();
+    let sites: Vec<_> = sh::SIGHT_SITES
+        .iter()
+        .filter(|s| s.0 == "glow ledge")
+        .collect();
     assert!(sites.len() >= 2);
     for &&(_, _, at) in &sites {
         assert!(at.x >= sh::GLOW_LEDGE.min.x && at.x <= sh::GLOW_LEDGE.max.x);

@@ -114,7 +114,7 @@ the main gathering skill about 15 at minute 20, and every skill 15 within three 
   to the surface, and a crab that kicks off it drifts east about two units per one it sinks, so a bare ledge would have
   been a free glide; the canopy leaves 165 to sink under it, so only strokes carry the crab. Measured (route solver
   from home, both lookouts and the floor): 0 and 1 eggs never rest on it; **2 eggs do** (stalk climbed in steps to
-  1,224, kick off east, two strokes, then a hop). Two sites for a tier-3 want ("GlassSpongeGarden", "TwilightGlow",
+  1,224, kick off east, two strokes, then a hop). Two sites (`shallows::SIGHT_SITES`, apart from `SITES` until wired) for a tier-3 want ("GlassSpongeGarden", "TwilightGlow",
   place "high garden") and one find. The existing band rule (tier 1 above y -260) is waived for this place only.
 - **The glow ledge** ("glow ledge": ledge x 1,488 to 1,578, top 1,100, east of the sea arch over the trench's west rim)
   and its **glass stair**, a bare rock stalk (`Growth::Rock`) at x 1,400 from y 60 to 1,140. Only glass grips climb it:
