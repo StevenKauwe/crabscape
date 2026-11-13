@@ -18,7 +18,7 @@
 //! It fails when either peak passes its budget (`--max-wasm-mib`, `--max-gpu-mib`; defaults below). The budgets sit
 //! well under a phone's limit, which also has to hold the browser itself, its JavaScript and the decoded pages.
 //!
-//! Usage: `memory_budget WEB_DIRECTORY [--query quality=high] [--large-save] [--out DIR] [--max-wasm-mib N] [--max-gpu-mib N]`
+//! Usage: `memory_budget WEB_DIRECTORY [--query quality=high] [--large-save] [--out DIR] [--max-wasm-mib N] [--max-gpu-mib N] [--max-buffers-per-frame N]`
 //! or `memory_budget --url URL ...` for a deployed build.
 #[allow(dead_code)]
 #[path = "../chrome.rs"]
@@ -40,6 +40,10 @@ use std::{
 const MAX_WASM_MIB: f64 = 300.0;
 /// All WebGL textures, renderbuffers, buffers and the canvas's drawing buffers together, in MiB.
 const MAX_GPU_MIB: f64 = 160.0;
+/// New WebGL buffers a frame while the crab idles at home. Each is a GPU allocation the iPhone's Safari
+/// charges to the page: at about 330 a frame (11,000 a second: a new material for every sprite whose
+/// colour changed), the page passed 2 GB while WebGL itself held 100 MiB (see `src/sprite_steps.rs`).
+const MAX_BUFFERS_PER_FRAME: f64 = 30.0;
 
 /// Installed before any of the page's scripts: keeps each WebAssembly memory and tallies WebGL allocations.
 const INSTRUMENT: &str = r#"(()=>{
@@ -79,6 +83,8 @@ const INSTRUMENT: &str = r#"(()=>{
  wrap('bufferData',(gl,a)=>{const n=typeof a[1]==='number'?a[1]:(a[4]!==undefined?a[4]*(a[1].BYTES_PER_ELEMENT||1):(a[1]?.byteLength||0));
   set('buf',st(gl).buf[a[0]],n,{})});
  wrap('deleteBuffer',(gl,a)=>drop(a[0]));
+ s.created=0;s.frames=0;wrap('createBuffer',()=>{s.created++});
+ (function f(){s.frames++;requestAnimationFrame(f)})();
 })()"#;
 
 /// One sample of everything we count.
@@ -86,7 +92,7 @@ const SAMPLE: &str = r#"(()=>{const c=document.getElementById('crabscape'),s=win
  const gl=c&&c.getContext('webgl2'),attrs=gl&&gl.getContextAttributes();
  const drawing=c?c.width*c.height*(4*2+(attrs&&attrs.depth?4:0))*(attrs&&attrs.antialias?4:1):0;
  return {at:performance.now(),wasm:(window.__memories||[]).map(m=>m.buffer.byteLength),
-  tex:s.tex,rb:s.rb,buf:s.buf,drawing,canvas:c?[c.width,c.height]:null,
+  tex:s.tex,rb:s.rb,buf:s.buf,created:s.created,frames:s.frames,drawing,canvas:c?[c.width,c.height]:null,
   js:performance.memory?performance.memory.usedJSHeapSize:null,crab:c&&c.getAttribute('data-crab'),
   page:c&&c.getAttribute('data-cell-page-state')}})()"#;
 
@@ -260,6 +266,17 @@ fn peak(samples: &[Value], f: impl Fn(&Value) -> f64) -> (f64, String) {
         .fold((0.0, String::new()), |a, b| if b.0 > a.0 { b } else { a })
 }
 
+/// New WebGL buffers a frame over the samples of one phase.
+fn buffers_per_frame(samples: &[Value], phase: &str) -> f64 {
+    let mine: Vec<&Value> = samples.iter().filter(|s| s["phase"] == phase).collect();
+    let (Some(a), Some(b)) = (mine.get(mine.len() / 4), mine.last()) else {
+        return 0.0;
+    };
+    let frames = b["frames"].as_f64().unwrap_or(0.0) - a["frames"].as_f64().unwrap_or(0.0);
+    let made = b["created"].as_f64().unwrap_or(0.0) - a["created"].as_f64().unwrap_or(0.0);
+    if frames > 0.0 { made / frames } else { 0.0 }
+}
+
 fn wasm_bytes(s: &Value) -> f64 {
     s["wasm"]
         .as_array()
@@ -278,6 +295,7 @@ fn run() -> Result<()> {
     let (mut web, mut url, mut large, mut out) = (None, None, false, None);
     let mut query = String::new();
     let (mut max_wasm, mut max_gpu) = (MAX_WASM_MIB, MAX_GPU_MIB);
+    let mut max_churn = MAX_BUFFERS_PER_FRAME;
     let number = |v: Option<String>, what: &str| -> Result<f64> {
         v.ok_or(format!("{what} needs a number"))?
             .parse::<f64>()
@@ -291,9 +309,12 @@ fn run() -> Result<()> {
             "--out" => out = args.next().map(PathBuf::from),
             "--max-wasm-mib" => max_wasm = number(args.next(), "--max-wasm-mib")?,
             "--max-gpu-mib" => max_gpu = number(args.next(), "--max-gpu-mib")?,
+            "--max-buffers-per-frame" => {
+                max_churn = number(args.next(), "--max-buffers-per-frame")?
+            }
             "--help" => {
                 println!(
-                    "memory_budget WEB_DIRECTORY | --url URL [--query Q] [--large-save] [--out DIR] [--max-wasm-mib N] [--max-gpu-mib N]"
+                    "memory_budget WEB_DIRECTORY | --url URL [--query Q] [--large-save] [--out DIR] [--max-wasm-mib N] [--max-gpu-mib N] [--max-buffers-per-frame N]"
                 );
                 return Ok(());
             }
@@ -374,6 +395,7 @@ fn run() -> Result<()> {
     let (renderer, renderer_at) = peak(&p.samples, |s| s["renderer_rss"].as_f64().unwrap_or(0.0));
     let (gpu_rss, _) = peak(&p.samples, |s| s["gpu_rss"].as_f64().unwrap_or(0.0));
     let first = p.samples.first().cloned().unwrap_or(Value::Null);
+    let churn = buffers_per_frame(&p.samples, "home");
     let summary = json!({
         "large_save": large,
         "canvas": first["canvas"],
@@ -386,7 +408,8 @@ fn run() -> Result<()> {
         "js_heap_peak_mib": js / MIB,
         "page_process_peak_mib": renderer / MIB, "page_process_peak_phase": renderer_at,
         "gpu_process_peak_mib": gpu_rss / MIB,
-        "budget": {"wasm_mib": max_wasm, "gpu_mib": max_gpu},
+        "buffers_per_frame_at_home": churn,
+        "budget": {"wasm_mib": max_wasm, "gpu_mib": max_gpu, "buffers_per_frame": max_churn},
         "largest_allocations": largest,
         "wasm_growth": p.b.eval("window.__growth")?,
         "quality": p.b.attr("data-quality"),
@@ -405,7 +428,7 @@ fn run() -> Result<()> {
     write("summary.json", &summary)?;
     println!(
         "canvas {} | WebAssembly memory {:.0} MiB at start, peak {:.0} MiB ({wasm_at}) | WebGL {:.0} MiB peak \
-         ({gpu_at}): textures {:.0}, renderbuffers {:.0}, drawing buffer {:.0} | farthest {reached:.0} from home | page process {:.0} MiB, GPU process {:.0} MiB | {}",
+         ({gpu_at}): textures {:.0}, renderbuffers {:.0}, drawing buffer {:.0} | farthest {reached:.0} from home | {churn:.1} new WebGL buffers a frame at home | page process {:.0} MiB, GPU process {:.0} MiB | {}",
         first["canvas"],
         wasm_bytes(&first) / MIB,
         wasm / MIB,
@@ -433,6 +456,12 @@ fn run() -> Result<()> {
         over.push(format!(
             "WebGL memory peaked at {:.0} MiB (budget {max_gpu:.0})",
             gpu / MIB
+        ));
+    }
+    if churn > max_churn {
+        over.push(format!(
+            "{churn:.1} new WebGL buffers a frame at home (budget {max_churn:.0}): a sprite or material \
+             changes every frame (see src/sprite_steps.rs)"
         ));
     }
     if !over.is_empty() {

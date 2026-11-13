@@ -147,6 +147,7 @@ mod sizes;
 mod skill_juice;
 mod skills_panel;
 mod sound;
+mod sprite_steps;
 mod stamina;
 mod triggerfish;
 mod tuning;
@@ -223,6 +224,8 @@ fn run_app() {
         ui_theme::UiThemePlugin,
         screen_fit::ScreenFitPlugin,
         corner::CornerPlugin,
+        // Animated sprites reuse their GPU materials (an iPhone's page memory).
+        sprite_steps::SpriteStepsPlugin,
     ))
     .init_resource::<tuning::ViewTuning>()
     // The game's core, then the world's things and the HUD. (Bevy takes
