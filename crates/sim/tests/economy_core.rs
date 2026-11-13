@@ -69,13 +69,17 @@ fn nodes_per_kind_follow_the_tiers() {
         // whale-fall bones; region 5's shelf tops three glass gardens and
         // scallop beds, and a sea-pen field and a clam bed.
         let extra = match def.kind {
+            NodeKind::BlackCoral => 6,
             NodeKind::FishFall
-            | NodeKind::BlackCoral
             | NodeKind::WhaleFallBones
             | NodeKind::GlassSpongeGarden
             | NodeKind::ScallopBed
             | NodeKind::NoduleField => 3,
-            NodeKind::SeaPenField | NodeKind::ClamBed => 1,
+            // Region 6: a grit heap in each upper cave, black coral on each
+            // of the reef's three mounds (three more than the hall's, above),
+            // and one midden (a tooth bed).
+            NodeKind::GritHeap => 3,
+            NodeKind::SeaPenField | NodeKind::ClamBed | NodeKind::ToothBed => 1,
             _ => 0,
         };
         // The half-tier kinds (level 8) have three spots each.
@@ -372,6 +376,13 @@ fn deep_hall(level: &Level, pos: Vec2) -> Option<&'static str> {
         "sponge garden tower shelf",
         "sponge garden first arch",
         "sponge garden second arch",
+        "midden cave",
+        "rubble hall",
+        "cobble cave",
+        "pillar cave",
+        "reef west bay",
+        "reef great hall",
+        "reef east bay",
     ]
     .into_iter()
     .find(|h| {
@@ -425,6 +436,18 @@ fn nodes_lie_in_their_places_on_a_floor_and_never_in_a_mouth() {
     // first dig's payoff; tier 2 there would pay twice the hub).
     assert_eq!(counts.get("home burrow"), None);
     assert_eq!(counts.get("bone hall"), Some(&6));
+    // Region 6: one node in each cave and reef room the world lane named.
+    for room in [
+        "midden cave",
+        "rubble hall",
+        "cobble cave",
+        "pillar cave",
+        "reef west bay",
+        "reef great hall",
+        "reef east bay",
+    ] {
+        assert_eq!(counts.get(room), Some(&1), "{room}");
+    }
     assert_eq!(counts.get("seep garden"), Some(&6));
     assert_eq!(counts.get("vent field"), Some(&17));
     // The glass gardens, one in each of the Silt Galleries' sponge galleries.
@@ -446,6 +469,34 @@ fn nodes_lie_in_their_places_on_a_floor_and_never_in_a_mouth() {
     }
 }
 
+/// Region 6's nodes stand where the world lane put them
+/// (`level::slope_caves::NODE_SITES`), on the ground within a few units of
+/// each site. The reef's mounds hold black coral, not the bamboo coral the
+/// sites name: the reef is in the midnight band and bamboo coral is tier 5.
+#[test]
+fn region_six_nodes_stand_on_the_world_lanes_sites() {
+    use crabsim::level::slope_caves::NODE_SITES;
+    let level = Level::test_level();
+    let placed = nodes(&level);
+    for (room, kind, at) in NODE_SITES {
+        let kind = if kind == "BambooCoral" {
+            "BlackCoral"
+        } else {
+            kind
+        };
+        let near = placed
+            .iter()
+            .filter(|n| format!("{:?}", n.kind) == kind)
+            .map(|n| n.pos.distance(at))
+            .min_by(f32::total_cmp)
+            .unwrap_or(f32::INFINITY);
+        assert!(
+            near < 12.0,
+            "{kind} in {room}: nearest is {near} from {at:?}"
+        );
+    }
+}
+
 #[test]
 fn a_level_without_a_pocket_drops_its_nodes_and_keeps_the_rest() {
     let level = Level::test_level();
@@ -455,11 +506,12 @@ fn a_level_without_a_pocket_drops_its_nodes_and_keeps_the_rest() {
     let left = nodes(&bare);
     // The Silt and Deep Galleries and region 5's shelves go with the rocks
     // too (their roofs and tops are rocks), and with them the three glass
-    // gardens, the halls' twelve and the shelves' eight.
+    // gardens, the halls' twelve and the shelves' eight; region 6's caves and
+    // reef (rocks too) take their seven.
     assert_eq!(
         left.len(),
-        all - 35,
-        "the pockets' 12, the galleries' 3, the deep halls' 12 and the shelves' 8 are gone"
+        all - 42,
+        "the pockets' 12, the galleries' 3, the deep halls' 12, the shelves' 8 and region 6's 7 are gone"
     );
     assert!(left.iter().all(|n| home_of(n.kind) != Some("bone hall")));
 }
