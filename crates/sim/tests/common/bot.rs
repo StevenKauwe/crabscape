@@ -89,10 +89,10 @@ const SNAPPER_C: f32 = 622.0;
 /// shrimp (`level::shallows`) 14 east of it.
 const SNAPPER_FAR: f32 = 2060.0;
 const SNAPPER_BLOCK: f32 = 2074.0;
-/// Where the far fight's stated trip sets the crab down: the far ledge, 100
-/// short of the old shrimp (out of its notice) and 200 past the trench's
-/// moray.
-const FAR_FIGHT_X: f32 = 1960.0;
+/// Where the far fight's stated trip sets the crab down: the far ledge east
+/// of the two shrimp (the block, x 1,940 to 2,030, stands west of them), out
+/// of the block shrimp's reach (to 2,146) and 230 short of the moray's den.
+const FAR_FIGHT_X: f32 = 2170.0;
 /// How near a shrimp's home is to the burrow it is named by (the row shrimp
 /// stands 32 from the second pocket's, the block shrimp 14 from the far
 /// ledge's).
@@ -175,6 +175,8 @@ pub struct Bot {
     /// (seconds, skill, level) in order.
     pub level_ups: Vec<(f64, Skill, u32)>,
     pub spans: Vec<Span>,
+    /// Every session's label and its whole time, door to door (sim seconds).
+    pub trips: Vec<(String, f64)>,
     open: Option<(f64, String)>,
     /// Sessions in order: (start, label), for stretches.
     sessions: Vec<(f64, f64, String)>,
@@ -236,6 +238,7 @@ impl Bot {
             craft_start: 0.0,
             egg_done: false,
             dig_done: false,
+            trips: Vec::new(),
 
             deaths: 0,
             gathers: Default::default(),
@@ -781,7 +784,8 @@ impl Bot {
             m.shelter = Shelter::Out;
             m.tucked = 0.0;
         }
-        for at in [SNAPPER_FAR, SNAPPER_BLOCK] {
+        // From the east: the block shrimp is the nearer.
+        for at in [SNAPPER_BLOCK, SNAPPER_FAR] {
             if !self.dead() && self.snapper_up(at) {
                 self.fight(at);
             }
@@ -1209,6 +1213,7 @@ impl Bot {
         if a.is_finite() {
             self.sessions.push((a, b, c.label.clone()));
         }
+        self.trips.push((c.label.clone(), self.now() - start));
         self.last_done.insert(c.label.clone(), self.now());
     }
 

@@ -31,37 +31,32 @@ const FOCUS_SECS: f64 = 90.0 * 60.0;
 /// Cooking, Shellcraft, Weaving, Building, Survival) in the mixed three hours;
 /// -1 is "not by 3 h".
 const MIXED: [[f64; 3]; 13] = [
-    [9.6, 11.0, 102.7],
-    [3.7, 81.2, 148.5],
-    [2.9, 98.4, 164.1],
-    [41.6, 95.3, 163.0],
-    [43.4, 96.9, 165.9],
-    [42.5, 97.5, 167.8],
-    [40.9, 96.2, 164.8],
-    [30.1, 46.8, 61.4],
-    [15.7, 29.2, 58.4],
-    [31.6, 83.6, 143.6],
-    [33.2, 59.2, 135.8],
-    [38.4, 69.0, 152.4],
-    [35.4, 89.5, 159.0],
+    [9.6, 11.0, 107.8],
+    [3.7, 85.4, 143.6],
+    [11.4, 96.4, 177.3],
+    [41.7, 98.9, 176.8],
+    [43.4, 102.1, 174.0],
+    [42.7, 104.0, 176.0],
+    [41.1, 98.4, 177.4],
+    [30.1, 45.0, 60.0],
+    [15.7, 29.2, 58.6],
+    [31.6, 81.7, 150.1],
+    [33.2, 61.8, 151.2],
+    [38.4, 74.3, 150.4],
+    [35.4, 95.0, 166.9],
 ];
 
 /// Level-ups across all thirteen skills in each 5-minute window of the mixed run.
-const LEVELUPS_PER_5MIN: [u32; 36] = [
-    13, 9, 8, 10, 8, 9, 5, 5, 10, 5, 8, 6, 6, 5, 2, 9, 8, 3, 6, 6, 10, 2, 6, 4, 4, 4, 5, 2, 2, 4,
-    7, 1, 4, 6, 0, 2,
-];
+const LEVELUPS_PER_5MIN: [u32; 36] = [12, 9, 8, 10, 8, 9, 5, 5, 9, 5, 11, 5, 4, 5, 5, 4, 9, 7, 3, 8, 3, 8, 2, 7, 4, 5, 1, 3, 5, 1, 6, 6, 1, 1, 3, 4];
 
 /// Distinct kinds of work (node kinds, recipes, fights, climbs...) in each
 /// 5-minute window of the mixed run.
-const DISTINCT_PER_5MIN: [u32; 36] = [
-    15, 3, 12, 14, 12, 13, 13, 9, 16, 17, 17, 15, 10, 15, 13, 18, 11, 9, 16, 20, 15, 7, 17, 14, 8,
-    13, 15, 13, 15, 12, 18, 7, 15, 17, 7, 15,
-];
+const DISTINCT_PER_5MIN: [u32; 36] = [15, 3, 12, 14, 12, 13, 13, 9, 16, 15, 18, 17, 13, 10, 15, 15, 20, 8, 11, 16, 16, 12, 7, 17, 15, 9, 16, 13, 13, 6, 20, 13, 12, 13, 19, 16];
 
 /// Every stretch of over 3 minutes on one node kind or recipe while something
 /// else was available: (start minute, what, seconds).
-const LONG_STRETCHES: &[(f64, &str, f64)] = &[];
+const LONG_STRETCHES: &[(f64, &str, f64)] = &[
+];
 
 /// The focused Prying run: minutes to level 5, 10 and 15 (-1: not reached).
 const PRYING_FOCUS: [f64; 3] = [4.2, 10.2, 16.9];
