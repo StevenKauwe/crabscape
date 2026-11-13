@@ -47,16 +47,21 @@ const MIXED: [[f64; 3]; 13] = [
 ];
 
 /// Level-ups across all thirteen skills in each 5-minute window of the mixed run.
-const LEVELUPS_PER_5MIN: [u32; 36] = [12, 9, 8, 10, 8, 9, 5, 5, 9, 5, 11, 5, 4, 5, 5, 4, 9, 7, 3, 8, 3, 8, 2, 7, 4, 5, 1, 3, 5, 1, 6, 6, 1, 1, 3, 4];
+const LEVELUPS_PER_5MIN: [u32; 36] = [
+    12, 9, 8, 10, 8, 9, 5, 5, 9, 5, 11, 5, 4, 5, 5, 4, 9, 7, 3, 8, 3, 8, 2, 7, 4, 5, 1, 3, 5, 1, 6,
+    6, 1, 1, 3, 4,
+];
 
 /// Distinct kinds of work (node kinds, recipes, fights, climbs...) in each
 /// 5-minute window of the mixed run.
-const DISTINCT_PER_5MIN: [u32; 36] = [15, 3, 12, 14, 12, 13, 13, 9, 16, 15, 18, 17, 13, 10, 15, 15, 20, 8, 11, 16, 16, 12, 7, 17, 15, 9, 16, 13, 13, 6, 20, 13, 12, 13, 19, 16];
+const DISTINCT_PER_5MIN: [u32; 36] = [
+    15, 3, 12, 14, 12, 13, 13, 9, 16, 15, 18, 17, 13, 10, 15, 15, 20, 8, 11, 16, 16, 12, 7, 17, 15,
+    9, 16, 13, 13, 6, 20, 13, 12, 13, 19, 16,
+];
 
 /// Every stretch of over 3 minutes on one node kind or recipe while something
 /// else was available: (start minute, what, seconds).
-const LONG_STRETCHES: &[(f64, &str, f64)] = &[
-];
+const LONG_STRETCHES: &[(f64, &str, f64)] = &[];
 
 /// The focused Prying run: minutes to level 5, 10 and 15 (-1: not reached).
 const PRYING_FOCUS: [f64; 3] = [4.2, 10.2, 16.9];
