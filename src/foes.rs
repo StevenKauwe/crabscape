@@ -139,6 +139,7 @@ fn spawn_foes(
             | Kind::GoliathGrouper
             | Kind::Lobster
             | Kind::HermitCrab
+            | Kind::ShoreCrab
             | Kind::BobbitWorm
             | Kind::GiantIsopod
             | Kind::Hagfish

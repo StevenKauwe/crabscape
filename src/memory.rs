@@ -485,6 +485,7 @@ fn ghost_colour(kind: Kind) -> Color {
         Kind::GoliathGrouper => Color::srgb(0.58, 0.52, 0.36),
         Kind::Lobster => Color::srgb(0.50, 0.32, 0.22),
         Kind::HermitCrab => Color::srgb(0.78, 0.55, 0.35),
+        Kind::ShoreCrab => Color::srgb(0.33, 0.42, 0.22),
         Kind::BobbitWorm => Color::srgb(0.62, 0.38, 0.58),
         Kind::GiantIsopod => Color::srgb(0.72, 0.70, 0.62),
         Kind::Hagfish => Color::srgb(0.66, 0.58, 0.60),

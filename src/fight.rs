@@ -273,6 +273,7 @@ fn hint(kind: Kind) -> Option<&'static str> {
         | Kind::GoliathGrouper
         | Kind::Lobster
         | Kind::HermitCrab
+        | Kind::ShoreCrab
         | Kind::BobbitWorm
         | Kind::GiantIsopod
         | Kind::Hagfish
