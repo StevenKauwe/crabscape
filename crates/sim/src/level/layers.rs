@@ -588,7 +588,7 @@ mod tests {
     fn ground_below_finds_the_floor_you_would_land_on() {
         let level = Level::test_level();
         // Over the open sea floor it is the heightmap, as ever.
-        for x in [160.0, 560.0, 1450.0, 2600.0, 4000.0, 6500.0, 9000.0] {
+        for x in [160.0, 560.0, 1450.0, 2700.0, 4000.0, 6500.0, 9000.0] {
             let floor = level.floor_height(x);
             let g = level
                 .ground_below(Vec2::new(x, floor + 300.0))

@@ -83,7 +83,7 @@ the main gathering skill about 15 at minute 20, and every skill 15 within three 
 - **No pool yet.** A ledge pool at the foot of the far ledge trapped a crab walking east in the cells world, and a
   shallow one the bake fills with sand; the trench is the first dive. The shelf could not take one either (the
   arena of several creature and economy tests).
-- **The lookout** (x 368 to 458, top y 704), stepped onto from the kelp stand by home: the first climb, a site on top
+- **The lookout** (x 330 to 490, top y 704, 160 wide), stepped onto from the kelp stand by home: the first climb, a site on top
   and a view.
 - **Trench hollow** (x 1,380 to 1,520, y -480 to -340): a bay off the silt mouth's shaft, below the tier-2 line,
   holding the first tier-2 sites a level-1 crab sees.
@@ -101,10 +101,10 @@ the main gathering skill about 15 at minute 20, and every skill 15 within three 
   shelf's east end (x 1,120, 1,000 to 1,240) and the far ledge's slope (x 2,230, 2,110 to 2,350). Walks clear the co-op dig
   spots, the rests, the home door, the plug shaft's mouth and the moray's reach; none on the trench floor (a rest crevice
   and a moray at each end). A bare level-1 crab beats each; a gatherer beside one is never hit.
-- **Two kelp ledges** (`KELP_LEDGES`): "block kelp ledge" (stalk x 1,980 on the block's top, ledge x 1,802 to 1,892, top 460)
-  and "flats kelp ledge" (stalk x 2,392, ledge x 2,480 to 2,570, top 200). Each is climbed with no upgrade and pays
+- **Two kelp ledges** (`KELP_LEDGES`): "block kelp ledge" (stalk x 1,980 on the block's top, ledge x 1,732 to 1,892, top 460)
+  and "flats kelp ledge" (stalk x 2,392, ledge x 2,480 to 2,640, top 200). Each is climbed with no upgrade and pays
   Climbing XP. (Nothing under y 664 fits in x 400 to 1,400: the cell-join tests' pebbles lie there.)
-- **The paddle gap**: the lookout's east end to the "far lookout" (x 758 to 848, top 704), 300 apart and 600 above the
+- **The paddle gap**: the lookout's east end to the "far lookout" (x 790 to 950, top 704, 160 wide), 300 apart and 600 above the
   floor. A jump alone carries about 275; one egg's stroke crosses. The far lookout holds two sites (ShoreGlow,
   SnailRocks) and a find. A miss lands on the egg ledge or the floor, unhurt.
 - The boulder sites moved to x 695 and 710 (92 clear of the row shrimp); "the lookout" gained a neighbour, "far lookout".
@@ -120,7 +120,7 @@ the main gathering skill about 15 at minute 20, and every skill 15 within three 
   from home, both lookouts and the floor): 0 and 1 eggs never rest on it; **2 eggs do** (stalk climbed in steps to
   1,224, kick off east, two strokes, then a hop). Two sites (`shallows::SIGHT_SITES`, apart from `SITES` until wired) for a tier-3 want ("GlassSpongeGarden", "TwilightGlow",
   place "high garden") and one find. The existing band rule (tier 1 above y -260) is waived for this place only.
-- **The glow ledge** ("glow ledge": ledge x 1,488 to 1,578, top 1,100, east of the sea arch over the trench's west rim)
+- **The glow ledge** ("glow ledge": ledge x 1,488 to 1,648, top 1,100, east of the sea arch over the trench's west rim)
   and its **glass stair**, a bare rock stalk (`Growth::Rock`) at x 1,400 from y 60 to 1,140. Only glass grips climb it:
   a glass-gripped crab with no egg reaches the ledge from home (walk to the rim, jump to the stalk, climb in steps,
   kick off east). With no glass, 0 or 3 eggs never reach it from the rim, the trench, the block or the far ledge (a
@@ -173,7 +173,7 @@ places or methods by 15, and something new around level 5 or 10, so no skill is 
   sends a crab somewhere new rather than back to the home pocket: barnacles on the far lookout's wave-washed top,
   brittle stars in the cracks of the boulder half-buried in the slope, purple film in the shade under the sea arch at
   the trench rim, eelgrass on the far ledge's slope and sand dollars on the sand at the far ledge's foot. The home pocket ones stay.
-  Sites: barnacle rock x 838 (far lookout), brittle-star crevice x 720 (the boulder's east edge), purple film x 1,246
+  Sites: barnacle rock x 868 (far lookout), brittle-star crevice x 720 (the boulder's east edge), purple film x 1,246
   (trench rim), eelgrass x 2,310 (slope), sand dollars x 2,385 (foot).
 - **Tier 2 for Harvesting and Culturing near home.** A sea-pen field in the trench hollow's mud, and a pit glow site on
   the plug shaft ledge (the dim niche halfway up the plug shaft, reached from the upper gallery). Level 15 in either

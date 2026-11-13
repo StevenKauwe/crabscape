@@ -56,7 +56,7 @@ pub const POOLS: [Pool; 0] = [];
 /// surface): 704 over the floor. A climber on the stalk's east side steps off
 /// onto it; its west end stands a body's length (65) and a sway clear of the
 /// stalk. (Under y 664 it sits in the columns the cell-join tests build pebbles in and a grain the region-store test lets fall must reach the floor; so it is over the region's bottom row.)
-pub const LOOKOUT: Rect = Rect::new(368.0, 684.0, 458.0, 704.0);
+pub const LOOKOUT: Rect = Rect::new(330.0, 684.0, 490.0, 704.0);
 /// The lookout's standing top.
 pub const LOOKOUT_TOP: f32 = 704.0;
 /// The kelp stand beside home that climbs to it (`royal::ROPE_X`).
@@ -116,7 +116,7 @@ pub const KELP_LEDGES: &[(&str, Climb, Rect)] = &[
             top: 500.0,
             kind: Growth::Kelp,
         },
-        Rect::new(1802.0, 440.0, 1892.0, 460.0),
+        Rect::new(1732.0, 440.0, 1892.0, 460.0),
     ),
     // Past the far ledge's foot, 180 up (low: a high one would shorten the
     // cliff's climb); the ledge lies east of its stalk, over the flats the
@@ -129,7 +129,7 @@ pub const KELP_LEDGES: &[(&str, Climb, Rect)] = &[
             top: 240.0,
             kind: Growth::Kelp,
         },
-        Rect::new(2480.0, 180.0, 2570.0, 200.0),
+        Rect::new(2480.0, 180.0, 2640.0, 200.0),
     ),
 ];
 
@@ -140,7 +140,7 @@ pub const GAP: f32 = 300.0;
 pub const FAR_LOOKOUT: Rect = Rect::new(
     LOOKOUT.max.x + GAP,
     LOOKOUT.min.y,
-    LOOKOUT.max.x + GAP + 90.0,
+    LOOKOUT.max.x + GAP + 160.0,
     LOOKOUT.max.y,
 );
 
@@ -175,7 +175,7 @@ pub const GLASS_STAIR: Climb = Climb {
     kind: Growth::Rock,
 };
 /// The glow ledge the stair climbs to: east of the stalk, over the trench.
-pub const GLOW_LEDGE: Rect = Rect::new(1488.0, 1080.0, 1578.0, 1100.0);
+pub const GLOW_LEDGE: Rect = Rect::new(1488.0, 1080.0, 1648.0, 1100.0);
 /// The glow ledge's standing top.
 pub const GLOW_LEDGE_TOP: f32 = 1100.0;
 
@@ -255,9 +255,9 @@ pub const SITES: &[(&str, &str, Vec2)] = &[
     ("the lookout", "KelpStand", Vec2::new(390.0, 704.0)),
     ("the lookout", "MusselClump", Vec2::new(430.0, 704.0)),
     // On the far lookout, across the paddle gap.
-    ("far lookout", "ShoreGlow", Vec2::new(785.0, 704.0)),
-    ("far lookout", "SnailRocks", Vec2::new(820.0, 704.0)),
-    ("far lookout", "BarnacleRock", Vec2::new(838.0, 704.0)),
+    ("far lookout", "ShoreGlow", Vec2::new(815.0, 704.0)),
+    ("far lookout", "SnailRocks", Vec2::new(850.0, 704.0)),
+    ("far lookout", "BarnacleRock", Vec2::new(868.0, 704.0)),
     // The shrimp row's pocket, short of the shrimp at x 590.
     ("shrimp row", "MusselClump", Vec2::new(440.0, 0.0)),
     ("shrimp row", "GritHeap", Vec2::new(458.0, 0.0)),

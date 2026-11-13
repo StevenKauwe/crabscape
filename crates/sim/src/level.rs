@@ -571,7 +571,7 @@ impl Level {
                 // A boulder half-buried in the slope.
                 Rect::new(640.0, 0.0, 720.0, 100.0),
                 // A high ledge over the plateau: needs the paddle stroke.
-                Rect::new(930.0, 300.0, 1080.0, 330.0),
+                Rect::new(925.0, 300.0, 1085.0, 330.0),
                 // A sea arch at the plateau's seaward end: a rock pinnacle
                 // standing up to the surface, with the plateau running on
                 // under it. It stops a crab that climbs the shallow kelp
@@ -583,7 +583,7 @@ impl Level {
                 Rect::new(1330.0, -260.0, 1430.0, -130.0),
                 // A block and a ledge above it, past the trench.
                 Rect::new(1940.0, 110.0, 2020.0, 200.0),
-                Rect::new(2070.0, 300.0, 2220.0, 330.0),
+                Rect::new(2065.0, 300.0, 2225.0, 330.0),
                 // The way back up out of the basin: ledges in two columns
                 // against the back of the cliff, each a jump and two strokes
                 // above the last, and a rest stop.
