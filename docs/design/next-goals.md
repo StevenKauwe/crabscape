@@ -13,7 +13,7 @@ close:
 |---|---|---|
 | **The pinned want** ("Make kelp mat") | A want is pinned | It is made or built |
 | **One thing away** ("Make mussel and snail hash") | A recipe or home piece the crab has the level for is short of one kind of thing, and the crab can already gather or make that thing | It is made or built |
-| **The next level** ("Prying 10") | Its unlock line says what it opens. First choice: a level that opens a node the crab has seen ("Opens the barnacle cluster you saw"). Then the skill trained most lately, then the one nearest its next level | The level is reached |
+| **The next level** ("Prying 10") | Its unlock line says what it opens. One is for the skill that lags (the lowest level), one for the skill trained most lately ("one more level"). A level that opens a node the crab has seen comes first in both ("Opens the barnacle cluster you saw"); the one nearest its next level breaks ties. Only skills within 3 levels of the lowest are offered, so following the board keeps every skill moving | The level is reached |
 
 There is one goal per skill and one per recipe, and at most one "one thing away" goal besides the pinned want.
 
@@ -40,9 +40,20 @@ not offered again while four newer goals have been swapped). A pinned want is ne
 
 ## Measured
 
-`crates/sim/tests/first_hours.rs` logs every goal in the bot's three hours of mixed play (the bot ignores the goals
-and plays its usual way). `first_hours_targets` holds: no goal open longer than about 10 minutes, and at least 60
-met in three hours (one every three minutes).
+`crates/sim/tests/first_hours.rs` logs every goal in two three-hour runs of mixed play:
+
+| Run | Met | Swapped | Longest open |
+|---|---|---|---|
+| The bot plays its usual way and ignores the board | 39 | 59 | 9.4 min |
+| The bot follows the board: work for an open goal comes before the lowest skill, at home and out | 86 | 47 | 9.8 min |
+
+`first_hours_targets` holds both runs to about 10 minutes open (10.5). The run that ignores the board must meet at
+least 25 goals. The run that follows it must meet more goals than it swaps.
+
+Following the board, every skill but Fighting reaches 15 within three hours. Fighting ends at 14: it only moves
+when a foe is up, so its goals are swapped more than the others'. Fighting is the skill short of supply near home
+(two snapping shrimps and the passive shore crabs since the x-340 shrimp left), so that is the world lane's to
+widen.
 
 ## Co-op
 

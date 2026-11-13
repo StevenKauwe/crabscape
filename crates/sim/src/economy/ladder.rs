@@ -493,17 +493,19 @@ pub fn claws_beyond_percent(level: u32) -> u32 {
 // ---- Fighting near home: a steeper early curve ----
 
 /// A beaten creature's win experience and a blow's damage experience are
-/// multiplied by this at Fighting `level`, to level 15 (a percent): three
-/// snapping shrimps stand on the home side (the pockets' two and the row
-/// shrimp) and each returns every three minutes, so the early levels are
-/// paid richly; the table above 15 is untouched. Was 1,200 / 900 / 700 with
-/// two shrimps, then 900 / 650 / 500 while the bot's far-ledge fights were
-/// broken.
+/// multiplied by this at Fighting `level`, to level 15 (a percent): two
+/// snapping shrimps stand on the home side (the second pocket's pair) beside
+/// the passive shore crabs, and each returns every three minutes, so the
+/// early levels are paid richly; the table above 15 is untouched. Was 1,200
+/// / 900 / 700 with two shrimps, then 900 / 650 / 500 while the bot's
+/// far-ledge fights were broken; 10 to 14 went from 350 to 420 when the x-340
+/// shrimp left (Fighting was the last skill to 15, and short of it in some
+/// runs).
 pub fn fight_xp_percent(level: u32) -> u32 {
     match level {
         0..=4 => 600,
         5..=9 => 450,
-        10..=14 => 350,
+        10..=14 => 420,
         _ => 100,
     }
 }
