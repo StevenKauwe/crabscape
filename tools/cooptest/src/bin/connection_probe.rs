@@ -22,6 +22,7 @@ fn main() -> Result<()> {
                 .unwrap_or_else(|| "1".into())
                 .parse()
                 .map_err(|_| "invalid throttle")?,
+            ..Options::default()
         },
     )?;
     browser.go(&url)?;

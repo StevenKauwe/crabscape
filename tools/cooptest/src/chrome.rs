@@ -151,6 +151,9 @@ pub struct Options {
     /// Run the page this many times slower (Chrome's CPU throttling; 1 is full speed), as a slow phone or a busy
     /// CI machine.
     pub slow: f64,
+    /// Device pixels per CSS pixel (`devicePixelRatio`); 0 means 1. The page's layout, and every click, stay in CSS
+    /// pixels at any density: only the number of pixels drawn changes.
+    pub density: f64,
 }
 
 impl Chrome {
@@ -273,7 +276,7 @@ impl Chrome {
         me.call("Runtime.enable", json!({}))?;
         me.call(
             "Emulation.setDeviceMetricsOverride",
-            json!({ "width": WIDTH, "height": HEIGHT, "deviceScaleFactor": 1, "mobile": false }),
+            json!({ "width": WIDTH, "height": HEIGHT, "deviceScaleFactor": if o.density > 0.0 { o.density } else { 1.0 }, "mobile": false }),
         )?;
         if o.slow > 1.0 {
             me.call("Emulation.setCPUThrottlingRate", json!({ "rate": o.slow }))?;
