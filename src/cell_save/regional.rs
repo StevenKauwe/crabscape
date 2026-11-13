@@ -103,6 +103,60 @@ pub(crate) fn prepare_owner_save(
         .and_then(|capture| capture.with_canyon(canyon))
 }
 
+/// Build the owner's save while no region is leased (the lobby is paging
+/// terrain in before it grants the next regions): every region is already
+/// back in the archive, so the archive alone is the whole world.
+///
+/// Such a save is needed to make progress, not only to keep it. The pages a
+/// grant reads can only be admitted once the dirty pages in the cache are
+/// written, and only a save writes them; refusing to save while paging
+/// waited forever (the deep owner save in cells-solo-save).
+pub(crate) fn prepare_archive_save(
+    terrain: &mut TerrainStore,
+    entities: &mut EntityArchive,
+) -> Result<Capture, Error> {
+    if terrain.active_regions() != 0 {
+        return Err(super::damaged("archive-leased"));
+    }
+    let whole = &entities.sim;
+    let host = whole
+        .crab(crate::coop::HOST)
+        .ok_or_else(|| super::damaged("archive-host-crab"))?;
+    let mut saved = crate::save::snapshot_metadata(whole, crate::coop::HOST)
+        .ok_or_else(|| super::damaged("archive-host-metadata"))?;
+    saved.x = host.mover.pos.x;
+    saved.y = host.mover.pos.y;
+    let (x, y) = (saved.x, saved.y);
+    let tick = whole.tick_count();
+    let salvage = whole
+        .combined_salvage_records(&[])
+        .ok_or_else(|| super::damaged("archive-salvage"))?;
+    let canyon = whole
+        .combined_canyon_records(&[])
+        .ok_or_else(|| super::damaged("archive-canyon"))?;
+    let progress = saved
+        .progress
+        .as_mut()
+        .ok_or_else(|| super::damaged("archive-progress"))?;
+    entities.world_progress(progress);
+    // As for a leased save: a window that cannot move yet is saved in place.
+    match terrain.prepare_save_window(&entities.sim.level, x, y) {
+        Ok(()) | Err(crabsim::underwater::region_store::StoreError::NeedsPages) => {}
+        Err(_) => return Err(super::damaged("archive-save-window")),
+    }
+    #[cfg(target_arch = "wasm32")]
+    let initial = super::browser::needs_initial_baseline();
+    #[cfg(not(target_arch = "wasm32"))]
+    let initial = false;
+    let host = entities
+        .sim
+        .crab(crate::coop::HOST)
+        .ok_or_else(|| super::damaged("archive-host-crab"))?;
+    Capture::with_initial_baseline(saved, terrain.terrain(), &host.memory, tick, initial)
+        .and_then(|capture| capture.with_salvage(salvage))
+        .and_then(|capture| capture.with_canyon(canyon))
+}
+
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
@@ -169,6 +223,36 @@ mod tests {
         loaded.restore_default_window(level, wx, wy).unwrap();
         let (x, y) = loaded.local_cell(wx, wy);
         loaded.cell(x as i32, y as i32)
+    }
+
+    #[test]
+    fn archive_saves_the_whole_world_between_leases_and_refuses_while_leased() {
+        let level = Level::test_level();
+        let mut whole = Sim::new(Tuning::default(), level.clone());
+        whole.enable_underwater_cells();
+        whole.add_crab(crate::coop::HOST, Vec2::new(160.0, 0.0));
+        for _ in 0..4 {
+            whole.tick();
+        }
+        let at = whole.crab(crate::coop::HOST).unwrap().mover.pos;
+        let mut terrain = TerrainStore::new(whole.level.cells.take().unwrap()).unwrap();
+        let mut entities = EntityArchive::new(whole).unwrap();
+        let capture = prepare_archive_save(&mut terrain, &mut entities)
+            .unwrap_or_else(|_| panic!("archive save refused at {}", super::super::last_damage()));
+        let restored = crabsim::cell_codec::paged::decode(&portable(capture)).unwrap();
+        assert_eq!((restored.player.x, restored.player.y), (at.x, at.y));
+
+        let bounds = CellRegion {
+            x: 0,
+            y: 0,
+            width: 256,
+            height: 256,
+        };
+        let (epoch, world) = terrain.grant(RegionId(1), bounds, &level).unwrap();
+        let _leased = entities
+            .extract(RegionId(1), epoch, &[crate::coop::HOST], world)
+            .unwrap();
+        assert!(prepare_archive_save(&mut terrain, &mut entities).is_err());
     }
 
     #[test]

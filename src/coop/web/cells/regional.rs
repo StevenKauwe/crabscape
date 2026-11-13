@@ -1284,10 +1284,26 @@ pub(super) fn prepare_owner_save(
     r: &mut State,
     view: &Sim,
 ) -> Result<crabsim::cell_codec::spatial::Capture, crate::cell_save::Error> {
-    let local = r
-        .kernel
-        .as_ref()
-        .ok_or_else(|| crate::cell_save::damaged("no-kernel"))?;
+    let Some(local) = r.kernel.as_ref() else {
+        // Between leases (paging in the next regions) the archive holds the
+        // whole world. Save from it; see `prepare_archive_save`.
+        if r.stage != Stage::Paging || view.crab(HOST).is_some() || r.multi.is_some() {
+            return Err(crate::cell_save::damaged("no-kernel"));
+        }
+        let owner = r
+            .owner
+            .as_mut()
+            .ok_or_else(|| crate::cell_save::damaged("no-owner"))?;
+        if owner.remote.is_some() {
+            return Err(crate::cell_save::damaged("no-kernel"));
+        }
+        let capture = crate::cell_save::regional::prepare_archive_save(
+            &mut owner.terrain,
+            &mut owner.entities,
+        )?;
+        r.owner_save_dirty = false;
+        return Ok(capture);
+    };
     let recovered =
         multi::recover_for_save(r).map_err(|_| crate::cell_save::damaged("recover-remotes"))?;
     let remotes: Vec<_> = recovered.iter().collect();
