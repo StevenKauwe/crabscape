@@ -1,6 +1,8 @@
-//! Shore crab puppet (placeholder): a small green-brown carapace with two claws that spread wide in its tell, drawn
-//! from plain sprites until the art is painted. Posed from the sim (`e.state`, `shore_crab::phase`). Light-free.
+//! Shore crab puppet: a painted juvenile green crab (`crates/crabrig/src/bestiary/shore_crab.rs`), posed from the
+//! sim (`e.state`, `shore_crab::phase`). Its tell raises and spreads the claws, the pinch snaps them shut, and it
+//! lies on its back when beaten. Light-free.
 use crate::bestiary::{self, Puppet};
+use crate::creature_art::{CreatureArt, ScentRoot};
 use crate::memory::{Known, Remembered};
 use crate::player::GameSet;
 use bevy::prelude::*;
@@ -8,31 +10,48 @@ use crabsim::creatures::shore_crab;
 use crabsim::{Kind, Sim};
 
 const KIND: Kind = Kind::ShoreCrab;
-const SHELL: Color = Color::srgb(0.33, 0.42, 0.22);
-const CLAW: Color = Color::srgb(0.42, 0.40, 0.20);
 
 pub struct ShoreCrabPlugin;
 impl Plugin for ShoreCrabPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
+        app.add_systems(Startup, load).add_systems(
             Update,
-            (spawn, pose, pose_claws).chain().in_set(GameSet::Present),
+            (spawn, pose, pose_parts).chain().in_set(GameSet::Present),
         );
     }
 }
 
+#[derive(Resource)]
+struct Art(CreatureArt);
 /// Marks this creature's puppets among all the bestiary's.
 #[derive(Component)]
 struct Mine;
-/// A claw of a puppet: which enemy and which side (1 = the front claw).
+/// One movable piece of a puppet.
 #[derive(Component)]
-struct Claw {
+struct Joint {
     enemy: u32,
-    side: f32,
+    name: String,
 }
 
-fn spawn(mut commands: Commands, sim: Res<Sim>, puppets: Query<&Puppet, With<Mine>>) {
-    let (w, h) = shore_crab::BODY;
+/// The rig is drawn four times the world's size, in an art file at twice that (`ART_SCALE` = 1/8): the carapace
+/// with its teeth comes out about 27 units, a juvenile's 4 cm (`src/sizes.rs` checks it).
+pub(crate) const ART_SCALE: f32 = 0.12;
+
+fn load(mut commands: Commands, assets: Res<AssetServer>) {
+    commands.insert_resource(Art(CreatureArt::load_scaled(
+        include_str!("../../assets/creatures/shore-crab-parts.json"),
+        "creatures/shore-crab-atlas.png",
+        ART_SCALE,
+        &assets,
+    )));
+}
+
+fn spawn(
+    mut commands: Commands,
+    sim: Res<Sim>,
+    art: Res<Art>,
+    puppets: Query<&Puppet, With<Mine>>,
+) {
     for e in sim.enemies().iter().filter(|e| e.kind == KIND) {
         if puppets.iter().any(|p| p.0 == e.id) {
             continue;
@@ -40,24 +59,15 @@ fn spawn(mut commands: Commands, sim: Res<Sim>, puppets: Query<&Puppet, With<Min
         let root = commands
             .spawn((
                 Puppet(e.id),
+                ScentRoot(e.id),
                 Mine,
                 Transform::default(),
                 Visibility::Hidden,
                 Remembered(e.pos),
             ))
             .id();
-        commands.spawn((
-            Sprite::from_color(SHELL, Vec2::new(w, h * 0.7)),
-            Transform::from_xyz(0.0, h * 0.45, 0.0),
-            ChildOf(root),
-        ));
-        for side in [0.4, -0.4] {
-            commands.spawn((
-                Claw { enemy: e.id, side },
-                Sprite::from_color(CLAW, Vec2::new(w * 0.32, h * 0.32)),
-                Transform::from_xyz(w * 0.5, h * 0.5, 0.1),
-                ChildOf(root),
-            ));
+        for (name, entity) in art.0.spawn(&mut commands, root) {
+            commands.entity(entity).insert(Joint { enemy: e.id, name });
         }
     }
 }
@@ -86,21 +96,45 @@ fn pose(
     }
 }
 
-/// The claws rise and spread in the tell (the big, clear warning), snap shut in the pinch.
-fn pose_claws(sim: Res<Sim>, mut claws: Query<(&Claw, &mut Transform)>) {
-    let h = shore_crab::BODY.1;
-    for (claw, mut transform) in &mut claws {
-        let Some(e) = sim.enemies().iter().find(|e| e.id == claw.enemy) else {
+/// The claws rise and spread in the tell (the big, clear warning: the near claw up, the far one back, the fingers
+/// wide), snap shut in the pinch; the legs scuttle while it walks; the eyes turn a little.
+fn pose_parts(sim: Res<Sim>, mut joints: Query<(&Joint, &mut Transform)>) {
+    for (joint, mut transform) in &mut joints {
+        let Some(e) = sim.enemies().iter().find(|e| e.id == joint.enemy) else {
             continue;
         };
-        let (rise, spread) = match shore_crab::phase(e) {
-            Some("pinch-tell") => {
-                let p = (e.state_tick as f32 / e.state_len.max(1) as f32).min(1.0);
-                (h * (0.5 + 0.9 * p), 0.5 * p)
-            }
-            Some("pinch") => (h * 0.5, 0.0),
-            _ => (h * 0.5, 0.0),
+        let phase = shore_crab::phase(e).unwrap_or("roam");
+        let progress = if e.state_len > 0 {
+            (e.state_tick as f32 / e.state_len as f32).min(1.0)
+        } else {
+            0.0
         };
-        transform.translation.y = rise + claw.side * h * spread;
+        let time = e.state_tick as f32 / 120.0;
+        let walking = e.vel_x.abs() > 1.0;
+        let name = joint.name.as_str();
+        let angle = match name {
+            "claw-near" => match phase {
+                "pinch-tell" => 0.2 + 0.55 * progress,
+                "pinch" => 0.05,
+                _ => 0.03 * (time * 1.5).sin(),
+            },
+            "claw-far" => match phase {
+                "pinch-tell" => 0.35 * progress,
+                "pinch" => 0.0,
+                _ => 0.03 * (time * 1.5 + 1.0).sin(),
+            },
+            "claw-near-finger" | "claw-far-finger" => match phase {
+                "pinch-tell" => 0.8 * progress,
+                "pinch" => -0.1,
+                _ => 0.04,
+            },
+            "eye-a" | "eye-b" => 0.1 * (time * 2.0 + if name == "eye-b" { 1.0 } else { 0.0 }).sin(),
+            n if n.starts_with("leg-") && walking => {
+                let k = n.as_bytes().get(4).map_or(0.0, |b| f32::from(b - b'a'));
+                0.3 * (time * 14.0 + k * 2.1).sin()
+            }
+            _ => 0.0,
+        };
+        transform.rotation = Quat::from_rotation_z(angle);
     }
 }
