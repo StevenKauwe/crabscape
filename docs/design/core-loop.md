@@ -53,6 +53,7 @@ Each lead keeps their own lines here. `[x]` means it is in the game; the rest sa
 - [x] Region 5's shelf tops hold nodes (#638): glass gardens and glass scallop beds on the three twilight tops, a sea-pen field and a clam bed on the kelp ledge; the lamp's want still names the Silt Galleries (the nearest place glass grows)
 
 **Loop world** (map, regions, landmarks: the world lane)
+- [x] Onboarding: the first-hour guide (`economy/guide.rs`): 17 small steps walk a new crab through all 13 skills in about 15 minutes of bot play, one goal on screen at a time, skippable (`skills-and-resources.md`, "The first hours")
 - [ ] Way out too short: the shallows end at the first open water (the basin, 2,706 units from the door) after 14 to 17 s on foot (measured again on the Plate D map, unchanged by it). The familiar way out is a quarter of its 4 minutes
 - [ ] Crossing too short: 96 s from the basin to the far rim's landing (the lamp's garden) and 12 s to the mantis mouth, against 6 minutes; the open water is still one clean line, no detour to plan, and the new canyon floor (x 7,130 to 7,610) is 46 s out, nearer than the far rim
 - [ ] The fight is short: the basin's mantis (3,785 units from the door) takes a dive and a climb out (a 1 to 6 egg crab cannot get home from the pit: only the full kit can), then a 6 s scripted win. A hunting want needs a creature that is worth a crossing: the coral garden's mantis at x 16,700 is now one (the solver reaches it with the full kit: 105 s of crossing, 129 s out in all); the one at x 10,720 and the morays are not measured

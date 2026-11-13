@@ -78,10 +78,10 @@ Five tiers, one per depth band (`level/bands.rs`). A node's tier sets everything
 
 | Tier | Band (y) | Places on today's map | Level req | Tool tier | XP per gather | Gather s (base) | Charges | Respawn s | Nodes per kind |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | Shallows (> -260) | home side pockets x 222–242 and 432–492; far ledge x 1,850–2,470 | 1 | 0 (bare claw) | 10 | 2.5 | 5 | 45 | 4 |
+| 1 | Shallows (> -260) | home side pockets x 222–242 and 432–492; far ledge x 1,850–2,470; region 6's upper caves (grit heaps: rubble hall x 11,980, cobble cave 13,000, pillar cave 14,420, y -6,694; deep but tier 1 by the rule) | 1 | 0 (bare claw) | 10 | 2.5 | 5 | 45 | 4 |
 | 2 | Basin and mudbanks (-260 to -700) | far basin hub x 4,500–4,940 for all five skills (the home burrow gallery holds none: lead's call, see Where things stand) (the first basin, x 2,800–3,300, holds none: a moray and a hermit crab) | 15 | 1 shell | 110 | 3.0 | 5 | 60 | 3 |
-| 3 | Canyon walls / twilight (-700 to -3,400) | doorstep x 5,443–5,790 (none on the shelf); far rim x 7,905–8,015; the glass gardens in the Silt Galleries' sponge galleries (x 2,060–2,620, floor -1,040: #638); the bone hall's floor (fish falls and tooth beds, y about -2,534, x 3,880–4,130: the chamber prize); the Deep Galleries' lanternfish hall (fish falls, y -4,200, x 2,100–2,700); region 5's shelf tops (glass gardens and scallop beds: tower shelf x 9,350, first arch 11,980, second arch 13,230) | 30 | 2 quill | 160 | 3.5 | 4 | 90 | 3 |
-| 4 | Canyon floor / midnight (-3,400 to -9,500) | canyon floor far end x 7,130–7,610 (y -6,000); the Deep Galleries' black coral hall (y -6,200) and whale-fall hall (whale-fall bones, y -8,200), x 2,200–4,000; the seep garden (seep mussels and the sulfur mat, y about -10,514, x 19,430–19,605) | 45 | 3 glass | 260 | 4.0 | 4 | 150 | 3 |
+| 3 | Canyon walls / twilight (-700 to -3,400) | doorstep x 5,443–5,790 (none on the shelf); far rim x 7,905–8,015; the glass gardens in the Silt Galleries' sponge galleries (x 2,060–2,620, floor -1,040: #638); the bone hall's floor (fish falls and tooth beds, y about -2,534, x 3,880–4,130: the chamber prize); the Deep Galleries' lanternfish hall (fish falls, y -4,200, x 2,100–2,700); region 5's shelf tops (glass gardens and scallop beds: tower shelf x 9,350, first arch 11,980, second arch 13,230); region 6's midden cave (a tooth bed, x 8,950, y -6,694) | 30 | 2 quill | 160 | 3.5 | 4 | 90 | 3 |
+| 4 | Canyon floor / midnight (-3,400 to -9,500) | canyon floor far end x 7,130–7,610 (y -6,000); the Deep Galleries' black coral hall (y -6,200) and whale-fall hall (whale-fall bones, y -8,200), x 2,200–4,000; the seep garden (seep mussels and the sulfur mat, y about -10,514, x 19,430–19,605); region 6's sunken reef mounds (black coral: x 12,500, 13,850, 14,550, y -8,594 to -8,194) | 45 | 3 glass | 260 | 4.0 | 4 | 150 | 3 |
 | 5 | Deep (< -9,500) | lower canyon vent field east end (`level::lower_canyon::VENTS`, x 19,730–20,450, west of the crust vault's door); the Deep Galleries' nodule field (nodules, x 1,620–1,780, y -10,200) | 60 | 4 bone | 750 | 4.5 | 4 | 240 | 3 |
 
 Placement rule: a tier-k node lies in band k or deeper (by depth alone: a pocket does not change it, so tier 4 cannot lie in the
@@ -647,12 +647,41 @@ The owner's ask: levels 1 to 15 in **all 13 skills** must be a joy for a brand-n
 
   `first_hours_targets` passes, but the mixed-play margin is thin.
 
+**Built (B1, `economy/guide.rs`): the first-hour guide.** A 17-step chain in a const table `GUIDE`, one clear next goal at a time, skippable.
+- **State:** `Economy.guide` (the step, skipped or not, a count; saved with the economy, in the state hash). Only the crab's own device moves it; remote crabs never change. The replay words are `guide=skip` and `guide=on`.
+- **Already met:** each step names a skill level (`known`) that shows the crab has plainly done it. When the guide reaches a step the crab has met, the step is done at once, with no card and no reward. So a returning or skilled crab skips ahead, an old save without a guide starts at step 1 and skips the same way, and `guide-on` resumes at the first step not yet done.
+- **Done:** a step finished while the crab is on it pays its reward and sets `StepEvents::guide_done` (the step's index), and the HUD shows a "GUIDE" card.
+- **Client:** the Goals tab's top row is the current step (title, where and how, count, "Skip guide"); once skipped, a "Guide" row offers it back. The HUD pill shows the step when nothing is pinned, out or on the doorstep.
+- **Rewards:** a few tier 1 items that feed the next step, or 10 XP (under one level 1 gather's 11). No new currencies; no cost or gather time changed.
+
+| # | Skill | Step (where) | Done when | Reward | Minute (bot) |
+|---|---|---|---|---|---|
+| 1 | Prying | Pry mussels from the home rocks (rock pocket past the door) | 8 mussel gathers | 2 kelp | 0.8 |
+| 2 | Harvesting | Cut kelp from the stands (home pockets) | 6 kelp gathers | 2 grit | 1.3 |
+| 3 | Excavating | Scoop grit from the heaps (home pockets) | 8 grit gathers | 2 valves | 1.9 |
+| 4 | Foraging | Forage snails from the rocks (far home pocket) | 8 snail gathers | 2 mussels | 2.4 |
+| 5 | Culturing | Gather shore-glow (pocket rocks) | 12 shore-glow gathers | 4 kelp | 3.8 |
+| 6 | Weaving | Twist kelp into cord (workbench) | make kelp cord x4 | 2 mussels | 4.3 |
+| 7 | Cooking | Shuck and cook mussels (workbench) | make shucked mussels x3 | 2 valves, 1 grit | 5.0 |
+| 8 | Shellcraft | Cut a shell blank (workbench) | make a shell blank | 1 kelp cord | 5.2 |
+| 9 | Shellcraft | Make a shell pry tip (workbench) | make a shell pry tip | 4 grit | 5.3 |
+| 10 | Building | Build grit into the home (workbench) | Building level 2 | 4 valves | 5.8 |
+| 11 | Building | Build the valve step (Home tab) | valve step built | 10 Climbing XP | 6.2 |
+| 12 | Climbing | Climb the kelp stalk beside the door | Climbing level 2 | 10 Swimming XP | 6.5 |
+| 13 | Swimming | Paddle a stroke or two (eat the egg first) | Swimming level 2 | 10 Fighting XP | 8.6 |
+| 14 | Fighting | Beat a snapping shrimp (home pockets) | a snapper beaten | 2 mussels | 10.7 |
+| 15 | Survival | Dive into the basin (down the trench) | basin band or deeper | 10 Survival XP | 11.6 |
+| 16 | Survival | Weather the twilight (canyon walls) | Survival level 2 | 2 kelp | 12.3 |
+| 17 | Building | Pick a want (Goals tab) | a want pinned | nothing | 15.0 |
+
+The bot follows the guide on real ticks (`first_hours.rs`, `a_crab_following_the_guide_finishes_it_within_an_hour`): it finishes all 17 steps at minute 15.0 (the target is inside 60), and every one of the 13 skills has gained a level by then (levels at the end: Climbing 11, Swimming 9, Fighting 7, the rest 2 to 4). Re-measure with `cargo test -p crabsim --test first_hours measure_the_guide -- --ignored --nocapture`. The Fighting step is skipped silently by a crab that has already reached Fighting 6 (the snapping shrimps stand on the way to the second pocket); the bot reaches the step first.
+
 7. **Fighting near home.** The first-hour world adds a few weak creatures near home. That is the world lane's part; this lane owns the XP and the ladder lines.
 
 ## Where things stand
 - **Levels 1-15 (2026-11-12):** the measuring bot (M1) and the ladder, XP and early content (L15) are in, and every target passes ("The first hours: levels 1–15"). Next:
   - wire the world lane's `shallows::SITES` (#664) for the tier-1 and half-tier spots, and its weak creatures near home, then drop the Fighting multiplier toward real fights;
-  - the first-hour board;
+  - the first-hour board is in (B1, above); next is playing it by eye;
   - region 6's node sites.
 - **#638 (also):** the Deep Galleries' nine node sites are wired in. The black coral hall holds black coral, and the nodule field (-10,200, deep band) holds tier-5 nodules. Region 5's shelf tops are wired in as well: glass and scallops (tier 3), plus a sea-pen field and a clam bed on the kelp ledge (tier 2). Wants name the place nearest home.
 - **#638:** the lamp's glass grows in the Silt Galleries' sponge galleries. The loop measures 2.63 min (22 s out, 12 s home), down from 5.62, so the galleries are a near loop and the world lane owns the gap. The Deep Galleries' `NODE_SITES` (#637) get wired in once #637 lands.

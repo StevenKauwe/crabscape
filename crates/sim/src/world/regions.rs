@@ -303,9 +303,9 @@ impl RegionKernel {
                 CellSessionAction::Royal(action) => {
                     self.sim.royal_action(*id, *action);
                 }
-                CellSessionAction::Pin(_) | CellSessionAction::Piece(_) => {
-                    action.apply_home_wants(&mut self.sim, *id)
-                }
+                CellSessionAction::Pin(_)
+                | CellSessionAction::Piece(_)
+                | CellSessionAction::Guide(_) => action.apply_home_wants(&mut self.sim, *id),
             }
         }
         for (id, c) in &frame.controls {

@@ -138,6 +138,11 @@ enum Row {
     Bed(usize),
     /// No culture bed is built yet (no button).
     NoBeds,
+    /// The first-hour guide's current step: the top row of the Goals tab,
+    /// with a "Skip guide" button.
+    Guide,
+    /// The guide was skipped: a row offers it back.
+    GuideOff,
     /// A want on the task board (the recipe's word): tap to pin it.
     Want(&'static str),
     /// A skill's next unlock, and how far off (no button).
@@ -167,6 +172,15 @@ fn rows_for(tab: Tab, sim: &Sim, id: crabsim::PlayerId, crab: &SimCrab) -> Vec<R
     let mut rows = Vec::new();
     match tab {
         Tab::Goals => {
+            if let Some(status) = sim.guide_status(id) {
+                if status.skipped {
+                    if !crab.econ.guide.finished() {
+                        rows.push(Row::GuideOff);
+                    }
+                } else if status.step.is_some() {
+                    rows.push(Row::Guide);
+                }
+            }
             let wants = sim.wants(id);
             if wants.is_empty() {
                 rows.push(Row::NothingNear);
@@ -1469,6 +1483,22 @@ fn pinned_word(sim: &Sim, id: crabsim::PlayerId) -> Option<&'static str> {
     sim.pinned_status(id).map(|p| p.want.word)
 }
 
+/// The guide's current step as a row: its title, how far through it is
+/// (2/3), where and how, and the button that ends the guide.
+fn guide_view(status: &crabsim::economy::guide::GuideStatus) -> RowView {
+    let step = status.step;
+    RowView {
+        name: step.map_or(String::new(), |s| s.title.to_string()),
+        tag: status.progress.map_or_else(
+            || "guide".to_string(),
+            |(have, want)| format!("{have}/{want}"),
+        ),
+        line: step.map_or(String::new(), |s| s.how.to_string()),
+        lit: true,
+        button: Some(("Skip guide", true)),
+    }
+}
+
 fn row_view(sim: &Sim, id: crabsim::PlayerId, crab: &SimCrab, row: Row) -> RowView {
     let tick = sim.tick_count();
     match row {
@@ -1483,6 +1513,23 @@ fn row_view(sim: &Sim, id: crabsim::PlayerId, crab: &SimCrab, row: Row) -> RowVi
             },
         },
         Row::Unlock(skill, level) => unlock_view(sim, crab, skill, level),
+        Row::Guide => match sim.guide_status(id).filter(|s| !s.skipped) {
+            Some(status) => guide_view(&status),
+            None => RowView {
+                name: String::new(),
+                tag: String::new(),
+                line: String::new(),
+                lit: false,
+                button: None,
+            },
+        },
+        Row::GuideOff => RowView {
+            name: "Guide".into(),
+            tag: "off".into(),
+            line: "Turn the first-hour guide back on.".into(),
+            lit: false,
+            button: Some(("Turn on", true)),
+        },
         Row::NothingNear => RowView {
             name: "Nothing is one thing away.".into(),
             tag: String::new(),
@@ -1940,6 +1987,16 @@ fn perform(sim: &mut Sim, id: crabsim::PlayerId, row: Row) {
                 let _ = sim.build_piece(id, piece);
             }
         }
+        Row::Guide => {
+            if !cells_action(CellsAction::Guide(false)) {
+                sim.guide_skip(id);
+            }
+        }
+        Row::GuideOff => {
+            if !cells_action(CellsAction::Guide(true)) {
+                sim.guide_on(id);
+            }
+        }
         Row::Bed(_) | Row::NoBeds | Row::Unlock(..) | Row::NothingNear => {}
     }
 }
@@ -2147,6 +2204,30 @@ mod tests {
         let empty = row_view(&sim, id, crab, Row::NothingNear);
         assert_eq!(empty.name, "Nothing is one thing away.");
         assert_eq!(empty.line, "Gather on the way out and see what opens.");
+    }
+
+    #[test]
+    fn the_guide_is_the_top_row_of_goals_and_can_be_skipped_and_offered_back() {
+        let mut sim = Sim::with_one_crab(Vec2::new(95.0, 0.0));
+        let id = crabsim::PlayerId(0);
+        let crab = sim.crab(id).unwrap();
+        let rows = rows_for(Tab::Goals, &sim, id, crab);
+        assert_eq!(rows[0], Row::Guide, "{rows:?}");
+        let v = row_view(&sim, id, crab, Row::Guide);
+        assert_eq!(v.name, "Pry mussels from the home rocks");
+        assert_eq!(v.tag, "0/8");
+        assert!(v.line.contains("mussel"), "{}", v.line);
+        assert_eq!(v.button, Some(("Skip guide", true)));
+        perform(&mut sim, id, Row::Guide);
+        let crab = sim.crab(id).unwrap();
+        let rows = rows_for(Tab::Goals, &sim, id, crab);
+        assert_eq!(rows[0], Row::GuideOff, "{rows:?}");
+        let v = row_view(&sim, id, crab, Row::GuideOff);
+        assert_eq!(v.name, "Guide");
+        assert_eq!(v.button, Some(("Turn on", true)));
+        perform(&mut sim, id, Row::GuideOff);
+        let crab = sim.crab(id).unwrap();
+        assert_eq!(rows_for(Tab::Goals, &sim, id, crab)[0], Row::Guide);
     }
 
     #[test]

@@ -165,24 +165,37 @@ fn a_node_source_lies_inside_its_landmark_and_nowhere_near_home() {
             .map(|n| n.kind)
             .collect();
         assert!(!kinds.is_empty(), "{:?}", c.item);
-        let mut seen = 0;
-        for p in sim
+        // A kind may grow in more than one place (teeth also lie in region
+        // 6's midden cave); the want names the place nearest home, so the
+        // nearest node lies in the named landmark and none lies near home.
+        let placed: Vec<_> = sim
             .placed_nodes()
             .iter()
             .filter(|p| kinds.contains(&p.kind))
-        {
-            seen += 1;
+            .copied()
+            .collect();
+        assert!(!placed.is_empty(), "no {:?} on the map", c.item);
+        let inside = |p: Vec2| {
+            p.x >= rect.min.x && p.x <= rect.max.x && p.y >= rect.min.y && p.y <= rect.max.y
+        };
+        let nearest = placed
+            .iter()
+            .min_by(|a, b| a.pos.x.abs().total_cmp(&b.pos.x.abs()))
+            .expect("a node");
+        assert!(
+            inside(nearest.pos),
+            "{:?} at {:?}, the nearest to home, lies outside the {name}",
+            nearest.kind,
+            nearest.pos
+        );
+        for p in &placed {
             assert!(
-                p.pos.x >= rect.min.x
-                    && p.pos.x <= rect.max.x
-                    && p.pos.y >= rect.min.y
-                    && p.pos.y <= rect.max.y,
-                "{:?} at {:?} lies outside the {name}",
+                inside(p.pos) || p.pos.x.abs() > rect.max.x.abs(),
+                "{:?} at {:?} lies outside the {name} and nearer home",
                 p.kind,
                 p.pos
             );
         }
-        assert!(seen > 0, "no {:?} on the map", c.item);
         // Not a drop, not made.
         for k in KINDS {
             assert!(!drops_of(k).contains(&c.item));
