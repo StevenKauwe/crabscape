@@ -312,8 +312,8 @@ pub const SPOTS: &[NodeSpot] = &[
     // height. Appended, so earlier indices hold.
     on(K::KelpStand, 390.0, 704.0),
     on(K::MusselClump, 430.0, 704.0),
-    on(K::ShoreGlow, 785.0, 704.0),
-    on(K::SnailRocks, 820.0, 704.0),
+    on(K::ShoreGlow, 815.0, 704.0),
+    on(K::SnailRocks, 850.0, 704.0),
     on(K::MusselClump, 695.0, 100.0),
     on(K::SnailRocks, 710.0, 100.0),
     on(K::KelpStand, 776.0, 94.0),
@@ -347,7 +347,7 @@ pub const SPOTS: &[NodeSpot] = &[
     // and foot), and tier 2 near home for Harvesting and Culturing (a
     // sea-pen field in the trench hollow, a pit glow site on the plug shaft
     // ledge). Appended, so earlier indices hold.
-    on(K::BarnacleRock, 838.0, 704.0),
+    on(K::BarnacleRock, 868.0, 704.0),
     on(K::BrittleStarCrevice, 720.0, 100.0),
     on(K::PurpleFilmMat, 1246.0, 110.0),
     on(K::EelgrassBed, 2310.0, 42.0),

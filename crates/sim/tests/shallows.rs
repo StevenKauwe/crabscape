@@ -707,7 +707,7 @@ fn the_paddle_gap_is_crossed_with_a_stroke_or_two_and_a_miss_lands_on_the_floor(
         Vec2::new(sh::LOOKOUT.max.x - 20.0, sh::LOOKOUT_TOP),
         false,
     );
-    for _ in 0..(10.0 * 120.0) as u32 {
+    for _ in 0..(6.0 * 120.0) as u32 {
         sim.set_controls(
             route::ME,
             Controls {
@@ -1019,5 +1019,49 @@ fn a_level_one_crab_with_no_kit_beats_each_shore_crab_and_a_gatherer_beside_one_
         let left = sim.crab(route::ME).expect("crab").fighter.vitals.health;
         println!("{name}: won {won}, {left:.1} health left");
         assert!(won && left > 0.0, "{name}");
+    }
+}
+
+// --- Perches wide enough to stand on ---------------------------------------------
+
+/// Every perch a crab is meant to stand on in x 0 to 2,800: at least 1.6 crabs wide (97 at its biggest).
+#[test]
+fn every_perch_is_at_least_156_wide() {
+    let level = Level::test_level();
+    let mut perches: Vec<(String, Rect)> = vec![
+        ("lookout".into(), sh::LOOKOUT),
+        ("far lookout".into(), sh::FAR_LOOKOUT),
+        ("high garden".into(), sh::GARDEN),
+        ("glow ledge".into(), sh::GLOW_LEDGE),
+        (
+            "west egg ledge".into(),
+            Rect::new(925.0, 300.0, 1085.0, 330.0),
+        ),
+        (
+            "east egg ledge".into(),
+            Rect::new(2065.0, 300.0, 2225.0, 330.0),
+        ),
+    ];
+    perches.extend(sh::KELP_LEDGES.iter().map(|(n, _, r)| (n.to_string(), *r)));
+    for (name, rect) in &perches {
+        assert!(
+            level.rocks.contains(rect),
+            "{name} is not a rock of the level"
+        );
+        println!("{name}: {} wide", rect.width());
+        assert!(rect.width() >= 156.0, "{name} is {} wide", rect.width());
+    }
+    // A climber's stalk stays half a crab clear of the ledge it steps onto.
+    let lookout = sh::LOOKOUT;
+    assert!(lookout.min.x - sh::LOOKOUT_KELP_X >= 50.0);
+    let (glow, stair) = (sh::GLOW_LEDGE, sh::GLASS_STAIR);
+    assert!(glow.min.x - stair.x >= 50.0);
+    for (name, climb, ledge) in sh::KELP_LEDGES {
+        let clear = if ledge.center().x > climb.x {
+            ledge.min.x - climb.x
+        } else {
+            climb.x - ledge.max.x
+        };
+        assert!(clear >= 50.0, "{name}: {clear} clear of its stalk");
     }
 }
