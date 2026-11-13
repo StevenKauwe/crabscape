@@ -1284,11 +1284,17 @@ pub(super) fn prepare_owner_save(
     r: &mut State,
     view: &Sim,
 ) -> Result<crabsim::cell_codec::spatial::Capture, crate::cell_save::Error> {
-    use crate::cell_save::Error;
-    let local = r.kernel.as_ref().ok_or(Error::Damaged)?;
-    let recovered = multi::recover_for_save(r).map_err(|_| Error::Damaged)?;
+    let local = r
+        .kernel
+        .as_ref()
+        .ok_or_else(|| crate::cell_save::damaged("no-kernel"))?;
+    let recovered =
+        multi::recover_for_save(r).map_err(|_| crate::cell_save::damaged("recover-remotes"))?;
     let remotes: Vec<_> = recovered.iter().collect();
-    let owner = r.owner.as_mut().ok_or(Error::Damaged)?;
+    let owner = r
+        .owner
+        .as_mut()
+        .ok_or_else(|| crate::cell_save::damaged("no-owner"))?;
     let capture = crate::cell_save::regional::prepare_owner_save(
         view,
         &mut owner.terrain,

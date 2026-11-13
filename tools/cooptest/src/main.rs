@@ -1591,6 +1591,8 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             // Each change in whether autosave would accept the owner's spot
             // (the page state's `spot=`), for a failure to show what held it.
             let mut spots: Vec<String> = Vec::new();
+            // Each change in the terrain pages the owner is waiting to read.
+            let mut wanted: Vec<String> = Vec::new();
             let connected_save = loop {
                 if let Some(saved) = saved_cells(&mut host)?
                     && saved.sim_tick > previous
@@ -1607,11 +1609,26 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                         spots.push(format!("{:.0}s {spot}", started.elapsed().as_secs_f32()));
                     }
                 }
+                if let Some(pages) = state.as_deref().and_then(|s| s.split(" pages=").nth(1))
+                    && !pages.is_empty()
+                    && wanted.last().is_none_or(|last| last != pages)
+                {
+                    wanted.push(pages.to_owned());
+                }
                 if clock.observe(state.as_deref(), Instant::now())
                     && started.elapsed().as_secs() > 45
                 {
+                    // The last time (page ms) each paging step ran, and the
+                    // resident page counts: which step the save is waiting on.
+                    let paging = host.b.eval(
+                        r#"(()=>{const c=document.getElementById('crabscape'),now=performance.now(),last={};
+                        for(const n of ['cell-terrain-page-installed','cell-terrain-page-deferred','cell-page-reply-applied',
+                          'cell-page-reply-failed','cell-page-reply-stale','cell-owner-save','cell-save-capture']){
+                          const e=performance.getEntriesByName(n);if(e.length)last[n]=Math.round(now-e[e.length-1].startTime)+' ms ago';}
+                        return JSON.stringify({cache:c?.getAttribute('data-cell-cache'),last});})()"#,
+                    )?;
                     return Err(host.failed(format!(
-                        "deep co-op owner save did not advance: {:.1} s of the game's autosave clock; autosave {state:?}; spot changes {spots:?}",
+                        "deep co-op owner save did not advance: {:.1} s of the game's autosave clock; autosave {state:?}; spot changes {spots:?}; pages wanted {wanted:?}; paging {paging}",
                         clock.game_seconds
                     )));
                 }
