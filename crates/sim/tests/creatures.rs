@@ -316,6 +316,14 @@ fn every_body_is_its_real_size_at_crab_scale() {
             "shell and head",
             6.0..=10.0,
         ),
+        // A juvenile green crab (adults reach about 9 cm across the carapace;
+        // not verified), its hurtbox across the carapace.
+        (
+            "shore crab",
+            long(Kind::ShoreCrab),
+            "carapace width",
+            2.0..=9.0,
+        ),
         (
             "bobbit worm",
             long(Kind::BobbitWorm),

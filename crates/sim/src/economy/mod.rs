@@ -291,6 +291,11 @@ impl Economy {
 /// creatures give the flat win bonus; the bestiary's ten give half their
 /// health (at least 15), so a squid is worth more than a hermit crab.
 pub fn win_xp(kind: crate::enemy::Kind, t: &crate::Tuning) -> f32 {
+    // The shore crab pays the snapping shrimp's flat win: a weak passive
+    // roamer must not be worth less (or more) than the turret it replaces.
+    if kind == crate::enemy::Kind::ShoreCrab {
+        return t.fight_xp_per_win;
+    }
     match crate::creatures::tuning(kind) {
         Some(tuning) => (tuning.vitals.health * 0.5).max(15.0),
         None => t.fight_xp_per_win,
