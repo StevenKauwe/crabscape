@@ -40,7 +40,7 @@ pub(crate) const ART_SCALE: f32 = 0.5;
 fn load(mut commands: Commands, assets: Res<AssetServer>) {
     commands.insert_resource(Art(CreatureArt::load_scaled(
         include_str!("../../assets/creatures/viperfish-parts.json"),
-        "creatures/viperfish-atlas.png",
+        "creatures/viperfish-atlas-oil.png",
         ART_SCALE,
         &assets,
     )));

@@ -223,7 +223,7 @@ jobs:
 
   art:
     name: committed art matches the rig
-    # Re-runs the crab's and the creatures' art pipelines (rig -> parts SVG -> game atlas -> oil-painted atlas; all
+    # Re-runs the crab's and the creatures' art pipelines (rig -> parts SVG -> drawn atlas -> oil-painted atlas; all
     # deterministic) and fails if the committed files differ: art changes must come with their exports.
     # The oil atlases come out a few bits different on a Mac, so these Linux runs are the reference: on a
     # difference, the files as CI made them are uploaded (`art-as-ci-made-it`) to download and commit.
@@ -237,30 +237,15 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: art
-      - name: Re-export the rigs and re-paint the oil atlases
+      - name: Re-draw the rigs and re-paint the oil atlases
         run: |
+          # The parts SVGs; tools/paint-oil.sh exports each drawing to a scratch folder (the game shows only the oil
+          # paint), paints it and writes the oil atlas and its parts file.
           cargo run --locked -q -p crabrig --profile art -- parts
-          cargo run --locked -q -p crabrig --profile art -- export
-          cargo run --locked -q -p crabrig --profile art -- parts --creature snapping-shrimp
-          cargo run --locked -q -p crabrig --profile art -- export --creature snapping-shrimp
-          cargo run --locked -q -p crabrig --profile art -- parts --creature snowflake-moray
-          cargo run --locked -q -p crabrig --profile art -- export --creature snowflake-moray
-          cargo run --locked -q -p crabrig --profile art -- parts --creature mantis-shrimp
-          cargo run --locked -q -p crabrig --profile art -- export --creature mantis-shrimp
-          cargo run --locked -q -p crabrig --profile art -- parts --creature common-octopus
-          cargo run --locked -q -p crabrig --profile art -- export --creature common-octopus
-          cargo run --locked -q -p crabrig --profile art -- parts --creature space-monkey
-          cargo run --locked -q -p crabrig --profile art -- export --creature space-monkey
-          cargo run --locked -q -p crabrig --profile art -- parts --creature pizza-crab
-          cargo run --locked -q -p crabrig --profile art -- export --creature pizza-crab
-          cargo run --locked -q -p crabrig --profile art -- parts --creature queen-triggerfish
-          cargo run --locked -q -p crabrig --profile art -- export --creature queen-triggerfish
-          cargo run --locked -q -p crabrig --profile art -- parts --creature alarm-jelly
-          cargo run --locked -q -p crabrig --profile art -- export --creature alarm-jelly
-          for c in loggerhead-turtle humboldt-squid viperfish goliath-grouper american-lobster hermit-crab shore-crab \
-            bobbit-worm giant-isopod hagfish amphipod-swarm; do
+          for c in snapping-shrimp snowflake-moray mantis-shrimp common-octopus space-monkey pizza-crab \
+            queen-triggerfish alarm-jelly loggerhead-turtle humboldt-squid viperfish goliath-grouper american-lobster \
+            hermit-crab shore-crab bobbit-worm giant-isopod hagfish amphipod-swarm; do
             cargo run --locked -q -p crabrig --profile art -- parts --creature "$c"
-            cargo run --locked -q -p crabrig --profile art -- export --creature "$c"
           done
           tools/paint-oil.sh
       - name: The committed art/crab, assets/crab, art/creatures and assets/creatures match

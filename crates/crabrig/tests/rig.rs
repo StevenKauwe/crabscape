@@ -366,10 +366,6 @@ fn triggerfish_rig_and_game_atlas_match_the_rust_puppet() {
         export.json,
         include_str!("../../../assets/creatures/queen-triggerfish-parts.json")
     );
-    assert_eq!(
-        export.atlas_png,
-        include_bytes!("../../../assets/creatures/queen-triggerfish-atlas.png")
-    );
 }
 
 #[test]
@@ -389,9 +385,5 @@ fn alarm_jelly_rig_and_atlas_match_the_visible_bell_and_six_links() {
     assert_eq!(
         export.json,
         include_str!("../../../assets/creatures/alarm-jelly-parts.json")
-    );
-    assert_eq!(
-        export.atlas_png,
-        include_bytes!("../../../assets/creatures/alarm-jelly-atlas.png")
     );
 }

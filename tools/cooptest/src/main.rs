@@ -1418,7 +1418,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
             // Stop the running game before installing a real persisted large world.
             let asset = host
                 .b
-                .eval("new URL('assets/crab/crab-atlas.png', location.href).href")?;
+                .eval("new URL('assets/crab/crab-atlas-oil.png', location.href).href")?;
             host.b.go(asset.as_str().ok_or("missing asset URL")?)?;
             // Reproduce an existing preview's retired save after a format
             // replacement. It must start fresh rather than disable saving.

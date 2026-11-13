@@ -43,7 +43,7 @@ pub fn prepare(b: &mut Chrome, url: &str, large: bool) -> Result<Value> {
       for(let i=0;i<p.length;i++){if(/^pr-\d+$/.test(p[i])){s=p[i];break;}if(p[i]==='branches'&&p[i+1]){s='branches-'+p[i+1];break;}}
       return s?'crabscape@'+s.replace(/[^a-zA-Z0-9_-]/g,'-').toLowerCase()+'@.cells':'crabscape.cells';})()"#)?;
     let asset = b
-        .eval("new URL('assets/crab/crab-atlas.png',location.href).href")?
+        .eval("new URL('assets/crab/crab-atlas-oil.png',location.href).href")?
         .as_str()
         .ok_or("missing asset route")?
         .to_owned();
