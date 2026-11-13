@@ -352,6 +352,15 @@ pub const SPOTS: &[NodeSpot] = &[
     on(K::SandDollarBed, 2385.0, 24.0),
     on(K::SeaPenField, 1435.0, -480.0),
     on(K::PitGlowSite, 1120.0, -540.0),
+    // The first descent pays at 15: tier 2 on the upper gallery's way in, so
+    // a level-15 crab brings home a haul and the glass garden past the door
+    // stays the want at 30. A clay bank and worm mud on the entry hall's
+    // silt floor (west of the mouth shaft's foot), and a pit glow mat on
+    // sponge door 1's floor that leads the eye to the glass. All out of the
+    // third gallery's hermit crab's reach. Appended, so earlier indices hold.
+    at(GALLERIES, K::ClayBank, 1340.0),
+    at(GALLERIES, K::WormMud, 1430.0),
+    at(GALLERIES, K::PitGlowSite, 1760.0),
 ];
 /// Where a spot lies on this level, or `None` when its named place is not
 /// in the level.
