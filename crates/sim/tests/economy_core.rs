@@ -81,6 +81,15 @@ fn shallows_sites(kind: NodeKind) -> usize {
         K::GritHeap => 3,
         K::ShoreGlow => 3,
         K::ClamBed | K::ClayBank | K::WormMud => 1,
+        // The variety audit's sites: one place each for the half-tier kinds
+        // and tier 2 near home for Harvesting and Culturing.
+        K::BarnacleRock
+        | K::BrittleStarCrevice
+        | K::PurpleFilmMat
+        | K::EelgrassBed
+        | K::SandDollarBed
+        | K::SeaPenField
+        | K::PitGlowSite => 1,
         _ => 0,
     }
 }
@@ -93,6 +102,54 @@ fn sights(kind: NodeKind) -> usize {
         K::TwilightGlow => 2,
         K::ScallopBed | K::ShoreGlow => 1,
         _ => 0,
+    }
+}
+
+#[test]
+fn every_half_tier_kind_grows_out_on_the_route_and_tier_two_has_a_near_home_site() {
+    use crabsim::level::shallows::SITES;
+    let level = Level::test_level();
+    let placed = nodes(&level);
+    let kinds = [
+        NodeKind::BarnacleRock,
+        NodeKind::BrittleStarCrevice,
+        NodeKind::PurpleFilmMat,
+        NodeKind::EelgrassBed,
+        NodeKind::SandDollarBed,
+    ];
+    for k in kinds {
+        let xs: Vec<f32> = placed
+            .iter()
+            .filter(|n| n.kind == k)
+            .map(|n| n.pos.x)
+            .collect();
+        assert!(xs.iter().any(|&x| x < 600.0), "{k:?} lost its home pocket");
+        assert!(
+            xs.iter().any(|&x| x > 600.0),
+            "{k:?} has nothing out on the route: {xs:?}"
+        );
+        let name = format!("{k:?}");
+        assert!(
+            SITES.iter().any(|s| s.1 == name && s.2.x > 600.0),
+            "{k:?} has no site"
+        );
+    }
+    // Harvesting's and Culturing's tier-2 kinds: one near home, one in the basin.
+    for k in [NodeKind::SeaPenField, NodeKind::PitGlowSite] {
+        let xs: Vec<f32> = placed
+            .iter()
+            .filter(|n| n.kind == k && n.pos.y > -700.0)
+            .map(|n| n.pos.x)
+            .collect();
+        assert!(
+            xs.iter().any(|&x| x < 2800.0),
+            "{k:?} has nothing near home: {xs:?}"
+        );
+        assert!(
+            xs.iter().any(|&x| x > 4000.0),
+            "{k:?} lost the basin's: {xs:?}"
+        );
+        println!("{k:?} at x {xs:?}");
     }
 }
 
@@ -584,8 +641,8 @@ fn a_level_without_a_pocket_drops_its_nodes_and_keeps_the_rest() {
     // and trench hollow (rocks) theirs.
     assert_eq!(
         left.len(),
-        all - 55,
-        "the pockets' 12, the galleries' 3, the deep halls' 12, the shelves' 8, region 6's 7 and the shallows' 9 and the sights' 4 are gone"
+        all - 59,
+        "the pockets' 12, the galleries' 3, the deep halls' 12, the shelves' 8, region 6's 7 and the shallows' 9 and the sights' 4 and the audit's 4 (far lookout, boulder, hollow, plug ledge) are gone"
     );
     assert!(left.iter().all(|n| home_of(n.kind) != Some("bone hall")));
 }
