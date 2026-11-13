@@ -11,7 +11,7 @@ use crate::physics::{Carry, STEP};
 use crate::shared::{Shared, Thing};
 use crate::skills::Skill;
 use crate::tuning::Tuning;
-use crate::world::cues::Cue;
+use crate::world::cues::{Cue, Cues};
 use crate::world::{PlayerId, Sim};
 
 /// What a crab's hold did this tick, for the world to finish.
@@ -68,15 +68,19 @@ impl Sim {
     /// Pay every local crab for the new blocks it dug this tick: Excavating
     /// by the unit, deterministic (no chance).
     pub(crate) fn dig_step(&mut self) {
-        let mut pay = Vec::new();
+        let tick = self.tick + 1;
         for c in self.crabs.iter_mut().filter(|c| !c.remote) {
             if c.dig.owed > 0 {
-                pay.push((c.id, c.dig.owed));
-                c.dig.owed = 0;
+                let blocks = std::mem::take(&mut c.dig.owed);
+                earn_crab(
+                    c,
+                    Skill::Excavating,
+                    blocks as f32 * DIG_BLOCK_XP,
+                    &self.tuning,
+                    &mut self.sound_cues,
+                    tick,
+                );
             }
-        }
-        for (id, blocks) in pay {
-            self.earn(id, Skill::Excavating, blocks as f32 * DIG_BLOCK_XP);
         }
     }
 
@@ -89,33 +93,9 @@ impl Sim {
         if !xp.is_finite() || xp <= 0.0 {
             return None;
         }
-        let tuning = self.tuning.clone();
         let tick = self.tick + 1;
         let crab = self.crabs.iter_mut().find(|c| c.id == id && !c.remote)?;
-        let (before, after) = if skill.economy_index().is_some() {
-            crab.econ.skills.add(skill, xp)
-        } else {
-            let before = crab.mover.level(skill, &tuning);
-            crab.mover.earn(skill, xp, &tuning);
-            (before, crab.mover.level(skill, &tuning))
-        };
-        let mut last = None;
-        for level in before + 1..=after {
-            let up = LevelUp { skill, level };
-            self.sound_cues.emit(
-                tick,
-                Cue::LevelUp {
-                    crab: id,
-                    skill,
-                    level,
-                },
-            );
-            last = Some(up);
-        }
-        if last.is_some() {
-            crab.pending.level_up = last;
-        }
-        last
+        earn_crab(crab, skill, xp, &self.tuning, &mut self.sound_cues, tick)
     }
 
     /// The nodes in the level, in the order the shared node state and
@@ -138,6 +118,41 @@ impl Sim {
     pub fn claw_bonus(&self, id: PlayerId) -> f32 {
         self.crab(id).map_or(1.0, |c| c.econ.claw_bonus())
     }
+}
+
+/// Award already-validated local experience without borrowing unrelated world
+/// state. Batch callers can keep crab order without an allocation or ID search.
+fn earn_crab(
+    crab: &mut SimCrab,
+    skill: Skill,
+    xp: f32,
+    tuning: &Tuning,
+    cues: &mut Cues,
+    tick: u64,
+) -> Option<LevelUp> {
+    let (before, after) = if skill.economy_index().is_some() {
+        crab.econ.skills.add(skill, xp)
+    } else {
+        let before = crab.mover.level(skill, tuning);
+        crab.mover.earn(skill, xp, tuning);
+        (before, crab.mover.level(skill, tuning))
+    };
+    let mut last = None;
+    for level in before + 1..=after {
+        cues.emit(
+            tick,
+            Cue::LevelUp {
+                crab: crab.id,
+                skill,
+                level,
+            },
+        );
+        last = Some(LevelUp { skill, level });
+    }
+    if last.is_some() {
+        crab.pending.level_up = last;
+    }
+    last
 }
 
 impl Sim {
@@ -431,6 +446,86 @@ fn gather_crab(
                 );
             }
             Some(Act::Done(i))
+        }
+    }
+}
+
+#[cfg(test)]
+mod payout_tests {
+    use super::*;
+    use bevy_math::Vec2;
+
+    fn fixture() -> Sim {
+        let mut sim = Sim::with_one_crab(Vec2::ZERO);
+        for id in 1..8 {
+            sim.add_crab(PlayerId(id), Vec2::ZERO);
+        }
+        sim.crabs[3].remote = true;
+        for (i, c) in sim.crabs.iter_mut().enumerate() {
+            c.dig.owed = [0, 1, 83, 400, 2000, 0, 90, 1][i];
+        }
+        sim
+    }
+
+    // The former two-stage algorithm is the behavioral oracle: all debts
+    // cleared first, then awards in crab order, with remote debt untouched.
+    fn reference(sim: &mut Sim) {
+        let mut pay = Vec::new();
+        for c in sim.crabs.iter_mut().filter(|c| !c.remote) {
+            if c.dig.owed > 0 {
+                pay.push((c.id, c.dig.owed));
+                c.dig.owed = 0;
+            }
+        }
+        for (id, blocks) in pay {
+            sim.earn(id, Skill::Excavating, blocks as f32 * DIG_BLOCK_XP);
+        }
+    }
+
+    #[test]
+    fn dig_payout_preserves_order_remote_debt_and_exactly_once_awards() {
+        let mut actual = fixture();
+        let mut expected = fixture();
+        for _ in 0..2 {
+            actual.dig_step();
+            reference(&mut expected);
+            assert_eq!(actual.state_hash(), expected.state_hash());
+            assert_eq!(actual.cues(), expected.cues());
+            for (a, e) in actual.crabs.iter().zip(&expected.crabs) {
+                assert_eq!(a.dig, e.dig);
+                assert_eq!(a.pending.level_up, e.pending.level_up);
+            }
+        }
+        assert_eq!(actual.crabs[3].dig.owed, 400);
+    }
+
+    #[test]
+    #[ignore = "manual matched release microbenchmark, not a timing gate"]
+    fn dig_payout_budget() {
+        use std::hint::black_box;
+        use std::time::Instant;
+        for count in [1, 8] {
+            for sample in 0..5 {
+                for (name, payout) in [
+                    ("reference", reference as fn(&mut Sim)),
+                    ("borrowed", Sim::dig_step),
+                ] {
+                    let mut sim = fixture();
+                    sim.crabs.truncate(count);
+                    let start = Instant::now();
+                    for _ in 0..100_000 {
+                        for c in &mut sim.crabs {
+                            c.dig.owed = black_box(1);
+                        }
+                        payout(black_box(&mut sim));
+                    }
+                    println!(
+                        "{count} crabs {sample} {name}: {:.1} ns/payout hash={:x}",
+                        start.elapsed().as_nanos() as f64 / 100_000.0,
+                        sim.state_hash()
+                    );
+                }
+            }
         }
     }
 }
