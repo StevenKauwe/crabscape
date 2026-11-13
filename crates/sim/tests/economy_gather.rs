@@ -52,6 +52,9 @@ fn at_node(level: Level, kind: NodeKind) -> (Sim, usize) {
     } else {
         sim.add_crab(P0, Vec2::new(at.x, sim.level.floor_height(at.x)));
     }
+    // These tests are about gathering, not the first-hour guide: with it on,
+    // a hold takes the guide's kind (kelp) from the next node over.
+    assert!(sim.guide_skip(P0));
     for _ in 0..5 {
         sim.tick();
     }
@@ -440,6 +443,7 @@ fn a_guest_joining_late_learns_which_nodes_are_spent() {
 #[test]
 fn a_recording_replays_a_gather_exactly() {
     let setup = |sim: &mut Sim| {
+        assert!(sim.guide_skip(P0));
         skill_at(sim, P0, Skill::Prying, 20);
         sim.crab_mut(P0).unwrap().econ.tools[0] = Tool::new(ToolKind::Pry, 1);
     };
