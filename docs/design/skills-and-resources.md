@@ -428,7 +428,7 @@ Reported (printed, not asserted): estimated hours to 30, 45, 60, 99.
   action stick when a ready node is in reach (hold). `Controls::gather_held`. A ring fills around the node while held.
 - **Node look:** each kind a small clear placeholder sprite (kelp fronds, mussel clump, grit heap...), tinted by band;
   a spent node draws bare (stubs, empty mud). Prompt text near the crab: "Hold C: pry mussels", or the reason it can't
-  ("Prying 15", "Needs a shell pry tip", "No room on your shell").
+  ("Prying 15", "Needs a shell pry tip", "Shell full: take it home").
 - **Skills panel:** key `K`, touch: a "Skills" button on the pause/home sheet. A 3-column grid of 13 skills (icon,
   level, a thin progress bar); tap a skill for its RuneScape-style guide: every unlock by level, done ones ticked,
   plus "XP to next level". Works at 375 × 812.
@@ -630,11 +630,11 @@ The owner's ask: levels 1 to 15 in **all 13 skills** must be a joy for a brand-n
     - Culturing: shore broth, mussel broth, purple starter.
   - **Early home pieces (12),** at Building levels: valve step (2), snail-shell cairn (4), grit path (6), glow jar (7), valve chime (8), rope rail (9), kelp garden (10), claw rack (11), valve shelf (12), sand-dollar sill (13), eelgrass thatch (14), barnacle wall (15).
 - **XP below 15** (tier 2 and above, and the RuneScape table, are unchanged):
-  - tier-1 gathers ×1.10, fading to ×1.00 by level 30;
+  - tier-1 gathers ×1.30, fading to ×1.00 by level 30 (it was ×1.10, then ×1.20; ×1.30 buys the margin below);
   - tier-1 recipes ×3;
   - Climbing and Swimming ×2.2;
   - Survival ×1.6;
-  - Fighting ×6 at levels 1 to 4, ×4.5 at 5 to 9, ×3.5 at 10 to 14 (it was ×12 / ×9 / ×7, then ×9 / ×6.5 / ×5). Fighting reaches 15 at minute 177.3 of 180, and every skill still reaches 15 within 3 h. The margin is thin, and the shore crab (below) is what will widen it.
+  - Fighting ×6 at levels 1 to 4, ×4.5 at 5 to 9, ×3.5 at 10 to 14 (it was ×12 / ×9 / ×7, then ×9 / ×6.5 / ×5). With the shore crabs placed and the bot fighting the slope one on its trips, Fighting reaches 15 at minute 166.5 and the last skill (Prying) at 170.1 of 180: a ten-minute margin. Focused Prying reaches 15 at minute 15.8 (the target is 15 to 25).
   - **Fight time (measured, bot, 3 h):** a home shrimp fight takes about 9 s, and 14.9 s door to door. A far-ledge trip takes about 100 s, both shrimp included. Fights were never the slow part. What held ×6 back before was the bot's far-ledge trip: it set the crab down inside the block (x 1,940 to 2,030), so each trip spent two 60 s fight timeouts and 213 s in all. Now the crab is set down east of the shrimp.
   - **The shore crab** (`Kind::ShoreCrab`, `creatures/shore_crab.rs`): a juvenile green crab that roams within 120 of its home and never starts a fight. Struck, it pinches back: a 36-tick tell, 40 ticks of recovery to punish, 26 health, a 2.25 pinch. It pays a snapping shrimp's win XP and returns after 90 s. A level-1 crab beats it in about 2 s. Being passive, it may share the floor with nodes (its danger distance is 0). The world lane places it on the gather route.
 - **Measured after** (bot, 3 h mixed, real ticks):
@@ -659,24 +659,24 @@ The owner's ask: levels 1 to 15 in **all 13 skills** must be a joy for a brand-n
 | # | Skill | Step (where) | Done when | Reward | Minute (bot) |
 |---|---|---|---|---|---|
 | 1 | Harvesting | Cut kelp by the door (the home pocket) | 6 kelp gathers | 2 grit | 0.6 |
-| 2 | Foraging | Forage snails by the door (the home pocket) | 8 snail gathers | 2 mussels | 1.2 |
-| 3 | Prying | Pry mussels past the shrimp (the second pocket) | 8 mussel gathers | 2 kelp | 1.7 |
+| 2 | Foraging | Forage snails by the door (the home pocket) | 8 snail gathers | 2 mussels | 1.1 |
+| 3 | Prying | Pry mussels past the shrimp (the second pocket) | 8 mussel gathers | 2 kelp | 1.6 |
 | 4 | Excavating | Scoop grit from the heaps (the second pocket) | 8 grit gathers | 2 valves | 2.2 |
-| 5 | Culturing | Gather shore-glow (either pocket) | 12 shore-glow gathers | 4 kelp | 3.6 |
-| 6 | Weaving | Twist kelp into cord (workbench) | make kelp cord x4 | 2 mussels | 4.1 |
+| 5 | Culturing | Gather shore-glow (either pocket) | 12 shore-glow gathers | 4 kelp | 3.5 |
+| 6 | Weaving | Twist kelp into cord (workbench) | make kelp cord x4 | 2 mussels | 4.0 |
 | 7 | Cooking | Shuck and cook mussels (workbench) | make shucked mussels x3 | 2 valves, 1 grit | 4.7 |
-| 8 | Shellcraft | Cut a shell blank (workbench) | make a shell blank | 1 kelp cord | 5.0 |
-| 9 | Shellcraft | Make a shell pry tip (workbench) | make a shell pry tip | 4 grit | 5.1 |
-| 10 | Building | Build grit into the home (workbench) | Building level 2 | 4 valves | 5.6 |
+| 8 | Shellcraft | Cut a shell blank (workbench) | make a shell blank | 1 kelp cord | 4.9 |
+| 9 | Shellcraft | Make a shell pry tip (workbench) | make a shell pry tip | 4 grit | 5.0 |
+| 10 | Building | Build grit into the home (workbench) | Building level 2 | 4 valves | 5.5 |
 | 11 | Building | Build the valve step (Home tab) | valve step built | 10 Climbing XP | 5.9 |
-| 12 | Climbing | Climb the kelp stalk beside the door | Climbing level 2 | 10 Swimming XP | 6.3 |
+| 12 | Climbing | Climb the kelp stalk beside the door | Climbing level 2 | 10 Swimming XP | 6.2 |
 | 13 | Swimming | Paddle a stroke or two (eat the egg first) | Swimming level 2 | 10 Fighting XP | 8.4 |
 | 14 | Fighting | Beat a snapping shrimp (home pockets) | a snapper beaten | 2 mussels | 10.5 |
 | 15 | Survival | Dive into the basin (down the trench) | basin band or deeper | 10 Survival XP | 11.3 |
 | 16 | Survival | Weather the twilight (canyon walls) | Survival level 2 | 2 kelp | 12.1 |
-| 17 | Building | Pick a want (Goals tab) | a want pinned | nothing | 14.8 |
+| 17 | Building | Pick a want (Goals tab) | a want pinned | nothing | 14.7 |
 
-The bot follows the guide on real ticks (`first_hours.rs`, `a_crab_following_the_guide_finishes_it_within_an_hour`): it finishes all 17 steps at minute 14.8 (the target is inside 60), and every one of the 13 skills has gained a level by then (levels at the end: Climbing 11, Swimming 9, Fighting 7, the rest 2 to 4). Re-measure with `cargo test -p crabsim --test first_hours measure_the_guide -- --ignored --nocapture`. The Fighting step is skipped silently by a crab that has already reached Fighting 6 (the snapping shrimps stand on the way to the second pocket); the bot reaches the step first.
+The bot follows the guide on real ticks (`first_hours.rs`, `a_crab_following_the_guide_finishes_it_within_an_hour`): it finishes all 17 steps at minute 14.7 (the target is inside 60), and every one of the 13 skills has gained a level by then (levels at the end: Climbing 11, Swimming 9, Fighting 7, the rest 2 to 4). Re-measure with `cargo test -p crabsim --test first_hours measure_the_guide -- --ignored --nocapture`. The Fighting step is skipped silently by a crab that has already reached Fighting 6 (the snapping shrimps stand on the way to the second pocket); the bot reaches the step first.
 
 7. **Fighting near home.** The first-hour world adds a few weak creatures near home. That is the world lane's part; this lane owns the XP and the ladder lines.
 

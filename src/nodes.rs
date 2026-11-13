@@ -468,11 +468,16 @@ fn guide_marker(
     marker: Single<(&mut Transform, &mut Visibility), With<GuideMarker>>,
 ) {
     let (mut at, mut shown) = marker.into_inner();
-    let target = sim
-        .crabs()
-        .iter()
-        .find(|c| !c.remote)
-        .and_then(|c| sim.guide_target(c.id, MARK_REACH));
+    // Hidden once the crab is in reach of it: the gather prompt says it there.
+    // A full shell points it at the door instead (`wants_ui::guide_shell_full`).
+    let target = sim.crabs().iter().find(|c| !c.remote).and_then(|c| {
+        let goal = if crate::wants_ui::guide_shell_full(&sim, c.id) {
+            Some(sim.level.home.center())
+        } else {
+            sim.guide_target(c.id, MARK_REACH)
+        };
+        goal.filter(|n| n.distance(c.mover.pos) > crabsim::economy::gather::REACH)
+    });
     let Some(node) = target else {
         shown.set_if_neq(Visibility::Hidden);
         return;

@@ -269,6 +269,7 @@ fn follow_crab(
     mut rest: Local<Option<Vec2>>,
     inside: Res<crate::interior::Inside>,
     window: Single<&Window>,
+    touch: Res<TouchControls>,
 ) {
     let level = &sim.level;
     let (mover, crab_tr) = *crab;
@@ -300,7 +301,16 @@ fn follow_crab(
     let dt = time.delta_secs();
 
     let lead = (mover.vel.x * tuning.camera_lead).clamp(-view.x * 0.2, view.x * 0.2);
-    let mut target = crab_tr.translation.truncate() + Vec2::new(lead, view.y * 0.12);
+    // A phone held upright has its touch buttons over the lower half: the
+    // crab sits above the middle there, not below it, so the buttons never
+    // cover it or the node it works.
+    let size = window.size();
+    let lift = if touch.visible && size.y > size.x {
+        -0.10
+    } else {
+        0.12
+    };
+    let mut target = crab_tr.translation.truncate() + Vec2::new(lead, view.y * lift);
     // Keep the walls at the edges of the screen (a little of them showing).
     let (lo, hi) = (
         level.min_x + seen.x / 2.0 - 60.0,
@@ -464,7 +474,9 @@ fn update_help(
     colour.set_if_neq(TextColor(crate::ui_theme::MUTED.with_alpha(alpha)));
     let narrow = window.width() < 600.0;
     let help = match (touch.visible, narrow) {
-        (true, true) => "JUMP again in the water: swim",
+        // An upright phone: nothing. Its one line sat where the notes rise
+        // ("Took kelp" printed over it) while the guide pill says what to do.
+        (true, true) => "",
         (true, false) => {
             "JUMP again in the water: swim  Pinch: memory\nGUARD just before a blow: parry"
         }

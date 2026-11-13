@@ -725,7 +725,7 @@ fn fill_scene(
 // --- the crafting menu -------------------------------------------------------
 
 /// The menu's rows' heights, its header's, and its padding.
-const ROW: f32 = 48.0;
+const ROW: f32 = 52.0;
 const HEADER: f32 = 30.0;
 const PAD: f32 = 10.0;
 const MAKE_W: f32 = 72.0;
@@ -1109,9 +1109,13 @@ fn lay_out_menu(
                     make.min.x - 8.0,
                     row.max.y,
                 );
+                // Clipped to its row: a long name and where-line wrap to
+                // more lines than a row holds, and spilled into the next row
+                // and the footer.
                 p.spawn((Node {
                     flex_direction: FlexDirection::Column,
                     row_gap: px(2.0),
+                    overflow: Overflow::clip(),
                     ..at(words, o)
                 },))
                     .with_children(|w| {

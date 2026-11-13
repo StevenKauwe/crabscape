@@ -77,10 +77,37 @@ fn spawn(mut commands: Commands) {
 pub fn guide_text(sim: &Sim, id: PlayerId) -> Option<String> {
     let status = sim.guide_status(id).filter(|s| !s.skipped)?;
     let step = status.step?;
+    if guide_shell_full(sim, id) {
+        let count = status
+            .progress
+            .map_or(String::new(), |(have, want)| format!(", {have}/{want}"));
+        return Some(format!("Guide: shell full, take it home{count}"));
+    }
     Some(match status.progress {
         Some((have, want)) => format!("Guide: {}, {have}/{want}", step.title.to_lowercase()),
         None => format!("Guide: {}", step.title.to_lowercase()),
     })
+}
+
+/// Whether the guide's gather step can't go on until crab `id` takes its
+/// load home: its shell has no room for what the step's node gives (walking
+/// in at the door unloads it). The guide line and its marker say so.
+pub fn guide_shell_full(sim: &Sim, id: PlayerId) -> bool {
+    let Some(step) = sim
+        .guide_status(id)
+        .filter(|s| !s.skipped)
+        .and_then(|s| s.step)
+    else {
+        return false;
+    };
+    let crabsim::economy::guide::Cond::Gather(kind, _) = step.cond else {
+        return false;
+    };
+    let Some(item) = kind.def().yields else {
+        return false;
+    };
+    sim.crab(id)
+        .is_some_and(|c| !c.mover.room_for(crabsim::Carry::Item(item), &sim.tuning))
 }
 
 /// What the goal line says, and whether it is ready (gold), for crab `id`:
@@ -118,6 +145,7 @@ fn show_goal(
     mut mark: Single<(&mut BorderColor, &mut BackgroundColor), (With<GoalMark>, Without<GoalPill>)>,
     mut line: Single<(&mut Text, &mut TextColor), With<GoalLine>>,
     inside: Res<crate::interior::Inside>,
+    cargo: Option<Res<crate::shell_inventory::Open>>,
 ) {
     let Ok((id, mover)) = me.single() else {
         return;
@@ -133,7 +161,8 @@ fn show_goal(
             guide_text(&sim, *id).map(|words| (words, false))
         }
     });
-    let display = if goal.is_some() {
+    // The open cargo panel covers the pill's place: hide it then, not under.
+    let display = if goal.is_some() && !cargo.is_some_and(|c| c.0) {
         Display::Flex
     } else {
         Display::None
@@ -172,12 +201,27 @@ mod tests {
         let mut sim = Sim::with_one_crab(Vec2::new(900.0, 0.0));
         let id = PlayerId(0);
         let words = guide_text(&sim, id).unwrap();
-        assert!(words.starts_with("Guide: pry mussels"), "{words}");
-        assert!(words.ends_with("0/8"), "{words}");
+        assert!(words.starts_with("Guide: cut kelp"), "{words}");
+        assert!(words.ends_with("0/6"), "{words}");
         assert!(sim.guide_skip(id));
         assert_eq!(guide_text(&sim, id), None);
         assert!(sim.guide_on(id));
         assert!(guide_text(&sim, id).is_some());
+    }
+
+    #[test]
+    fn a_full_shell_turns_the_guide_line_home() {
+        let mut sim = Sim::with_one_crab(Vec2::new(900.0, 0.0));
+        let id = PlayerId(0);
+        let tuning = sim.tuning.clone();
+        let crab = sim.crab_mut(id).unwrap();
+        while crab
+            .mover
+            .take_up(crabsim::Carry::Item(Item::Grit), &tuning)
+        {}
+        assert!(guide_shell_full(&sim, id));
+        let words = guide_text(&sim, id).unwrap();
+        assert_eq!(words, "Guide: shell full, take it home, 0/6");
     }
 
     #[test]

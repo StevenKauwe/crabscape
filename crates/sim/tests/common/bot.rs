@@ -474,10 +474,11 @@ impl Bot {
     }
 
     fn shore_crab_up(&self) -> bool {
-        self.sim
-            .enemies()
-            .iter()
-            .any(|e| e.kind == Kind::ShoreCrab && (e.home.x - SHORE_HOME).abs() < 1.0 && e.state != State::Gone)
+        self.sim.enemies().iter().any(|e| {
+            e.kind == Kind::ShoreCrab
+                && (e.home.x - SHORE_HOME).abs() < 1.0
+                && e.state != State::Gone
+        })
     }
 
     fn snapper_up(&self, at: f32) -> bool {
@@ -485,9 +486,9 @@ impl Bot {
             .enemies()
             .iter()
             .filter(|e| {
-                    (e.kind == Kind::Snapper && (e.home.x - at).abs() < SNAPPER_NEAR)
-                        || (e.kind == Kind::ShoreCrab && (e.home.x - at).abs() < 1.0)
-                })
+                (e.kind == Kind::Snapper && (e.home.x - at).abs() < SNAPPER_NEAR)
+                    || (e.kind == Kind::ShoreCrab && (e.home.x - at).abs() < 1.0)
+            })
             .any(|e| e.state != State::Gone)
     }
 
@@ -524,7 +525,12 @@ impl Bot {
             let dir = (e.pos.x - me).signum();
             let gap = (e.pos.x - me).abs();
             let gone = e.state == State::Gone;
-            let close = gap < if e.kind == Kind::ShoreCrab { 40.0 } else { 70.0 };
+            let close = gap
+                < if e.kind == Kind::ShoreCrab {
+                    40.0
+                } else {
+                    70.0
+                };
             let answer = e.state == State::Tell && e.state_tick + 4 >= e.state_len;
             // A passive roamer (the shore crab) is struck first, while it
             // only roams; after that, the same read-and-punish as a shrimp.

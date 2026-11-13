@@ -35,7 +35,7 @@ You are small and the ocean is enormous. Each dive is an expedition you plan, pa
   ([Lianos et al. 2022, "Much more than hooked: Setal adaptations for camouflage in *Macrocoeloma trispinosum*",
   Arthropod Structure & Development 66](https://pubmed.ncbi.nlm.nih.gov/34863064/)); that they carry food home this way:
   not verified. Neither blocks the other: a clam on the shell never stops the crab taking the culture, nor the
-  culture a clam. With the shell full, a small thing stays where it lies ("No room on your shell"), never swapped.
+  culture a clam. With the shell full, a small thing stays where it lies ("Shell full: take it home"), never swapped.
   Tucked in at home, everything comes off at once (clams into the larder; grit, the culture, the tooth and the glass put by the
   workbench, to make things from). Four is enough that a small thing never costs a trip of its own (the shallows'
   two clams and heap fit, and so does the pit's clam and two heaps), and few enough that the larder can't be filled nor

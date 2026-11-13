@@ -50,24 +50,35 @@ pub fn in_reach(sim: &Sim, id: crabsim::PlayerId) -> Option<(usize, bool)> {
             crabsim::economy::guide::Cond::Gather(kind, _) => Some(kind),
             _ => None,
         });
-    let mut best: Option<(usize, (bool, bool), bool, f32)> = None;
+    // When nothing in reach can be worked (a full shell, say), the node
+    // named is the guide's kind, then one the crab has the level for: so a
+    // full shell at the kelp says "Shell full", not the level-8 crevice
+    // beside it's "Opens at Foraging 8".
+    let mut best: Option<(usize, bool, (bool, bool, bool, bool), f32)> = None;
     for (i, p) in sim.placed_nodes().iter().enumerate() {
         let d = p.pos.distance(crab.mover.pos);
         if d > gather::REACH {
             continue;
         }
         let ready = sim.shared.nodes.get(i).is_some_and(|n| n.charges > 0);
-        let workable = ready && gather::check(crab, p.kind, &sim.tuning).is_ok();
-        let rank = (workable, workable && wanted == Some(p.kind));
+        let check = gather::check(crab, p.kind, &sim.tuning);
+        let workable = ready && check.is_ok();
+        let open = !matches!(check, Err(GatherBlocked::Level(..)));
+        let rank = (
+            workable,
+            workable && wanted == Some(p.kind),
+            ready && wanted == Some(p.kind),
+            open,
+        );
         let better = match best {
             None => true,
-            Some((_, was_rank, was, far)) => (rank, ready, -d) > (was_rank, was, -far),
+            Some((_, was_ready, was_rank, far)) => (rank, ready, -d) > (was_rank, was_ready, -far),
         };
         if better {
-            best = Some((i, rank, ready, d));
+            best = Some((i, ready, rank, d));
         }
     }
-    best.map(|(i, _, ready, _)| (i, ready))
+    best.map(|(i, ready, _, _)| (i, ready))
 }
 
 /// The words for a refused hold.
@@ -86,7 +97,7 @@ pub fn why_not(why: GatherBlocked) -> String {
             };
             format!("Needs {a} {material} {}", kind.name())
         }
-        GatherBlocked::NoRoom => "No room on your shell".into(),
+        GatherBlocked::NoRoom => "Shell full: take it home".into(),
         GatherBlocked::Spent => "Spent: grows back soon".into(),
         GatherBlocked::Ingredients => "Needs 2 seep mussels on your shell".into(),
     }
@@ -149,7 +160,7 @@ fn spawn(mut commands: Commands) {
         },
         TextColor(PROMPT),
         Transform::from_xyz(0.0, 0.0, 21.0),
-        Visibility::Hidden,
+        Visibility::Inherited,
     ));
 }
 
@@ -196,8 +207,15 @@ fn show(
             at.translation = (pos + Vec2::Y * PROMPT_UP).extend(21.0);
             shown.set_if_neq(Visibility::Inherited);
         }
+        // Emptied, never hidden: words set in the same frame a hidden
+        // `Text2d` was shown again kept their old layout on the web (the
+        // prompt read "Hold C: cut kelp" over a full shell), so the prompt
+        // stays visible and only its words change.
         _ => {
-            shown.set_if_neq(Visibility::Hidden);
+            if !text.0.is_empty() {
+                text.0.clear();
+            }
+            shown.set_if_neq(Visibility::Inherited);
         }
     }
 }
@@ -222,11 +240,41 @@ mod tests {
             why_not(GatherBlocked::Tool(ToolKind::Scoop, 4)),
             "Needs a bone scoop"
         );
-        assert_eq!(why_not(GatherBlocked::NoRoom), "No room on your shell");
+        assert_eq!(why_not(GatherBlocked::NoRoom), "Shell full: take it home");
         assert_eq!(why_not(GatherBlocked::Spent), "Spent: grows back soon");
         assert_eq!(
             why_not(GatherBlocked::Ingredients),
             "Needs 2 seep mussels on your shell"
+        );
+    }
+
+    #[test]
+    fn a_full_shell_at_the_kelp_says_take_it_home() {
+        let mut sim = Sim::with_one_crab(Vec2::new(900.0, 0.0));
+        let id = crabsim::PlayerId(0);
+        let kelp = sim
+            .placed_nodes()
+            .iter()
+            .filter(|n| n.kind == crabsim::economy::NodeKind::KelpStand)
+            .map(|n| n.pos)
+            .min_by(|a, b| a.x.total_cmp(&b.x))
+            .expect("kelp by the door");
+        let tuning = sim.tuning.clone();
+        let crab = sim.crab_mut(id).unwrap();
+        crab.mover.pos = kelp + Vec2::new(2.0, 0.0);
+        assert!(
+            prompt_text(&sim, id, false).is_some_and(|w| w.ends_with("cut kelp")),
+            "{:?}",
+            prompt_text(&sim, id, false)
+        );
+        let crab = sim.crab_mut(id).unwrap();
+        while crab
+            .mover
+            .take_up(crabsim::Carry::Item(crabsim::Item::Grit), &tuning)
+        {}
+        assert_eq!(
+            prompt_text(&sim, id, false).as_deref(),
+            Some("Shell full: take it home")
         );
     }
 }
