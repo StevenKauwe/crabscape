@@ -161,21 +161,87 @@ impl ReloadProgress {
     }
 }
 
+/// Movement budgets are simulated time, not wall time. The game pauses its
+/// fixed-tick simulation while it waits for nearby terrain pages (which queue
+/// behind an autosave publication), and a software-rendered CI frame advances
+/// at most ~30 of the 120 ticks in a second. A wall-clock budget therefore
+/// measured the runner, not the crab: main's 10 s walk to the castle rope
+/// failed while the simulation stood still for 6.5 s and then ran at a third
+/// of real time. A crab that is stuck still spends its simulated budget; a
+/// simulation that stops advancing at all fails separately, after
+/// `STALL_LIMIT` of wall time without a single new tick.
+const STALL_LIMIT: Duration = Duration::from_secs(45);
+
+#[derive(Debug, PartialEq)]
+enum Budget {
+    Within,
+    Spent,
+    Stalled,
+}
+struct SimBudget {
+    ticks: u64,
+    start: Option<u64>,
+    last: Option<u64>,
+    progressed: Instant,
+}
+impl SimBudget {
+    fn seconds(seconds: u64) -> Self {
+        Self {
+            ticks: seconds * u64::from(crabsim::TICKS_PER_SECOND),
+            start: None,
+            last: None,
+            progressed: Instant::now(),
+        }
+    }
+    /// Observe the simulation tick that was read together with the sample
+    /// being judged, so a slow protocol reply cannot pair a late position
+    /// with an earlier tick.
+    fn observe(&mut self, tick: Option<u64>) -> Budget {
+        self.observe_at(tick, Instant::now())
+    }
+    fn observe_at(&mut self, tick: Option<u64>, now: Instant) -> Budget {
+        if let Some(tick) = tick {
+            let start = *self.start.get_or_insert(tick);
+            if self.last != Some(tick) {
+                self.last = Some(tick);
+                self.progressed = now;
+            }
+            if tick.saturating_sub(start) > self.ticks {
+                return Budget::Spent;
+            }
+        }
+        if now.duration_since(self.progressed) > STALL_LIMIT {
+            Budget::Stalled
+        } else {
+            Budget::Within
+        }
+    }
+    fn elapsed_seconds(&self) -> f64 {
+        match (self.start, self.last) {
+            (Some(start), Some(last)) => {
+                (last - start) as f64 / f64::from(crabsim::TICKS_PER_SECOND)
+            }
+            _ => 0.0,
+        }
+    }
+}
+fn tick_of(value: &serde_json::Value) -> Option<u64> {
+    value.as_str()?.parse().ok()
+}
+
 #[derive(Debug, PartialEq)]
 enum WalkStatus {
     Moving,
     Arrived,
     TimedOut,
 }
-fn walk_status(distance: f64, reach: f64, elapsed: Duration, budget: Duration) -> WalkStatus {
-    // A slow browser reply must not turn a late target observation into
-    // success. Readiness never resets or extends this movement budget.
-    if elapsed > budget {
-        WalkStatus::TimedOut
-    } else if distance < reach {
-        WalkStatus::Arrived
-    } else {
-        WalkStatus::Moving
+fn walk_status(distance: f64, reach: f64, budget: &Budget) -> WalkStatus {
+    // A sample taken after the simulated budget ran out is not success,
+    // even if it shows the crab at the target.
+    match budget {
+        Budget::Spent | Budget::Stalled => WalkStatus::TimedOut,
+        Budget::Within if distance < reach => WalkStatus::Arrived,
+        Budget::Within => WalkStatus::Moving,
     }
 }
 fn position(browser: &mut Chrome) -> Result<[f64; 3]> {
@@ -191,17 +257,18 @@ fn parse_position(value: &str) -> Result<[f64; 3]> {
     v.try_into()
         .map_err(|_| format!("Malformed crab position {value}"))
 }
-fn position_frame(browser: &mut Chrome) -> Result<([f64; 3], String)> {
+fn position_frame(browser: &mut Chrome) -> Result<([f64; 3], Option<u64>)> {
     // Read both markers in one turn; a slow protocol roundtrip must not
     // pair an old position with the following frame's tick counter.
     let value = browser.eval(r#"(() => { const c=document.getElementById('crabscape'); return [c?.getAttribute('data-crab'),c?.getAttribute('data-king-ddd-tick')]; })()"#)?;
     let position = value[0].as_str().ok_or("No crab frame position")?;
-    let tick = value[1].as_str().ok_or("No crab frame tick")?;
-    Ok((parse_position(position)?, tick.to_owned()))
+    let tick = tick_of(&value[1]).ok_or("No crab frame tick")?;
+    Ok((parse_position(position)?, Some(tick)))
 }
 fn stand_still(browser: &mut Chrome) -> Result<()> {
-    let until = Instant::now() + Duration::from_secs(10);
+    let mut budget = SimBudget::seconds(10);
     let (mut previous, mut previous_tick) = position_frame(browser)?;
+    budget.observe(previous_tick);
     let mut stable = 0;
     loop {
         sleep(Duration::from_millis(120));
@@ -221,10 +288,12 @@ fn stand_still(browser: &mut Chrome) -> Result<()> {
         if stable >= 3 {
             return Ok(());
         }
-        if Instant::now() > until {
+        let status = budget.observe(tick);
+        if status != Budget::Within {
             failure_evidence(browser);
             return Err(format!(
-                "The crab did not settle at the ledger: {previous:?} -> {p:?}"
+                "The crab did not settle at the ledger ({status:?} after {:.2} simulated s): {previous:?} -> {p:?}",
+                budget.elapsed_seconds()
             ));
         }
     }
@@ -260,7 +329,7 @@ fn walk_to(browser: &mut Chrome, target: f64, seconds: u64) -> Result<()> {
         browser.set_key("KeyW", true)?;
     }
     let started = Instant::now();
-    let budget = Duration::from_secs(seconds);
+    let mut budget = SimBudget::seconds(seconds);
     let mut trace = VecDeque::new();
     let mut held = None;
     loop {
@@ -283,17 +352,19 @@ fn walk_to(browser: &mut Chrome, target: f64, seconds: u64) -> Result<()> {
         // of walking). Aim within the actual interaction/pickup reach,
         // rather than oscillate over a sub-frame 16-unit target forever.
         // The tour still asserts every collected page, bell and reward.
+        let status = budget.observe(tick_of(&observation["tick"]));
         match walk_status(
             (p[0] - target).abs(),
             if rope { 48.1 } else { 50.0 },
-            started.elapsed(),
-            budget,
+            &status,
         ) {
             WalkStatus::Arrived => break,
             WalkStatus::TimedOut => {
                 failure_evidence(browser);
                 return Err(format!(
-                    "Walk toward {target} stopped at {p:?}; observations={trace:?}"
+                    "Walk toward {target} stopped at {p:?} ({status:?} after {:.2} simulated s, {:.2} s wall); observations={trace:?}",
+                    budget.elapsed_seconds(),
+                    started.elapsed().as_secs_f32()
                 ));
             }
             WalkStatus::Moving => {}
@@ -322,7 +393,11 @@ fn walk_to(browser: &mut Chrome, target: f64, seconds: u64) -> Result<()> {
     if target == 240.0 {
         // Keep a passing comparison too: one green run must not be mistaken
         // for proof that the missing timing evidence fixed the earlier stall.
-        println!("Return walk completed in {:.2}s", reached.as_secs_f32());
+        println!(
+            "Return walk completed in {:.2}s ({:.2} simulated s)",
+            reached.as_secs_f32(),
+            budget.elapsed_seconds()
+        );
         let directory = Path::new("target/webtest/king");
         let _ = std::fs::create_dir_all(directory);
         if let Ok(state) = diagnostic_state(browser) {
@@ -412,11 +487,16 @@ fn climb_until(browser: &mut Chrome, target: f64, seconds: u64) -> Result<()> {
     browser.set_key("KeyW", true)?;
     // From a floor: jump, then tap again to grip, as the ordinary control
     // card instructs. Holding only the first floor jump never asks to grip.
-    let airborne = Instant::now() + Duration::from_secs(4);
-    while position(browser)?[2] != 0.0 {
-        if Instant::now() > airborne {
+    let mut airborne = SimBudget::seconds(4);
+    loop {
+        let (p, tick) = position_frame(browser)?;
+        if p[2] == 0.0 {
+            break;
+        }
+        let status = airborne.observe(tick);
+        if status != Budget::Within {
             failure_evidence(browser);
-            return Err("Jump did not leave the castle floor".into());
+            return Err(format!("Jump did not leave the castle floor ({status:?})"));
         }
         sleep(Duration::from_millis(20));
     }
@@ -429,15 +509,20 @@ fn climb_until(browser: &mut Chrome, target: f64, seconds: u64) -> Result<()> {
         browser.set_key("KeyW", false)?;
         browser.set_key("ArrowDown", true)?;
     }
-    let until = Instant::now() + Duration::from_secs(seconds);
+    let mut budget = SimBudget::seconds(seconds);
     loop {
-        let y = position(browser)?[1];
-        if if up { y >= target } else { y <= target } {
+        let (p, tick) = position_frame(browser)?;
+        let y = p[1];
+        let status = budget.observe(tick);
+        if status == Budget::Within && if up { y >= target } else { y <= target } {
             break;
         }
-        if Instant::now() > until {
+        if status != Budget::Within {
             failure_evidence(browser);
-            return Err(format!("Castle rope to {target} stopped at {y}"));
+            return Err(format!(
+                "Castle rope to {target} stopped at {y} ({status:?} after {:.2} simulated s)",
+                budget.elapsed_seconds()
+            ));
         }
         sleep(Duration::from_millis(60));
     }
@@ -896,10 +981,16 @@ fn main() -> Result<()> {
     // Clear the landing by more than a body width even when a slow frame
     // stops within the ordinary interaction reach of the steering target.
     walk_to(&mut b, 240.0, 12)?;
-    let until = Instant::now() + Duration::from_secs(15);
-    while position(&mut b)?[1] >= 5000.0 {
-        if Instant::now() > until {
-            return Err(format!("Return to sea stopped at {:?}", position(&mut b)?));
+    let mut budget = SimBudget::seconds(15);
+    loop {
+        let (p, tick) = position_frame(&mut b)?;
+        if p[1] < 5000.0 {
+            break;
+        }
+        let status = budget.observe(tick);
+        if status != Budget::Within {
+            failure_evidence(&mut b);
+            return Err(format!("Return to sea stopped at {p:?} ({status:?})"));
         }
         sleep(Duration::from_millis(100));
     }
@@ -948,15 +1039,60 @@ mod tests {
 
     #[test]
     fn movement_keeps_its_deadline_even_when_a_late_sample_reaches_the_target() {
-        let budget = Duration::from_secs(12);
-        assert_eq!(walk_status(100.0, 50.0, budget, budget), WalkStatus::Moving);
-        assert_eq!(walk_status(49.9, 50.0, budget, budget), WalkStatus::Arrived);
+        assert_eq!(
+            walk_status(100.0, 50.0, &Budget::Within),
+            WalkStatus::Moving
+        );
+        assert_eq!(
+            walk_status(49.9, 50.0, &Budget::Within),
+            WalkStatus::Arrived
+        );
         for distance in [0.0, 49.9, 100.0] {
-            assert_eq!(
-                walk_status(distance, 50.0, budget + Duration::from_nanos(1), budget),
-                WalkStatus::TimedOut
-            );
+            for spent in [Budget::Spent, Budget::Stalled] {
+                assert_eq!(walk_status(distance, 50.0, &spent), WalkStatus::TimedOut);
+            }
         }
+    }
+
+    #[test]
+    fn budget_counts_simulated_ticks_not_wall_time_spent_paused() {
+        let t0 = Instant::now();
+        let mut budget = SimBudget::seconds(10);
+        assert_eq!(budget.observe_at(Some(6791), t0), Budget::Within);
+        // Main's failing walk: the simulation waited 6.5 s for terrain pages
+        // and then advanced ~29 ticks per 0.75 s frame. Thirty wall seconds
+        // of that is well under ten simulated seconds.
+        let mut tick = 6791;
+        for frame in 1..=40 {
+            if frame > 9 {
+                tick += 29;
+            }
+            let now = t0 + Duration::from_millis(750 * frame);
+            assert_eq!(budget.observe_at(Some(tick), now), Budget::Within);
+        }
+        // A crab that never arrives still spends its simulated budget.
+        let late = t0 + Duration::from_secs(40);
+        assert_eq!(budget.observe_at(Some(6791 + 1200), late), Budget::Within);
+        assert_eq!(budget.observe_at(Some(6791 + 1201), late), Budget::Spent);
+    }
+
+    #[test]
+    fn a_simulation_that_stops_advancing_fails_without_spending_ticks() {
+        let t0 = Instant::now();
+        let mut budget = SimBudget::seconds(10);
+        assert_eq!(budget.observe_at(Some(5), t0), Budget::Within);
+        assert_eq!(budget.observe_at(Some(5), t0 + STALL_LIMIT), Budget::Within);
+        assert_eq!(
+            budget.observe_at(Some(5), t0 + STALL_LIMIT + Duration::from_millis(1)),
+            Budget::Stalled
+        );
+        // A missing tick is never progress.
+        let mut unread = SimBudget::seconds(10);
+        assert_eq!(unread.observe_at(None, t0), Budget::Within);
+        assert_eq!(
+            unread.observe_at(None, t0 + STALL_LIMIT + Duration::from_millis(1)),
+            Budget::Stalled
+        );
     }
 
     #[test]
