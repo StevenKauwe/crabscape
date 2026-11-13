@@ -525,6 +525,13 @@ impl Chrome {
         .map(drop)
     }
 
+    /// Say the browser is another one (`navigator.userAgent`), e.g. an iPhone's.
+    #[allow(dead_code)] // Used by the phone memory budget.
+    pub fn user_agent(&mut self, ua: &str) -> Result<()> {
+        self.call("Emulation.setUserAgentOverride", json!({ "userAgent": ua }))
+            .map(drop)
+    }
+
     /// Test the game's real touch layout without asking for browser permissions.
     #[allow(dead_code)] // Used by the royal region's responsive acceptance.
     pub fn touch_screen(&mut self, enabled: bool) -> Result<()> {

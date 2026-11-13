@@ -168,17 +168,16 @@ pub fn carapace_middle() -> Vec2 {
 #[derive(Resource)]
 struct CrabArt {
     file: PartsFile,
-    /// The atlases as loaded, per style (index: `style_index`).
-    sources: [Handle<Image>; 2],
-    /// Once both have loaded (or failed), the three layers per style:
+    /// The atlases, per style (index: `style_index`), each loaded only once that style is shown: holding both
+    /// styles' pictures and layers cost a phone 26 MiB more for a style it wasn't showing.
+    sources: [Option<Handle<Image>>; 2],
+    /// Once a style's atlas has loaded (or failed), the four layers of that style:
     /// `[lit, unlit, pale, rim]`. Lit is the parts in full colour; unlit the
     /// same parts darkened, desaturated and cooled: how they look outside the
     /// lantern light; pale the same parts washed towards cream: a soft new
     /// shell just after a moult, faded in over the lit layer; rim a band just
     /// inside each part's edge (white, at half size), for the lantern's light
     /// round the edges from behind.
-    /// (Each style's set is made on a frame of its own, the style shown first: one long frame fewer
-    /// while the game starts and a co-op join is being set up between frames.)
     layers: [Option<[Handle<Image>; 4]>; 2],
     /// Where each piece is on the pizza crab's pictures (by name), once wanted.
     pizza_rects: HashMap<String, [f32; 4]>,
@@ -550,10 +549,10 @@ fn pizza_rects() -> HashMap<String, [f32; 4]> {
 }
 
 /// Start loading both styles' pictures.
-fn load_art(mut commands: Commands, assets: Res<AssetServer>) {
+fn load_art(mut commands: Commands) {
     commands.insert_resource(CrabArt {
         file: PartsFile::parse(),
-        sources: [assets.load(ATLAS_INK), assets.load(ATLAS_OIL)],
+        sources: [None, None],
         layers: [None, None],
         pizza_rects: pizza_rects(),
         pizza_sources: None,
@@ -585,17 +584,24 @@ fn make_style_layers(
     if !ok[i] {
         warn!("crab picture {i} failed to load; using the other style's");
     }
-    let lit = sources[from].clone();
-    let image = images.get(&lit)?;
+    style_layers(sources[from].clone(), images)
+}
+
+/// The four layers made from the atlas `lit`. The made layers are only drawn, so their pixels go to the graphics
+/// card and leave the game's own memory (`RENDER_WORLD`).
+fn style_layers(lit: Handle<Image>, images: &mut Assets<Image>) -> Option<[Handle<Image>; 4]> {
+    let image = images.get(&lit).filter(|image| image.data.is_some())?;
     if image.texture_descriptor.format != TextureFormat::Rgba8UnormSrgb {
         warn!("crab atlas is not RGBA sRGB; the dark layer may look wrong");
     }
     let mut unlit = image.clone();
+    unlit.asset_usage = RenderAssetUsages::RENDER_WORLD;
     if let Some(pixels) = unlit.data.as_mut() {
         make_unlit(pixels);
     }
-    let mut pale = image.clone();
-    if let Some(pixels) = pale.data.as_mut() {
+    let mut pale = unlit.clone();
+    if let (Some(pixels), Some(source)) = (pale.data.as_mut(), image.data.as_ref()) {
+        pixels.copy_from_slice(source);
         make_pale(pixels);
     }
     let size = image.texture_descriptor.size;
@@ -647,48 +653,80 @@ fn prepare_pizza(
     art.pizza_layers = make_layers(&sources, ok, &mut images);
 }
 
-/// Once the pictures have arrived, make each one's dark "unlit" copy. If one
-/// style's picture can't be loaded, that style falls back to the other's.
+/// Load the shown style's picture and, once it has arrived, make its layers (the dark "unlit" copy and the
+/// others). The other style's is loaded only if the player switches to it. If the shown style's picture can't be
+/// loaded, it takes the other's.
 fn prepare_art(
     mut art: ResMut<CrabArt>,
     assets: Res<AssetServer>,
     style: Res<ArtStyle>,
     mut images: ResMut<Assets<Image>>,
 ) {
-    if art.layers.iter().all(Option::is_some) {
-        return;
-    }
-    let states = art.sources.clone().map(|h| assets.load_state(&h));
-    if states
-        .iter()
-        .any(|s| s.is_loading() || matches!(s, LoadState::NotLoaded))
-    {
-        return;
-    }
-    let ok = states.map(|s| s.is_loaded());
-    if !ok[0] && !ok[1] {
-        error!("neither crab picture could be loaded ({ATLAS_INK}, {ATLAS_OIL})");
-        art.layers = std::array::from_fn(|_| Some(Default::default()));
-        return;
-    }
-    // The style shown first; the other on a later frame.
+    const PATHS: [&str; 2] = [ATLAS_INK, ATLAS_OIL];
     let shown = style_index(*style);
-    let i = if art.layers[shown].is_none() {
+    if art.layers[shown].is_some() {
+        return;
+    }
+    let state = |i: usize, art: &mut CrabArt| {
+        let handle = art.sources[i]
+            .get_or_insert_with(|| assets.load(PATHS[i]))
+            .clone();
+        let s = assets.load_state(&handle);
+        if s.is_loading() || matches!(s, LoadState::NotLoaded) {
+            None
+        } else {
+            Some(s.is_loaded())
+        }
+    };
+    let Some(ok) = state(shown, &mut art) else {
+        return;
+    };
+    let from = if ok {
         shown
     } else {
-        1 - shown
+        warn!(
+            "crab picture {} failed to load; using the other style's",
+            PATHS[shown]
+        );
+        match state(1 - shown, &mut art) {
+            None => return,
+            Some(true) => 1 - shown,
+            Some(false) => {
+                error!("neither crab picture could be loaded ({ATLAS_INK}, {ATLAS_OIL})");
+                art.layers[shown] = Some(Default::default());
+                return;
+            }
+        }
     };
-    let Some(set) = make_style_layers(&art.sources, ok, i, &mut images) else {
+    let Some(lit) = art.sources[from].clone() else {
         return;
     };
-    art.layers[i] = Some(set);
+    let Some(set) = style_layers(lit.clone(), &mut images) else {
+        return;
+    };
+    art.layers[shown] = Some(set);
+    // Its pixels have been read: from now on it is only drawn.
+    if let Some(mut image) = images.get_mut(&lit) {
+        image.asset_usage = RenderAssetUsages::RENDER_WORLD;
+    }
     #[cfg(target_arch = "wasm32")]
-    if art.layers.iter().all(Option::is_some)
-        && let Some(canvas) = web_sys::window()
-            .and_then(|w| w.document())
-            .and_then(|d| d.get_element_by_id("crabscape"))
+    if let Some(canvas) = web_sys::window()
+        .and_then(|w| w.document())
+        .and_then(|d| d.get_element_by_id("crabscape"))
     {
-        let loaded = format!("ink:{} oil:{}", u8::from(ok[0]), u8::from(ok[1]));
+        // Each style: 1 drawn from its own picture, 0 from the other's (its own failed), - not wanted yet.
+        let said = |i: usize| match &art.layers[i] {
+            None => "-",
+            Some(_)
+                if art.sources[i]
+                    .as_ref()
+                    .is_some_and(|h| assets.load_state(h).is_loaded()) =>
+            {
+                "1"
+            }
+            Some(_) => "0",
+        };
+        let loaded = format!("ink:{} oil:{}", said(0), said(1));
         let _ = canvas.set_attribute("data-art", &loaded);
     }
 }

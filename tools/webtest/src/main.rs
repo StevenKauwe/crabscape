@@ -734,13 +734,13 @@ impl Test<'_> {
         });
         self.check(served, "both crab atlases are served next to the page");
         let art_ok = self.wait_for(
-            &format!(r#"{CANVAS}.getAttribute("data-art") === "ink:1 oil:1""#),
+            &format!(r#"{CANVAS}.getAttribute("data-art") === "ink:- oil:1""#),
             20.0,
         )?;
         self.check(
             art_ok,
             format!(
-                "the game loaded both atlases (data-art={:?})",
+                "the game loaded the oil atlas only, the style it shows (data-art={:?})",
                 self.attr("data-art")?
             ),
         );
@@ -775,6 +775,12 @@ impl Test<'_> {
         self.press("KeyP", "p")?;
         let ok = self.wait_for(&style_is("ink"), 5.0)?;
         self.check(ok, "the P key switches to the ink style");
+        // Its atlas is loaded only now, when it is first shown.
+        let ok = self.wait_for(
+            &format!(r#"{CANVAS}.getAttribute("data-art") === "ink:1 oil:1""#),
+            20.0,
+        )?;
+        self.check(ok, "the ink atlas loads when the ink style is first shown");
         let ink_warm = self.style_shot("ink")?;
         println!("     warm pixels: oil {oil_warm}, ink {ink_warm}");
         self.check(

@@ -129,6 +129,7 @@ mod player;
 mod plunge;
 mod power;
 mod puppet;
+mod quality;
 mod replay;
 mod report;
 mod reset;
@@ -157,6 +158,14 @@ use bevy::asset::AssetMetaCheck;
 use bevy::prelude::*;
 
 fn main() {
+    // Before anything reads the screen's density (the window, the HUD's layout).
+    #[cfg(target_arch = "wasm32")]
+    {
+        quality::show();
+        if quality::current() == quality::Quality::Low {
+            screen_fit::cap_density();
+        }
+    }
     #[cfg(target_arch = "wasm32")]
     if cellular::enabled() {
         let canvas = web_sys::window()

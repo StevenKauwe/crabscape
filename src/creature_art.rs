@@ -7,6 +7,7 @@
 //! like the placeholder shapes were: dim and cool in the dark, its own colour in the light.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use bevy::asset::AssetId;
 use bevy::prelude::*;
@@ -32,9 +33,45 @@ impl Plugin for CreatureArtPlugin {
     }
 }
 
-/// A creature piece's picture in each style (index: [`style_index`]).
+/// A creature piece's picture in each style (index: [`style_index`]). Only the shown style's is loaded: holding
+/// every creature's atlas in both styles cost a phone over 30 MiB for pictures it wasn't showing, twice (in the
+/// game's memory for the scent look, and on the graphics card).
 #[derive(Component)]
-struct Styled([Handle<Image>; 2]);
+struct Styled {
+    /// Each style's atlas, to load it when that style is first shown (None: the pictures are given, not loaded).
+    paths: Option<Arc<[String; 2]>>,
+    /// Each style's picture, while it is wanted.
+    handles: [Option<Handle<Image>>; 2],
+}
+
+impl Styled {
+    /// The same picture in both styles.
+    #[cfg(test)]
+    fn fixed(image: Handle<Image>) -> Self {
+        Self {
+            paths: None,
+            handles: [Some(image.clone()), Some(image)],
+        }
+    }
+
+    /// Style `i`'s picture, loading it the first time it is wanted.
+    fn picture(&mut self, i: usize, assets: &AssetServer) -> Option<Handle<Image>> {
+        if self.handles[i].is_none()
+            && let Some(paths) = &self.paths
+        {
+            self.handles[i] = Some(assets.load(paths[i].clone()));
+        }
+        self.handles[i].clone()
+    }
+
+    /// Let go of the picture of the style that isn't `shown`, once `shown` is on screen (another piece or the
+    /// creature's art may still hold it).
+    fn release_other(&mut self, shown: usize) {
+        if self.paths.is_some() {
+            self.handles[1 - shown] = None;
+        }
+    }
+}
 
 /// The root of an animated enemy puppet, used to choose its scent look.
 #[derive(Component)]
@@ -69,7 +106,7 @@ fn restyle(
     mut softened: Local<ScentAtlases>,
     mut pending: Local<Vec<Softening>>,
     mut scent_levels: Local<HashMap<u32, Option<u8>>>,
-    mut pieces: Query<(Entity, &Styled, &mut Sprite, &mut Lit)>,
+    mut pieces: Query<(Entity, &mut Styled, &mut Sprite, &mut Lit)>,
 ) {
     // Do a small fixed amount each frame, rather than freezing a phone when
     // it first smells an animal with a large atlas. Keep the original puppet
@@ -88,9 +125,22 @@ fn restyle(
     // Reuse within this frame only: movement, sight and scent may change next frame.
     scent_levels.clear();
     let i = style_index(*style);
-    for (entity, styled, mut sprite, mut light) in &mut pieces {
-        let failed = i != 0 && assets.load_state(&styled.0[i]).is_failed();
-        let want = &styled.0[if failed { 0 } else { i }];
+    for (entity, mut styled, mut sprite, mut light) in &mut pieces {
+        let Some(mut want) = styled.picture(i, &assets) else {
+            continue;
+        };
+        let failed = i != 0 && assets.load_state(&want).is_failed();
+        if failed && let Some(ink) = styled.picture(0, &assets) {
+            want = ink;
+        }
+        // Until the shown style's picture is in, keep showing what the piece has.
+        if images.get(&want).is_none() {
+            continue;
+        }
+        if !failed {
+            styled.release_other(i);
+        }
+        let want = &want;
         let mut ancestor = entity;
         let mut scent_level = None;
         while let Ok(parent) = parents.get(ancestor) {
@@ -136,6 +186,8 @@ fn restyle(
 
 /// Keep the source's sampling/layout metadata, transferring already-prepared
 /// pixels without cloning and immediately discarding the original atlas pixels.
+/// The softened copy is only drawn, so its pixels live on the graphics card alone (`RENDER_WORLD`), not in the
+/// game's memory as well.
 fn with_pixels(source: &Image, pixels: Vec<u8>) -> Image {
     Image {
         data: Some(pixels),
@@ -143,7 +195,7 @@ fn with_pixels(source: &Image, pixels: Vec<u8>) -> Image {
         texture_descriptor: source.texture_descriptor.clone(),
         sampler: source.sampler.clone(),
         texture_view_descriptor: source.texture_view_descriptor.clone(),
-        asset_usage: source.asset_usage,
+        asset_usage: bevy::asset::RenderAssetUsages::RENDER_WORLD,
         copy_on_resize: source.copy_on_resize,
     }
 }
@@ -264,8 +316,12 @@ fn soften_rows(
 /// One creature's art.
 pub struct CreatureArt {
     file: PartsFile,
-    /// The picture per style (index: [`style_index`]).
-    images: [Handle<Image>; 2],
+    /// The atlas per style (index: [`style_index`]).
+    paths: Arc<[String; 2]>,
+    /// The picture in the style the game started in, loaded at once (the other only if the player switches).
+    first: Handle<Image>,
+    /// Which style that is.
+    first_style: usize,
     /// World units per unit of the art file.
     scale: f32,
 }
@@ -291,9 +347,13 @@ impl CreatureArt {
     /// The same at a given `scale`: world units per unit of the art file (for a kit of pieces the game strings
     /// together, where the whole drawing's length means nothing).
     pub fn load_scaled(json: &str, atlas: &str, scale: f32, assets: &AssetServer) -> Self {
+        let paths = Arc::new([atlas.to_string(), oil_path(atlas)]);
+        let first_style = style_index(crate::style::stored());
         Self {
             file: serde_json::from_str(json).expect("a creature parts file is valid"),
-            images: [assets.load(atlas.to_string()), assets.load(oil_path(atlas))],
+            first: assets.load(paths[first_style].clone()),
+            paths,
+            first_style,
             scale,
         }
     }
@@ -376,12 +436,17 @@ impl CreatureArt {
                     Transform::from_translation(offset.extend(dz * Z_STEP)),
                     Visibility::default(),
                     Sprite {
-                        image: self.images[0].clone(),
+                        image: self.first.clone(),
                         rect: Some(Rect::new(rx, ry, rx + rw, ry + rh)),
                         custom_size: Some(size * self.scale),
                         ..default()
                     },
-                    Styled(self.images.clone()),
+                    Styled {
+                        paths: Some(self.paths.clone()),
+                        handles: std::array::from_fn(|i| {
+                            (i == self.first_style).then(|| self.first.clone())
+                        }),
+                    },
                     anchor,
                     Lit::at(middle),
                     LitTint {
@@ -521,7 +586,7 @@ mod tests {
                     image: source.clone(),
                     ..default()
                 },
-                Styled([source.clone(), source.clone()]),
+                Styled::fixed(source.clone()),
                 Lit::at(Vec2::ZERO),
                 ChildOf(root),
             ))
@@ -574,7 +639,11 @@ mod tests {
             source.texture_view_descriptor
         );
         assert_eq!(finished.sampler, source.sampler);
-        assert_eq!(finished.asset_usage, source.asset_usage);
+        assert_eq!(
+            finished.asset_usage,
+            RenderAssetUsages::RENDER_WORLD,
+            "drawn only"
+        );
         assert_eq!(finished.copy_on_resize, source.copy_on_resize);
         assert_eq!(finished.data_order, source.data_order);
         assert_eq!(&source.data.as_ref().unwrap()[..4], &[200, 100, 25, 255]);
@@ -663,7 +732,7 @@ mod tests {
                         image: source.clone(),
                         ..default()
                     },
-                    Styled([source.clone(), source.clone()]),
+                    Styled::fixed(source.clone()),
                     Lit::at(Vec2::ZERO),
                     ChildOf(root),
                 ));
