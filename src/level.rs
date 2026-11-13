@@ -140,6 +140,7 @@ impl Plugin for LevelPlugin {
                 move_water_surface,
                 move_high_kelp,
                 move_local_kelp,
+                crate::canopy::sway,
                 refresh_floor,
             ),
         );
@@ -158,15 +159,15 @@ const ROCK_PAINTED: Color = Color::srgba(0.0, 0.0, 0.0, 0.6);
 // them. Kelp olive-brown with paler floats; the deep coral pale as bone,
 // with orange polyps, so the two never look like one plant.
 const KELP: Color = Color::srgb(0.22, 0.18, 0.07);
-const KELP_BLADE: Color = Color::srgb(0.26, 0.22, 0.09);
-const KELP_FLOAT: Color = Color::srgb(0.34, 0.28, 0.12);
+pub(crate) const KELP_BLADE: Color = Color::srgb(0.26, 0.22, 0.09);
+pub(crate) const KELP_FLOAT: Color = Color::srgb(0.34, 0.28, 0.12);
 const CORAL: Color = Color::srgb(0.30, 0.27, 0.25);
-const CORAL_TIP: Color = Color::srgb(0.55, 0.32, 0.22);
+pub(crate) const CORAL_TIP: Color = Color::srgb(0.55, 0.32, 0.22);
 // Bare rock's pits: a pale crust and the dark holes in it.
 const PITTED: Color = Color::srgb(0.19, 0.22, 0.21);
-const PIT: Color = Color::srgb(0.02, 0.04, 0.05);
+pub(crate) const PIT: Color = Color::srgb(0.02, 0.04, 0.05);
 /// Plants sit in front of the rock, behind the crab (~10).
-const PLANT_Z: f32 = 2.0;
+pub(crate) const PLANT_Z: f32 = 2.0;
 
 /// Draw the floor, the rocks and the background spires as flat shapes. The
 /// level's own shapes are seen through the crab's memory (`memory.rs`); the
@@ -269,6 +270,8 @@ fn draw_level(
             Transform::from_xyz(x, 0.0, 1.0),
         ));
     }
+
+    crate::canopy::draw(&mut commands, &mut meshes, &sim, &rock, &mut paint);
 
     draw_climbs(
         &mut commands,
@@ -536,7 +539,7 @@ fn wall_mesh(size: Vec2) -> Mesh {
 
 /// A painted shape's mesh carries, in its UV's y, each vertex's distance below the shape's top edge (world
 /// units): the shaders draw the ink rim and the lit top from it. Shapes with no edge to paint say this.
-const FAR_FROM_EDGE: f32 = 1.0e4;
+pub(crate) const FAR_FROM_EDGE: f32 = 1.0e4;
 
 /// A small hand-cut silhouette; collision remains the original rock box.
 pub(crate) fn rock_mesh(size: Vec2) -> Mesh {

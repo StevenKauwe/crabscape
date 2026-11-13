@@ -13,7 +13,7 @@
 # For each puppet:
 # 1. Export a bigger copy of the parts: 1.8x the game's resolution; 4x for the small
 #    animals with fine detail (the shrimps, the monkey, the hermit crab, the bobbit worm,
-#    the amphipods, the viperfish, the lobster, the giant isopod, the hagfish:
+#    the amphipods, the viperfish, the lobster, the shore crab, the giant isopod, the hagfish:
 #    their parts are so small that at 1.8x the strokes paint over their segment lines,
 #    spots and shine); 1.5x for the goliath grouper (its body is the widest part of any
 #    puppet, and must fit the painter's 1920-wide sheet). ZOOM=<x> overrides it for all.
@@ -32,7 +32,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 if [ $# -eq 0 ]; then
   set -- crab snapping-shrimp mantis-shrimp snowflake-moray common-octopus space-monkey pizza-crab queen-triggerfish \
-    alarm-jelly loggerhead-turtle humboldt-squid viperfish goliath-grouper american-lobster hermit-crab bobbit-worm \
+    alarm-jelly loggerhead-turtle humboldt-squid viperfish goliath-grouper american-lobster hermit-crab shore-crab bobbit-worm \
     giant-isopod hagfish amphipod-swarm
 fi
 work=$(mktemp -d)
@@ -47,7 +47,7 @@ for name in "$@"; do
   out=$work/$name
   mkdir -p "$out"
   case $name in
-    snapping-shrimp | mantis-shrimp | space-monkey | hermit-crab | bobbit-worm | amphipod-swarm | viperfish | \
+    snapping-shrimp | mantis-shrimp | space-monkey | hermit-crab | shore-crab | bobbit-worm | amphipod-swarm | viperfish | \
       american-lobster | giant-isopod | hagfish)
       zoom=${ZOOM:-4}
       ;;

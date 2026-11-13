@@ -1,0 +1,351 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="486" height="319" viewBox="0 0 486 319">
+<defs>
+<linearGradient id="gp-leg-d_0" gradientUnits="userSpaceOnUse" x1="82" y1="199.3" x2="98" y2="263.3"><stop offset="0" stop-color="#ada46d"/><stop offset=".48" stop-color="#79784a"/><stop offset="1" stop-color="#43452e"/></linearGradient>
+<linearGradient id="gp-leg-e_1" gradientUnits="userSpaceOnUse" x1="122" y1="199.3" x2="138" y2="263.3"><stop offset="0" stop-color="#ada46d"/><stop offset=".48" stop-color="#79784a"/><stop offset="1" stop-color="#43452e"/></linearGradient>
+<linearGradient id="gp-leg-f_2" gradientUnits="userSpaceOnUse" x1="170" y1="199.3" x2="186" y2="263.3"><stop offset="0" stop-color="#ada46d"/><stop offset=".48" stop-color="#79784a"/><stop offset="1" stop-color="#43452e"/></linearGradient>
+<linearGradient id="gp-claw-far_3" gradientUnits="userSpaceOnUse" x1="284.6" y1="113.1" x2="309.6" y2="212.8"><stop offset="0" stop-color="#a3b070"/><stop offset=".48" stop-color="#768c4c"/><stop offset="1" stop-color="#40532b"/></linearGradient>
+<linearGradient id="gp-claw-far--belly_4" gradientUnits="userSpaceOnUse" x1="289.4" y1="159.9" x2="302.7" y2="213.1"><stop offset="0" stop-color="#cac398"/><stop offset=".48" stop-color="#c29f62"/><stop offset="1" stop-color="#966941"/></linearGradient>
+<linearGradient id="gp-claw-far--pollex_5" gradientUnits="userSpaceOnUse" x1="364.4" y1="161.2" x2="375.1" y2="204.1"><stop offset="0" stop-color="#a3b070"/><stop offset=".48" stop-color="#768c4c"/><stop offset="1" stop-color="#40532b"/></linearGradient>
+<linearGradient id="gp-claw-far--pollex-tip_6" gradientUnits="userSpaceOnUse" x1="393" y1="173.7" x2="398" y2="193.7"><stop offset="0" stop-color="#5A3A30"/><stop offset=".48" stop-color="#2E1C17"/><stop offset="1" stop-color="#1A0F0C"/></linearGradient>
+<linearGradient id="gp-claw-far--spot-0_7" gradientUnits="userSpaceOnUse" x1="275.4" y1="150" x2="280.5" y2="170.3"><stop offset="0" stop-color="#A29450"/><stop offset=".48" stop-color="#6E5E30"/><stop offset="1" stop-color="#3A2F18"/></linearGradient>
+<linearGradient id="gp-claw-far--spot-1_8" gradientUnits="userSpaceOnUse" x1="311.3" y1="135.3" x2="316.5" y2="156.1"><stop offset="0" stop-color="#A29450"/><stop offset=".48" stop-color="#6E5E30"/><stop offset="1" stop-color="#3A2F18"/></linearGradient>
+<linearGradient id="gp-claw-far--spot-2_9" gradientUnits="userSpaceOnUse" x1="255.1" y1="161.8" x2="260.7" y2="184"><stop offset="0" stop-color="#A29450"/><stop offset=".48" stop-color="#6E5E30"/><stop offset="1" stop-color="#3A2F18"/></linearGradient>
+<linearGradient id="gp-claw-far-finger_10" gradientUnits="userSpaceOnUse" x1="361.6" y1="121.4" x2="376.1" y2="179.7"><stop offset="0" stop-color="#a3b070"/><stop offset=".48" stop-color="#768c4c"/><stop offset="1" stop-color="#40532b"/></linearGradient>
+<linearGradient id="gp-claw-far-finger--tip_11" gradientUnits="userSpaceOnUse" x1="392.7" y1="144.2" x2="399.9" y2="172.8"><stop offset="0" stop-color="#5A3A30"/><stop offset=".48" stop-color="#2E1C17"/><stop offset="1" stop-color="#1A0F0C"/></linearGradient>
+<linearGradient id="gp-eye-a_12" gradientUnits="userSpaceOnUse" x1="223" y1="113.3" x2="232.4" y2="151"><stop offset="0" stop-color="#D8C277"/><stop offset=".48" stop-color="#938748"/><stop offset="1" stop-color="#4B4422"/></linearGradient>
+<linearGradient id="gp-eye-a--cornea_13" gradientUnits="userSpaceOnUse" x1="228.5" y1="97.6" x2="236.2" y2="128.3"><stop offset="0" stop-color="#4A3550"/><stop offset=".48" stop-color="#22172A"/><stop offset="1" stop-color="#120A16"/></linearGradient>
+<linearGradient id="gp-eye-a--glint_14" gradientUnits="userSpaceOnUse" x1="226.2" y1="102.3" x2="228.9" y2="113.2"><stop offset="0" stop-color="#FFF8EC"/><stop offset=".48" stop-color="#FFF3DE"/><stop offset="1" stop-color="#EFE2C8"/></linearGradient>
+<linearGradient id="gp-eye-a--glint2_15" gradientUnits="userSpaceOnUse" x1="237" y1="115.7" x2="238" y2="119.9"><stop offset="0" stop-color="#FFF8EC"/><stop offset=".48" stop-color="#FFF3DE"/><stop offset="1" stop-color="#EFE2C8"/></linearGradient>
+<linearGradient id="gp-eye-b_16" gradientUnits="userSpaceOnUse" x1="255.1" y1="127.5" x2="266" y2="170.8"><stop offset="0" stop-color="#D8C277"/><stop offset=".48" stop-color="#938748"/><stop offset="1" stop-color="#4B4422"/></linearGradient>
+<linearGradient id="gp-eye-b--cornea_17" gradientUnits="userSpaceOnUse" x1="266.9" y1="115.2" x2="274.6" y2="145.9"><stop offset="0" stop-color="#4A3550"/><stop offset=".48" stop-color="#22172A"/><stop offset="1" stop-color="#120A16"/></linearGradient>
+<linearGradient id="gp-eye-b--glint_18" gradientUnits="userSpaceOnUse" x1="264.6" y1="119.9" x2="267.3" y2="130.8"><stop offset="0" stop-color="#FFF8EC"/><stop offset=".48" stop-color="#FFF3DE"/><stop offset="1" stop-color="#EFE2C8"/></linearGradient>
+<linearGradient id="gp-eye-b--glint2_19" gradientUnits="userSpaceOnUse" x1="275.4" y1="133.3" x2="276.4" y2="137.5"><stop offset="0" stop-color="#FFF8EC"/><stop offset=".48" stop-color="#FFF3DE"/><stop offset="1" stop-color="#EFE2C8"/></linearGradient>
+<linearGradient id="gp-carapace_20" gradientUnits="userSpaceOnUse" x1="149.9" y1="106" x2="185.9" y2="249.8"><stop offset="0" stop-color="#A8B85A"/><stop offset=".48" stop-color="#5F7C33"/><stop offset="1" stop-color="#2A3B1A"/></linearGradient>
+<linearGradient id="gp-carapace--belly_21" gradientUnits="userSpaceOnUse" x1="159.5" y1="180.5" x2="177.1" y2="250.9"><stop offset="0" stop-color="#FFEBB0"/><stop offset=".48" stop-color="#F4BC68"/><stop offset="1" stop-color="#B9733C"/></linearGradient>
+<linearGradient id="gp-carapace--mottle-0_22" gradientUnits="userSpaceOnUse" x1="96" y1="148.4" x2="107.8" y2="195.8"><stop offset="0" stop-color="#A29450"/><stop offset=".48" stop-color="#6E5E30"/><stop offset="1" stop-color="#3A2F18"/></linearGradient>
+<linearGradient id="gp-carapace--mottle-1_23" gradientUnits="userSpaceOnUse" x1="148.8" y1="136.6" x2="159" y2="177.2"><stop offset="0" stop-color="#A29450"/><stop offset=".48" stop-color="#6E5E30"/><stop offset="1" stop-color="#3A2F18"/></linearGradient>
+<linearGradient id="gp-carapace--mottle-2_24" gradientUnits="userSpaceOnUse" x1="196" y1="155.7" x2="207.8" y2="203"><stop offset="0" stop-color="#A29450"/><stop offset=".48" stop-color="#6E5E30"/><stop offset="1" stop-color="#3A2F18"/></linearGradient>
+<linearGradient id="gp-carapace--mottle-3_25" gradientUnits="userSpaceOnUse" x1="118.5" y1="185" x2="125.3" y2="212"><stop offset="0" stop-color="#A29450"/><stop offset=".48" stop-color="#6E5E30"/><stop offset="1" stop-color="#3A2F18"/></linearGradient>
+<linearGradient id="gp-carapace--mottle-4_26" gradientUnits="userSpaceOnUse" x1="230.6" y1="182" x2="237.2" y2="208.6"><stop offset="0" stop-color="#A29450"/><stop offset=".48" stop-color="#6E5E30"/><stop offset="1" stop-color="#3A2F18"/></linearGradient>
+<linearGradient id="gp-carapace--mottle-5_27" gradientUnits="userSpaceOnUse" x1="166.9" y1="183.2" x2="173" y2="207.5"><stop offset="0" stop-color="#A29450"/><stop offset=".48" stop-color="#6E5E30"/><stop offset="1" stop-color="#3A2F18"/></linearGradient>
+<linearGradient id="gp-carapace--patch-0_28" gradientUnits="userSpaceOnUse" x1="134.5" y1="130.5" x2="141.3" y2="157.7"><stop offset="0" stop-color="#CFD683"/><stop offset=".48" stop-color="#A9B95B"/><stop offset="1" stop-color="#6A7E34"/></linearGradient>
+<linearGradient id="gp-carapace--patch-1_29" gradientUnits="userSpaceOnUse" x1="184.5" y1="144.9" x2="192.1" y2="175.3"><stop offset="0" stop-color="#CFD683"/><stop offset=".48" stop-color="#A9B95B"/><stop offset="1" stop-color="#6A7E34"/></linearGradient>
+<linearGradient id="gp-carapace--patch-2_30" gradientUnits="userSpaceOnUse" x1="87.3" y1="175.2" x2="92.5" y2="196.3"><stop offset="0" stop-color="#CFD683"/><stop offset=".48" stop-color="#A9B95B"/><stop offset="1" stop-color="#6A7E34"/></linearGradient>
+<linearGradient id="gp-carapace--patch-3_31" gradientUnits="userSpaceOnUse" x1="219.3" y1="156.2" x2="224.5" y2="176.9"><stop offset="0" stop-color="#CFD683"/><stop offset=".48" stop-color="#A9B95B"/><stop offset="1" stop-color="#6A7E34"/></linearGradient>
+<linearGradient id="gp-carapace--tooth-0_32" gradientUnits="userSpaceOnUse" x1="177.1" y1="117.9" x2="183.6" y2="143.7"><stop offset="0" stop-color="#EEF0A8"/><stop offset=".48" stop-color="#BCC468"/><stop offset="1" stop-color="#6A7A30"/></linearGradient>
+<linearGradient id="gp-carapace--tooth-1_33" gradientUnits="userSpaceOnUse" x1="206.9" y1="127.9" x2="213" y2="152.4"><stop offset="0" stop-color="#EEF0A8"/><stop offset=".48" stop-color="#BCC468"/><stop offset="1" stop-color="#6A7A30"/></linearGradient>
+<linearGradient id="gp-carapace--tooth-2_34" gradientUnits="userSpaceOnUse" x1="233.7" y1="142.6" x2="239.4" y2="165.6"><stop offset="0" stop-color="#EEF0A8"/><stop offset=".48" stop-color="#BCC468"/><stop offset="1" stop-color="#6A7A30"/></linearGradient>
+<linearGradient id="gp-carapace--tooth-3_35" gradientUnits="userSpaceOnUse" x1="254.7" y1="157.2" x2="260.7" y2="181.3"><stop offset="0" stop-color="#EEF0A8"/><stop offset=".48" stop-color="#BCC468"/><stop offset="1" stop-color="#6A7A30"/></linearGradient>
+<linearGradient id="gp-carapace--tooth-4_36" gradientUnits="userSpaceOnUse" x1="269.5" y1="175.2" x2="275.5" y2="199.1"><stop offset="0" stop-color="#EEF0A8"/><stop offset=".48" stop-color="#BCC468"/><stop offset="1" stop-color="#6A7A30"/></linearGradient>
+<linearGradient id="gp-leg-a_37" gradientUnits="userSpaceOnUse" x1="113.8" y1="199.3" x2="129.8" y2="263.3"><stop offset="0" stop-color="#D8C277"/><stop offset=".48" stop-color="#938748"/><stop offset="1" stop-color="#4B4422"/></linearGradient>
+<linearGradient id="gp-leg-b_38" gradientUnits="userSpaceOnUse" x1="153.8" y1="199.3" x2="169.8" y2="263.3"><stop offset="0" stop-color="#D8C277"/><stop offset=".48" stop-color="#938748"/><stop offset="1" stop-color="#4B4422"/></linearGradient>
+<linearGradient id="gp-leg-c_39" gradientUnits="userSpaceOnUse" x1="201.8" y1="199.3" x2="217.8" y2="263.3"><stop offset="0" stop-color="#D8C277"/><stop offset=".48" stop-color="#938748"/><stop offset="1" stop-color="#4B4422"/></linearGradient>
+<linearGradient id="gp-claw-near_40" gradientUnits="userSpaceOnUse" x1="300.6" y1="130.7" x2="325.6" y2="230.4"><stop offset="0" stop-color="#CBD27A"/><stop offset=".48" stop-color="#8FA24A"/><stop offset="1" stop-color="#46561F"/></linearGradient>
+<linearGradient id="gp-claw-near--belly_41" gradientUnits="userSpaceOnUse" x1="305.4" y1="177.5" x2="318.7" y2="230.7"><stop offset="0" stop-color="#FFEBB0"/><stop offset=".48" stop-color="#F4BC68"/><stop offset="1" stop-color="#B9733C"/></linearGradient>
+<linearGradient id="gp-claw-near--pollex_42" gradientUnits="userSpaceOnUse" x1="380.4" y1="178.8" x2="391.1" y2="221.7"><stop offset="0" stop-color="#CBD27A"/><stop offset=".48" stop-color="#8FA24A"/><stop offset="1" stop-color="#46561F"/></linearGradient>
+<linearGradient id="gp-claw-near--pollex-tip_43" gradientUnits="userSpaceOnUse" x1="409" y1="191.3" x2="414" y2="211.3"><stop offset="0" stop-color="#5A3A30"/><stop offset=".48" stop-color="#2E1C17"/><stop offset="1" stop-color="#1A0F0C"/></linearGradient>
+<linearGradient id="gp-claw-near--spot-0_44" gradientUnits="userSpaceOnUse" x1="291.4" y1="167.6" x2="296.5" y2="187.9"><stop offset="0" stop-color="#A29450"/><stop offset=".48" stop-color="#6E5E30"/><stop offset="1" stop-color="#3A2F18"/></linearGradient>
+<linearGradient id="gp-claw-near--spot-1_45" gradientUnits="userSpaceOnUse" x1="327.3" y1="152.9" x2="332.5" y2="173.7"><stop offset="0" stop-color="#A29450"/><stop offset=".48" stop-color="#6E5E30"/><stop offset="1" stop-color="#3A2F18"/></linearGradient>
+<linearGradient id="gp-claw-near--spot-2_46" gradientUnits="userSpaceOnUse" x1="271.1" y1="179.4" x2="276.7" y2="201.6"><stop offset="0" stop-color="#A29450"/><stop offset=".48" stop-color="#6E5E30"/><stop offset="1" stop-color="#3A2F18"/></linearGradient>
+<linearGradient id="gp-claw-near-finger_47" gradientUnits="userSpaceOnUse" x1="377.6" y1="139" x2="392.1" y2="197.3"><stop offset="0" stop-color="#CBD27A"/><stop offset=".48" stop-color="#8FA24A"/><stop offset="1" stop-color="#46561F"/></linearGradient>
+<linearGradient id="gp-claw-near-finger--tip_48" gradientUnits="userSpaceOnUse" x1="408.7" y1="161.8" x2="415.9" y2="190.4"><stop offset="0" stop-color="#5A3A30"/><stop offset=".48" stop-color="#2E1C17"/><stop offset="1" stop-color="#1A0F0C"/></linearGradient>
+</defs>
+<!-- Shore crab: Rust-authored cut-out puppet (bestiary lane). -->
+<text x="20" y="40" font-family="Nimbus Sans, sans-serif" font-size="22" font-weight="normal" fill="#2A140F" text-anchor="start" >Shore crab · rig parts</text>
+<g id="leg-d" data-parent="carapace" data-pivot="109.9,214.5">
+<g>
+<path id="p-leg-d_0" d="M102.3 204.7L86.4 219.6L68.9 236.6L62.2 253.8L70.9 258.5L79.8 246.1L98.6 235.5L118.3 225Z" fill="url(#gp-leg-d_0)"/>
+<path d="M102.3 204.7L86.4 219.6L68.9 236.6L62.2 253.8L70.9 258.5L79.8 246.1L98.6 235.5L118.3 225Z" fill="none" stroke="#2A140F" stroke-width="3.2" stroke-linejoin="round"/>
+<path d="M70.9 258.5L79.8 246.1L98.6 235.5L118.3 225" fill="none" stroke="#2A140F" stroke-width="6.1" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="leg-e" data-parent="carapace" data-pivot="149.9,214.5">
+<g>
+<path id="p-leg-e_1" d="M142.5 203.5L125.9 219.1L109.8 237.2L103.2 253.7L111 258.8L120.6 247L138.3 235.1L157.4 224.9Z" fill="url(#gp-leg-e_1)"/>
+<path d="M142.5 203.5L125.9 219.1L109.8 237.2L103.2 253.7L111 258.8L120.6 247L138.3 235.1L157.4 224.9Z" fill="none" stroke="#2A140F" stroke-width="3.2" stroke-linejoin="round"/>
+<path d="M111 258.8L120.6 247L138.3 235.1L157.4 224.9" fill="none" stroke="#2A140F" stroke-width="6.1" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="leg-f" data-parent="carapace" data-pivot="197.9,214.5">
+<g>
+<path id="p-leg-f_2" d="M190.5 203.6L174.5 219.7L157.8 237.2L150.4 253.8L159.1 258.9L168.1 246.5L186.4 235.1L206.1 225Z" fill="url(#gp-leg-f_2)"/>
+<path d="M190.5 203.6L174.5 219.7L157.8 237.2L150.4 253.8L159.1 258.9L168.1 246.5L186.4 235.1L206.1 225Z" fill="none" stroke="#2A140F" stroke-width="3.2" stroke-linejoin="round"/>
+<path d="M159.1 258.9L168.1 246.5L186.4 235.1L206.1 225" fill="none" stroke="#2A140F" stroke-width="6.1" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="claw-far" data-parent="carapace" data-pivot="236.3,187.3">
+<g>
+<path id="p-claw-far_3" d="M230.9 179.1L234.9 173.1L241.5 166.4L249.4 159.8L257.5 153.9L265 148.2L272.5 142L280.4 136.1L289.4 131.5L300.2 128.7L312.1 127.4L323.8 127.4L333.9 128.4L342.6 131.1L350.4 135.5L356.7 141.3L360.8 147.2L363.4 153.3L365 160L365.4 166.8L364.1 172.8L360.6 177.8L355.3 182.2L349 186.1L342.1 189.5L334 191.6L324.8 192.1L315.2 191.6L305.9 191.2L296.9 191.3L287.9 191.8L279 192.2L270 192.5L260.1 193.5L249.7 195.6L240.5 197.5L234.2 197.7L230.4 195.1L228.8 190.3L229.1 184.6Z" fill="url(#gp-claw-far_3)"/>
+<path d="M230.9 179.1L234.9 173.1L241.5 166.4L249.4 159.8L257.5 153.9L265 148.2L272.5 142L280.4 136.1L289.4 131.5L300.2 128.7L312.1 127.4L323.8 127.4L333.9 128.4L342.6 131.1L350.4 135.5L356.7 141.3L360.8 147.2L363.4 153.3L365 160L365.4 166.8L364.1 172.8L360.6 177.8L355.3 182.2L349 186.1L342.1 189.5L334 191.6L324.8 192.1L315.2 191.6L305.9 191.2L296.9 191.3L287.9 191.8L279 192.2L270 192.5L260.1 193.5L249.7 195.6L240.5 197.5L234.2 197.7L230.4 195.1L228.8 190.3L229.1 184.6Z" fill="none" stroke="#2A140F" stroke-width="3.5" stroke-linejoin="round"/>
+<path d="M364.1 172.8L360.6 177.8L355.3 182.2L349 186.1L342.1 189.5L334 191.6L324.8 192.1L315.2 191.6L305.9 191.2L296.9 191.3L287.9 191.8L279 192.2L270 192.5L260.1 193.5L249.7 195.6L240.5 197.5L234.2 197.7L230.4 195.1" fill="none" stroke="#2A140F" stroke-width="6.7" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="claw-far--belly" data-parent="claw-far">
+<g>
+<path id="p-claw-far--belly_4" d="M238.2 189L248.3 187.2L262.7 186.3L277.9 185.7L293.8 185.3L310.6 185.3L325.8 184.8L340.7 182.2L354.4 178.1L360.9 175.8L359.3 177.8L352 184.8L342.2 189.8L331.2 190.9L318.5 190.7L305.9 190.5L293.9 190.2L281.8 190L269.8 191.2L256.5 194.9L243.2 198.9L233.8 199.8L230.8 196L233 192.2Z" fill="url(#gp-claw-far--belly_4)"/>
+</g>
+</g>
+<g id="claw-far--pollex" data-parent="claw-far">
+<g>
+<path id="p-claw-far--pollex_5" d="M337.7 171L347.2 168.9L360.8 169.4L374 169L386.7 172L398.4 177L404 181L400.4 186.6L389.7 191.9L377.7 194.4L365.4 196.9L351.8 196.8L341.8 193.9L337.7 186.6L334.5 178Z" fill="url(#gp-claw-far--pollex_5)"/>
+<path d="M337.7 171L347.2 168.9L360.8 169.4L374 169L386.7 172L398.4 177L404 181L400.4 186.6L389.7 191.9L377.7 194.4L365.4 196.9L351.8 196.8L341.8 193.9L337.7 186.6L334.5 178Z" fill="none" stroke="#2A140F" stroke-width="1.9" stroke-linejoin="round"/>
+<path d="M400.4 186.6L389.7 191.9L377.7 194.4L365.4 196.9L351.8 196.8L341.8 193.9" fill="none" stroke="#2A140F" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="claw-far--pollex-tip" data-parent="claw-far">
+<g>
+<path id="p-claw-far--pollex-tip_6" d="M388.5 175.7L404.5 180.9L386.6 192.4Z" fill="url(#gp-claw-far--pollex-tip_6)"/>
+</g>
+</g>
+<g id="claw-far--spot-0" data-parent="claw-far">
+<g>
+<path id="p-claw-far--spot-0_7" d="M288.7 160.1L288 164.4L283.6 167.2L277.9 168L272.5 166.6L267.9 164.4L266.3 160.1L268.6 156.4L272.4 153.3L277.9 152L283.7 152.8L287.3 156.4Z" fill="url(#gp-claw-far--spot-0_7)"/>
+</g>
+</g>
+<g id="claw-far--spot-1" data-parent="claw-far">
+<g>
+<path id="p-claw-far--spot-1_8" d="M323.9 149.4L321.8 153L316.8 154.5L311.2 153.3L306.7 149.9L303.2 146.2L303.1 141.8L306.2 138.6L311 137.9L316.7 138L321.8 140.9L324.4 145.3Z" fill="url(#gp-claw-far--spot-1_8)"/>
+</g>
+</g>
+<g id="claw-far--spot-2" data-parent="claw-far">
+<g>
+<path id="p-claw-far--spot-2_9" d="M266.3 180L262.8 182.6L257.6 182.1L253.2 178.6L249.2 174.6L247.6 169.7L249.2 165.6L253.1 164L258 164.3L263.5 166.3L266.6 171.2L267.6 176.1Z" fill="url(#gp-claw-far--spot-2_9)"/>
+</g>
+</g>
+<g id="claw-far-finger" data-parent="claw-far" data-pivot="337.9,158.5">
+<g>
+<path id="p-claw-far-finger_10" d="M330 148.9L335.2 142.3L344.6 135.5L355.8 131.4L365.7 130.8L376 134.6L387.7 142.6L397.7 152.2L404.5 160L407.9 164.8L409 168.2L408.3 169.9L405.9 171.3L400.1 171.2L392 168.5L383.1 164.5L374 162.2L364.5 163.8L354.5 167L345.1 169L337.9 168.3L333 164.9L329.8 159.8L328.8 154.3Z" fill="url(#gp-claw-far-finger_10)"/>
+<path d="M330 148.9L335.2 142.3L344.6 135.5L355.8 131.4L365.7 130.8L376 134.6L387.7 142.6L397.7 152.2L404.5 160L407.9 164.8L409 168.2L408.3 169.9L405.9 171.3L400.1 171.2L392 168.5L383.1 164.5L374 162.2L364.5 163.8L354.5 167L345.1 169L337.9 168.3L333 164.9L329.8 159.8L328.8 154.3Z" fill="none" stroke="#2A140F" stroke-width="3.5" stroke-linejoin="round"/>
+<path d="M408.3 169.9L405.9 171.3L400.1 171.2L392 168.5L383.1 164.5L374 162.2L364.5 163.8L354.5 167L345.1 169L337.9 168.3L333 164.9" fill="none" stroke="#2A140F" stroke-width="6.7" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="claw-far-finger--tip" data-parent="claw-far-finger">
+<g>
+<path id="p-claw-far-finger--tip_11" d="M388.2 145.5L404.5 160L406 171.6L386.5 165.1Z" fill="url(#gp-claw-far-finger--tip_11)"/>
+</g>
+</g>
+<g id="eye-a" data-parent="carapace" data-pivot="226.7,148.9">
+<g>
+<path id="p-eye-a_12" d="M235.2 149.4L236.7 132.9L237.4 116.1L222.3 114.5L220.4 131.4L217.6 148.4Z" fill="url(#gp-eye-a_12)"/>
+<path d="M235.2 149.4L236.7 132.9L237.4 116.1L222.3 114.5L220.4 131.4L217.6 148.4Z" fill="none" stroke="#2A140F" stroke-width="2.9" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="eye-a--cornea" data-parent="eye-a">
+<g>
+<path id="p-eye-a--cornea_13" d="M246.1 112.9L244.5 119.7L239.3 124.4L232.3 125.4L225.7 123.9L220.9 119.2L218.3 112.9L220.1 106.2L225.4 101.6L232.3 100.1L238.8 102.4L244.1 106.5Z" fill="url(#gp-eye-a--cornea_13)"/>
+<path d="M246.1 112.9L244.5 119.7L239.3 124.4L232.3 125.4L225.7 123.9L220.9 119.2L218.3 112.9L220.1 106.2L225.4 101.6L232.3 100.1L238.8 102.4L244.1 106.5Z" fill="none" stroke="#2A140F" stroke-width="1.9" stroke-linejoin="round"/>
+<path d="M244.5 119.7L239.3 124.4L232.3 125.4L225.7 123.9" fill="none" stroke="#2A140F" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="eye-a--glint" data-parent="eye-a">
+<g>
+<path id="p-eye-a--glint_14" d="M231.9 106.2L231.5 108.7L230.9 110.9L229.4 112.8L227 112.5L225 111.2L223.8 109.1L222.8 106.7L223.9 104.4L226 103.6L228.1 103L230.4 104Z" fill="url(#gp-eye-a--glint_14)"/>
+</g>
+</g>
+<g id="eye-a--glint2" data-parent="eye-a">
+<g>
+<path id="p-eye-a--glint2_15" d="M239.7 117.8L238.8 118.9L237.9 119.3L236.8 120L235.9 119L236.2 117.8L236 116.6L236.8 115.6L237.9 116.3L238.8 116.8Z" fill="url(#gp-eye-a--glint2_15)" fill-opacity="0.7"/>
+</g>
+</g>
+<g id="eye-b" data-parent="carapace" data-pivot="253.9,164.9">
+<g>
+<path id="p-eye-b_16" d="M262.2 169.2L268.6 152.3L274.7 136.2L261.3 129.6L253.8 145.6L246.1 161.2Z" fill="url(#gp-eye-b_16)"/>
+<path d="M262.2 169.2L268.6 152.3L274.7 136.2L261.3 129.6L253.8 145.6L246.1 161.2Z" fill="none" stroke="#2A140F" stroke-width="2.9" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="eye-b--cornea" data-parent="eye-b">
+<g>
+<path id="p-eye-b--cornea_17" d="M284.4 130.5L283.1 137.3L277.6 141.9L270.7 143.1L264 141.5L259.3 136.8L257.1 130.5L258.3 123.7L263.8 119.1L270.7 117.9L277.4 119.6L282.1 124.3Z" fill="url(#gp-eye-b--cornea_17)"/>
+<path d="M284.4 130.5L283.1 137.3L277.6 141.9L270.7 143.1L264 141.5L259.3 136.8L257.1 130.5L258.3 123.7L263.8 119.1L270.7 117.9L277.4 119.6L282.1 124.3Z" fill="none" stroke="#2A140F" stroke-width="1.9" stroke-linejoin="round"/>
+<path d="M283.1 137.3L277.6 141.9L270.7 143.1L264 141.5" fill="none" stroke="#2A140F" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="eye-b--glint" data-parent="eye-b">
+<g>
+<path id="p-eye-b--glint_18" d="M270.3 123.8L269.9 126.3L269.2 128.4L267.6 129.8L265.3 130.3L262.9 129.3L261.9 126.8L261.7 124.4L262.9 122.4L264.3 120.8L266.6 120.3L268.8 121.6Z" fill="url(#gp-eye-b--glint_18)"/>
+</g>
+</g>
+<g id="eye-b--glint2" data-parent="eye-b">
+<g>
+<path id="p-eye-b--glint2_19" d="M277.2 135.4L277.5 136.6L276.5 137.6L275.5 136.8L274.5 136.5L273.6 135.4L274.6 134.4L275.5 134L276.6 133.2L277.4 134.2Z" fill="url(#gp-eye-b--glint2_19)" fill-opacity="0.7"/>
+</g>
+</g>
+<g id="carapace" data-parent="root">
+<g>
+<path id="p-carapace_20" d="M62.7 199.8L61 192.6L61.9 184.6L64.3 176.4L67.4 168.5L71.3 160.5L76.7 152.3L83.9 144.9L92.9 139L103.7 135L116 132.4L128.9 130.8L142 129.7L155.7 129.4L170.4 129.8L184.7 131.4L197.6 134L208.8 137.7L219.1 142.1L228.8 146.8L238.3 151.6L247.4 157.1L255.8 163.7L262.7 171.1L267.7 178.6L271.2 186L273.8 193L274.9 199.3L273.9 204.6L270.7 209.2L265.3 213.3L257.2 216.7L245.7 219.6L229.2 222.5L208.6 225.3L186.6 227.7L165.9 229.2L146.4 229.5L126.8 228.5L108.8 226.1L93.9 222.4L82.5 217.7L73.7 212.3L67 206.2Z" fill="url(#gp-carapace_20)"/>
+<path d="M62.7 199.8L61 192.6L61.9 184.6L64.3 176.4L67.4 168.5L71.3 160.5L76.7 152.3L83.9 144.9L92.9 139L103.7 135L116 132.4L128.9 130.8L142 129.7L155.7 129.4L170.4 129.8L184.7 131.4L197.6 134L208.8 137.7L219.1 142.1L228.8 146.8L238.3 151.6L247.4 157.1L255.8 163.7L262.7 171.1L267.7 178.6L271.2 186L273.8 193L274.9 199.3L273.9 204.6L270.7 209.2L265.3 213.3L257.2 216.7L245.7 219.6L229.2 222.5L208.6 225.3L186.6 227.7L165.9 229.2L146.4 229.5L126.8 228.5L108.8 226.1L93.9 222.4L82.5 217.7L73.7 212.3L67 206.2Z" fill="none" stroke="#2A140F" stroke-width="3.5" stroke-linejoin="round"/>
+<path d="M273.9 204.6L270.7 209.2L265.3 213.3L257.2 216.7L245.7 219.6L229.2 222.5L208.6 225.3L186.6 227.7L165.9 229.2L146.4 229.5L126.8 228.5L108.8 226.1L93.9 222.4L82.5 217.7L73.7 212.3L67 206.2" fill="none" stroke="#2A140F" stroke-width="6.7" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="carapace--belly" data-parent="carapace">
+<g>
+<path id="p-carapace--belly_21" d="M65.1 204.9L76.4 204.6L96.7 208.2L117.9 213.3L138 216.7L159.5 216.9L181.9 214.9L207.2 213.5L233.6 213.1L254 212.2L265.7 209L271.2 205.4L271.5 204.1L269.1 209.2L260.8 216.5L245.8 220.5L222.8 222.1L193.9 225.3L165.9 228.5L139.7 228.8L114.4 225.8L94.1 221.7L78.5 215.8L67.5 208.9Z" fill="url(#gp-carapace--belly_21)"/>
+</g>
+</g>
+<g id="carapace--mottle-0" data-parent="carapace">
+<g>
+<path id="p-carapace--mottle-0_22" d="M127.8 184.2L121.4 190.7L109.2 190L95.1 186.7L82.7 178.9L76.3 168.7L75.9 160L82.6 153.9L94.7 153.7L108.5 158L121.4 165.1L127.4 175.6Z" fill="url(#gp-carapace--mottle-0_22)"/>
+</g>
+</g>
+<g id="carapace--mottle-1" data-parent="carapace">
+<g>
+<path id="p-carapace--mottle-1_23" d="M178 150.5L176.9 157.9L169.9 166.3L157.7 170.9L144.8 172L134.6 169.2L128.6 163.7L130.3 155.5L138.7 148.8L150.2 143.1L163.1 141.3L173.7 143.8Z" fill="url(#gp-carapace--mottle-1_23)"/>
+</g>
+</g>
+<g id="carapace--mottle-2" data-parent="carapace">
+<g>
+<path id="p-carapace--mottle-2_24" d="M220.3 194.8L212.4 198.7L201.7 198.3L190.8 192.6L184.1 182.4L180.1 172.4L183.5 163.8L191.5 159.9L202.1 160.4L213 166.1L219.8 176.3L223.8 186.2Z" fill="url(#gp-carapace--mottle-2_24)"/>
+</g>
+</g>
+<g id="carapace--mottle-3" data-parent="carapace">
+<g>
+<path id="p-carapace--mottle-3_25" d="M140.5 200.1L137.9 204.5L130.9 208.4L121.1 208L111.7 205.7L105.2 201.6L102.2 196.8L105.6 192L113.2 190.1L122.8 188.9L132.3 190.8L139.1 195Z" fill="url(#gp-carapace--mottle-3_25)"/>
+</g>
+</g>
+<g id="carapace--mottle-4" data-parent="carapace">
+<g>
+<path id="p-carapace--mottle-4_26" d="M246.3 188.2L247.3 193.3L244.6 199.2L238.5 203.3L231.8 205.7L225.3 206.3L221.3 202.6L220.9 197.4L223.8 192L228.9 186.7L235.9 184.1L242.1 185.5Z" fill="url(#gp-carapace--mottle-4_26)"/>
+</g>
+</g>
+<g id="carapace--mottle-5" data-parent="carapace">
+<g>
+<path id="p-carapace--mottle-5_27" d="M187.1 199L183.9 202.2L177.1 203.5L168.3 202.7L159.7 200.6L153.6 196.5L152.7 191.7L155.9 188.5L162.8 187.1L171.5 187.9L180.1 190L186.2 194.1Z" fill="url(#gp-carapace--mottle-5_27)"/>
+</g>
+</g>
+<g id="carapace--patch-0" data-parent="carapace">
+<g>
+<path id="p-carapace--patch-0_28" d="M158 140.6L156.4 145.3L149.8 150.5L139.5 153.2L129 153.1L121.1 151.3L117.8 147.7L119.5 143L126 137.7L136.3 135L146.8 135.2L154.7 137Z" fill="url(#gp-carapace--patch-0_28)"/>
+</g>
+</g>
+<g id="carapace--patch-1" data-parent="carapace">
+<g>
+<path id="p-carapace--patch-1_29" d="M204.2 169.3L199 172.5L191.5 172L183.3 168.9L176.5 163.3L172.5 157L172.4 151L177.6 147.7L185.1 148.3L193.4 151.4L200.2 157L204.1 163.2Z" fill="url(#gp-carapace--patch-1_29)"/>
+</g>
+</g>
+<g id="carapace--patch-2" data-parent="carapace">
+<g>
+<path id="p-carapace--patch-2_30" d="M102 185.7L101.3 190L96.4 192.9L89.9 193.7L83.7 192L78.5 190L76.9 185.7L78.8 181.7L83.7 179.4L89.9 177.3L96.4 178.6L101 181.7Z" fill="url(#gp-carapace--patch-2_30)"/>
+</g>
+</g>
+<g id="carapace--patch-3" data-parent="carapace">
+<g>
+<path id="p-carapace--patch-3_31" d="M231.5 173.2L227.9 175.3L223 174.4L218 172.1L213.8 168.4L211.8 163.9L212.3 159.8L216 157.7L220.8 158.7L225.8 161L230.1 164.6L232 169.1Z" fill="url(#gp-carapace--patch-3_31)"/>
+</g>
+</g>
+<g id="carapace--tooth-0" data-parent="carapace">
+<g>
+<path id="p-carapace--tooth-0_32" d="M170.3 136L190.1 120.2L189.6 142.1Z" fill="url(#gp-carapace--tooth-0_32)"/>
+<path d="M170.3 136L190.1 120.2L189.6 142.1Z" fill="none" stroke="#2A140F" stroke-width="1.9" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="carapace--tooth-1" data-parent="carapace">
+<g>
+<path id="p-carapace--tooth-1_33" d="M197.4 136.2L222.7 130L211.9 149.6Z" fill="url(#gp-carapace--tooth-1_33)"/>
+<path d="M197.4 136.2L222.7 130L211.9 149.6Z" fill="none" stroke="#2A140F" stroke-width="1.9" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="carapace--tooth-2" data-parent="carapace">
+<g>
+<path id="p-carapace--tooth-2_34" d="M223.9 145.2L249.7 148.1L232.5 162.8Z" fill="url(#gp-carapace--tooth-2_34)"/>
+<path d="M223.9 145.2L249.7 148.1L232.5 162.8Z" fill="none" stroke="#2A140F" stroke-width="1.9" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="carapace--tooth-3" data-parent="carapace">
+<g>
+<path id="p-carapace--tooth-3_35" d="M246.1 160L269.7 169.3L249.4 179.1Z" fill="url(#gp-carapace--tooth-3_35)"/>
+<path d="M246.1 160L269.7 169.3L249.4 179.1Z" fill="none" stroke="#2A140F" stroke-width="1.9" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="carapace--tooth-4" data-parent="carapace">
+<g>
+<path id="p-carapace--tooth-4_36" d="M262.1 176.6L283.4 191.8L261.9 196.6Z" fill="url(#gp-carapace--tooth-4_36)"/>
+<path d="M262.1 176.6L283.4 191.8L261.9 196.6Z" fill="none" stroke="#2A140F" stroke-width="1.9" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="leg-a" data-parent="carapace" data-pivot="101.9,214.5">
+<g>
+<path id="p-leg-a_37" d="M94.1 224.9L113.6 234.8L132.1 246L140.9 258.5L149.6 253.8L142.2 237.1L125.1 219.9L109.4 204.1Z" fill="url(#gp-leg-a_37)"/>
+<path d="M94.1 224.9L113.6 234.8L132.1 246L140.9 258.5L149.6 253.8L142.2 237.1L125.1 219.9L109.4 204.1Z" fill="none" stroke="#2A140F" stroke-width="3.2" stroke-linejoin="round"/>
+<path d="M113.6 234.8L132.1 246L140.9 258.5" fill="none" stroke="#2A140F" stroke-width="6.1" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="leg-b" data-parent="carapace" data-pivot="141.9,214.5">
+<g>
+<path id="p-leg-b_38" d="M134.2 224.9L153.6 234.8L171.5 246.8L181.1 258.1L189.8 253.8L182.6 236.8L166.1 218.9L149.5 204.4Z" fill="url(#gp-leg-b_38)"/>
+<path d="M134.2 224.9L153.6 234.8L171.5 246.8L181.1 258.1L189.8 253.8L182.6 236.8L166.1 218.9L149.5 204.4Z" fill="none" stroke="#2A140F" stroke-width="3.2" stroke-linejoin="round"/>
+<path d="M153.6 234.8L171.5 246.8L181.1 258.1" fill="none" stroke="#2A140F" stroke-width="6.1" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="leg-c" data-parent="carapace" data-pivot="189.9,214.5">
+<g>
+<path id="p-leg-c_39" d="M181.9 224.9L201.5 235L219.3 246.9L228.9 258.5L236.6 253.7L231.4 236.3L213.6 219.4L197.5 204.7Z" fill="url(#gp-leg-c_39)"/>
+<path d="M181.9 224.9L201.5 235L219.3 246.9L228.9 258.5L236.6 253.7L231.4 236.3L213.6 219.4L197.5 204.7Z" fill="none" stroke="#2A140F" stroke-width="3.2" stroke-linejoin="round"/>
+<path d="M201.5 235L219.3 246.9L228.9 258.5" fill="none" stroke="#2A140F" stroke-width="6.1" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="claw-near" data-parent="carapace" data-pivot="252.3,204.9">
+<g>
+<path id="p-claw-near_40" d="M245.3 195.8L249.6 189.4L256.7 183L265.1 177L273.5 171.6L281.4 166.3L289.4 160.8L297.5 155.6L306.3 151.5L316.6 148.3L328.2 146.1L339.8 145.1L349.9 145.8L358.7 148.4L366.7 152.6L373.6 157.9L378.8 163.5L382 170L383.1 177.4L382.2 184.5L379.7 190.2L375.8 194.7L370.6 198.8L364.5 202.6L357.7 205.9L349.9 208.1L340.8 209L331.2 209.2L321.9 209.2L312.9 209.2L303.9 209.1L294.9 209.2L285.9 209.8L276.1 211.5L265.8 213.9L256.6 215.5L250.2 215.1L246.9 212.4L244.8 207.9L244.1 202.1Z" fill="url(#gp-claw-near_40)"/>
+<path d="M245.3 195.8L249.6 189.4L256.7 183L265.1 177L273.5 171.6L281.4 166.3L289.4 160.8L297.5 155.6L306.3 151.5L316.6 148.3L328.2 146.1L339.8 145.1L349.9 145.8L358.7 148.4L366.7 152.6L373.6 157.9L378.8 163.5L382 170L383.1 177.4L382.2 184.5L379.7 190.2L375.8 194.7L370.6 198.8L364.5 202.6L357.7 205.9L349.9 208.1L340.8 209L331.2 209.2L321.9 209.2L312.9 209.2L303.9 209.1L294.9 209.2L285.9 209.8L276.1 211.5L265.8 213.9L256.6 215.5L250.2 215.1L246.9 212.4L244.8 207.9L244.1 202.1Z" fill="none" stroke="#2A140F" stroke-width="3.5" stroke-linejoin="round"/>
+<path d="M382.2 184.5L379.7 190.2L375.8 194.7L370.6 198.8L364.5 202.6L357.7 205.9L349.9 208.1L340.8 209L331.2 209.2L321.9 209.2L312.9 209.2L303.9 209.1L294.9 209.2L285.9 209.8L276.1 211.5L265.8 213.9L256.6 215.5L250.2 215.1L246.9 212.4" fill="none" stroke="#2A140F" stroke-width="6.7" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="claw-near--belly" data-parent="claw-near">
+<g>
+<path id="p-claw-near--belly_41" d="M254.3 207L264.4 205.1L278.6 202.7L293.9 202.1L309.8 203.5L326.6 204.5L342 204L356.9 200.3L369.8 194.1L377.4 190.6L375.7 195.9L367 200.9L357.7 205.7L347.1 207.8L334.5 208.2L321.9 209.1L309.9 209.5L297.9 208.2L285.7 208.2L272.4 211.9L259.1 215.8L249.8 216.7L246.5 213.7L248.5 209.3Z" fill="url(#gp-claw-near--belly_41)"/>
+</g>
+</g>
+<g id="claw-near--pollex" data-parent="claw-near">
+<g>
+<path id="p-claw-near--pollex_42" d="M353.8 188.8L363.3 187.3L376.8 186.6L390 186.5L402.7 189.5L414.5 194.3L419.9 198.6L415.8 203.3L405.7 209.5L394.1 213.9L381.4 214.1L368 213.1L357.9 211.3L352.4 204.8L350.6 195.6Z" fill="url(#gp-claw-near--pollex_42)"/>
+<path d="M353.8 188.8L363.3 187.3L376.8 186.6L390 186.5L402.7 189.5L414.5 194.3L419.9 198.6L415.8 203.3L405.7 209.5L394.1 213.9L381.4 214.1L368 213.1L357.9 211.3L352.4 204.8L350.6 195.6Z" fill="none" stroke="#2A140F" stroke-width="1.9" stroke-linejoin="round"/>
+<path d="M415.8 203.3L405.7 209.5L394.1 213.9L381.4 214.1L368 213.1L357.9 211.3" fill="none" stroke="#2A140F" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="claw-near--pollex-tip" data-parent="claw-near">
+<g>
+<path id="p-claw-near--pollex-tip_43" d="M404.4 193L420.9 198.6L402.7 209.8Z" fill="url(#gp-claw-near--pollex-tip_43)"/>
+</g>
+</g>
+<g id="claw-near--spot-0" data-parent="claw-near">
+<g>
+<path id="p-claw-near--spot-0_44" d="M305.7 177.7L303.5 181.6L299.3 184.3L293.9 186.4L288.4 184.3L284.3 181.6L282.3 177.7L284.3 173.8L288.4 171L293.9 169.4L299.5 170.7L303.2 174Z" fill="url(#gp-claw-near--spot-0_44)"/>
+</g>
+</g>
+<g id="claw-near--spot-1" data-parent="claw-near">
+<g>
+<path id="p-claw-near--spot-1_45" d="M340.5 167.2L337.9 170.8L332.8 171.6L327.3 170.5L322.3 167.9L318.9 163.9L319.5 159.5L322.4 156.6L327 154.9L332.8 155.3L337.5 158.8L340 163Z" fill="url(#gp-claw-near--spot-1_45)"/>
+</g>
+</g>
+<g id="claw-near--spot-2" data-parent="claw-near">
+<g>
+<path id="p-claw-near--spot-2_46" d="M282 197.3L278.8 199.8L273.7 199.7L268.6 196.8L265.4 192.1L264.3 187.4L264.9 182.9L269 181.2L274 181.9L278.9 184.6L282.9 188.7L284.3 193.7Z" fill="url(#gp-claw-near--spot-2_46)"/>
+</g>
+</g>
+<g id="claw-near-finger" data-parent="claw-near" data-pivot="353.9,176.1">
+<g>
+<path id="p-claw-near-finger_47" d="M345.3 166.1L352.1 161L361.5 154.7L371.7 148.7L382 147.1L392.5 151.4L403.8 160.1L412.9 170.7L419.6 178.4L424 182.4L425.8 185.7L425.1 188.4L421.9 189.7L416.5 187.4L408.6 184.4L399 182.4L389.9 181.2L380.6 182.4L370.6 184.7L361 185.4L354.2 184.7L349 182.6L345.2 177.7L343.6 171.9Z" fill="url(#gp-claw-near-finger_47)"/>
+<path d="M345.3 166.1L352.1 161L361.5 154.7L371.7 148.7L382 147.1L392.5 151.4L403.8 160.1L412.9 170.7L419.6 178.4L424 182.4L425.8 185.7L425.1 188.4L421.9 189.7L416.5 187.4L408.6 184.4L399 182.4L389.9 181.2L380.6 182.4L370.6 184.7L361 185.4L354.2 184.7L349 182.6L345.2 177.7L343.6 171.9Z" fill="none" stroke="#2A140F" stroke-width="3.5" stroke-linejoin="round"/>
+<path d="M425.1 188.4L421.9 189.7L416.5 187.4L408.6 184.4L399 182.4L389.9 181.2L380.6 182.4L370.6 184.7L361 185.4L354.2 184.7L349 182.6" fill="none" stroke="#2A140F" stroke-width="6.7" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="claw-near-finger--tip" data-parent="claw-near-finger">
+<g>
+<path id="p-claw-near-finger--tip_48" d="M404.4 163.8L420.6 177.5L421.8 188.4L402.5 182.7Z" fill="url(#gp-claw-near-finger--tip_48)"/>
+</g>
+</g>
+<g id="pivots" style="display:none">
+<circle cx="109.9" cy="214.5" r="3" fill="#00A0FF"><title>leg-d</title></circle>
+<circle cx="149.9" cy="214.5" r="3" fill="#00A0FF"><title>leg-e</title></circle>
+<circle cx="197.9" cy="214.5" r="3" fill="#00A0FF"><title>leg-f</title></circle>
+<circle cx="236.3" cy="187.3" r="3" fill="#00A0FF"><title>claw-far</title></circle>
+<circle cx="337.9" cy="158.5" r="3" fill="#00A0FF"><title>claw-far-finger</title></circle>
+<circle cx="226.7" cy="148.9" r="3" fill="#00A0FF"><title>eye-a</title></circle>
+<circle cx="253.9" cy="164.9" r="3" fill="#00A0FF"><title>eye-b</title></circle>
+<circle cx="101.9" cy="214.5" r="3" fill="#00A0FF"><title>leg-a</title></circle>
+<circle cx="141.9" cy="214.5" r="3" fill="#00A0FF"><title>leg-b</title></circle>
+<circle cx="189.9" cy="214.5" r="3" fill="#00A0FF"><title>leg-c</title></circle>
+<circle cx="252.3" cy="204.9" r="3" fill="#00A0FF"><title>claw-near</title></circle>
+<circle cx="353.9" cy="176.1" r="3" fill="#00A0FF"><title>claw-near-finger</title></circle>
+</g>
+</svg>
