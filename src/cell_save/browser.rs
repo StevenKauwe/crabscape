@@ -182,11 +182,12 @@ pub fn maintain_pages(sim: &mut crabsim::Sim, id: crabsim::PlayerId, elapsed: f3
             });
             let status = AUTOSAVE.with(|slot| {
                 let state = slot.borrow();
-                format!("revision={} saving={} reading={} retry={:.2} elapsed={:.2} warning={} terrain={} memory={} flush={} hold={} rejected={} spot={}",
+                format!("revision={} saving={} reading={} retry={:.2} elapsed={:.2} warning={} terrain={} memory={} flush={} hold={} rejected={} spot={} pages={}",
                     state.revision, state.busy, state.read_busy, state.read_retry, state.elapsed,
                     state.read_warning.is_some(), requests.terrain.len(), requests.memory.len(), requests.flush,
                     state.hold.unwrap_or("none"), state.rejected.unwrap_or("none"),
-                    spot.as_deref().unwrap_or("none"))
+                    spot.as_deref().unwrap_or("none"),
+                    requests.terrain.iter().take(6).map(|t| format!("{},{}", t.coordinate.0, t.coordinate.1)).collect::<Vec<_>>().join(";"))
             });
             let _ = canvas.set_attribute("data-cell-page-state", &status);
         }
@@ -331,7 +332,10 @@ pub fn capture_failed(generation: u64, reason: super::Error) {
             state.read_after_capture_failure = matches!(reason, super::Error::Damaged);
             state.rejected = Some(match reason {
                 super::Error::TooLarge => "too-large",
-                super::Error::Damaged => "damaged",
+                super::Error::Damaged => match super::last_damage() {
+                    "" => "damaged",
+                    step => step,
+                },
                 super::Error::Unsupported => "unsupported",
             });
             let detail = match reason {
