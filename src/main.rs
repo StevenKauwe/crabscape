@@ -121,7 +121,7 @@ mod names;
 mod nodes;
 mod notes;
 mod octopus;
-mod canopy;
+mod outcrop;
 mod painted_world;
 #[cfg(not(target_arch = "wasm32"))]
 mod photo;

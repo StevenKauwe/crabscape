@@ -140,7 +140,7 @@ impl Plugin for LevelPlugin {
                 move_water_surface,
                 move_high_kelp,
                 move_local_kelp,
-                crate::canopy::sway,
+                crate::outcrop::sway,
                 refresh_floor,
             ),
         );
@@ -271,7 +271,7 @@ fn draw_level(
         ));
     }
 
-    crate::canopy::draw(&mut commands, &mut meshes, &sim, &rock, &mut paint);
+    crate::outcrop::draw(&mut commands, &mut meshes, &sim, &rock, &mut paint);
 
     draw_climbs(
         &mut commands,
