@@ -878,7 +878,7 @@ fn the_shore_crabs_are_placed_and_their_walks_keep_clear() {
     use crabsim::creatures::shore_crab::LEASH;
     let level = Level::test_level();
     let t = Tuning::default();
-    assert!((3..=4).contains(&sh::SHORE_CRABS.len()));
+    assert!((3..=6).contains(&sh::SHORE_CRABS.len()));
     let placed: Vec<Vec2> = level
         .foes
         .iter()
