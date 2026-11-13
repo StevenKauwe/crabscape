@@ -17,7 +17,7 @@
 //!   mud, and a faint green-cyan mat glow on sponge door 1's floor that runs toward the glass beyond.
 //! - **Opening the plug is a reward.** When a crab below digs it open (`Net::cut`, read from the sim), shelf light
 //!   pours down the plug shaft, a small burst of grit falls at the opening and the rock grumbles; from above the
-//!   open plug is a dark hole with a stone rim in the shelf.
+//!   open plug is a lit opening with a stone rim in the shelf.
 //!
 //! No shader, nothing over the screen: handfuls of meshes and soft sprites on the places' own shapes. Places are
 //! found from the galleries' own rooms and constants ([`crabsim::level::silt_galleries`]), never by literal x.
@@ -52,17 +52,18 @@ const TWILIGHT_PALE: Color = Color::srgb(0.78, 0.92, 1.0);
 const GLASS: Color = Color::srgb(0.62, 0.95, 0.90);
 /// A rest's low light: warm, like home.
 const HEARTH: Color = Color::srgb(1.0, 0.78, 0.46);
-/// Shelf light poured down the plug shaft: pale daylight, a little green.
 /// The pit glow mat's light: greener than the glass, so the mat and the garden read as two things.
 const MAT_GLOW: Color = Color::srgb(0.45, 0.95, 0.70);
+/// Shelf light poured down the plug shaft: pale daylight, a little green.
 const SHELF_LIGHT: Color = Color::srgb(0.84, 0.97, 0.92);
 
 /// The back wall is the world's painted rock, dimmed and cooled by a translucent sprite on the same shape: a
 /// farther, dimmer rock face. Seams are thin, low-contrast curves.
 const WALL_DIM: Color = Color::srgba(0.01, 0.035, 0.05, 0.70);
 const SEAM: Color = Color::srgba(0.0, 0.02, 0.03, 0.30);
-/// The open plug's hole: darker than the shaft.
-const HOLE: Color = Color::srgb(0.003, 0.007, 0.009);
+/// The open plug's opening: lit water, the shelf's light coming through (seen live, a near-black fill read as a
+/// lid capping the light it pours, not as a way through).
+const HOLE: Color = Color::srgb(0.40, 0.56, 0.56);
 
 pub struct DescentPlugin;
 
@@ -819,7 +820,7 @@ fn spawn_plug_light(
             Visibility::Hidden,
         ));
     }
-    // From above, the open plug is a dark hole in the shelf with a stone rim, seen through memory.
+    // The open plug is a lit opening in the shelf with a stone rim, seen through memory.
     let hole = remembered.add(tex.material(HOLE));
     let rock = remembered.add(tex.material(ROCK_PAINTED));
     let mut put = |mesh: Mesh, material: Handle<MemoryMaterial>, at: Vec3| {

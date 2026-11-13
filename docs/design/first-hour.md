@@ -210,7 +210,7 @@ fine. Keep a timer running and jot the minute you reach each block, along with a
 5. On the entry hall's silt floor west of the shaft's foot, dig the clay bank (the reddish seam) and forage the worm
    mud (casts and tube tips). Do the three tier-2 nodes here feel like a haul worth the trip down?
 6. Take the sponge, then walk west and climb the plug shaft (rest on its ledge) and dig the plug open from below.
-7. Notice the light pouring down the shaft, the grit and the rock's grumble; from the shelf the open plug is a dark hole with a stone rim.
+7. Notice the light pouring down the shaft, the grit and the rock's grumble; from the shelf the open plug is a lit opening with a stone rim.
 
 Try the **Skip guide** button once (Goals tab), then turn the guide back on. It should resume at the first step you
 haven't done.
