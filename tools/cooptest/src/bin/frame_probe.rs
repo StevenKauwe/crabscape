@@ -197,7 +197,6 @@ fn run() -> Result<()> {
         Options {
             fake_mic: false,
             slow,
-            ..Options::default()
         },
     )?;
     b.go(&url)?;

@@ -124,9 +124,13 @@ pub(super) fn run(player: &mut Player, site: &Site) -> Result<Found> {
     let replay = crabsim::Replay::parse(&text).map_err(|e| format!("Canyon diagnostic: {e:?}"))?;
     let mut restored = crabsim::Sim::with_one_crab(replay.start);
     if !replay.prepare_start(&mut restored) || restored.canyon_records().is_empty() {
-        return Err(
-            "browser Canyon runtime was not restored into its native diagnostic snapshot".into(),
-        );
+        // Say which: no recording at all (the page's F9 answer starts with
+        // "# Replay unavailable"), or a recording without its Canyon start.
+        let head: String = text.lines().take(3).collect::<Vec<_>>().join(" | ");
+        return Err(format!(
+            "browser Canyon runtime was not restored into its native diagnostic snapshot; replay begins: {}",
+            head.chars().take(300).collect::<String>()
+        ));
     }
     let runtime = CanyonRun::from_records(&restored.canyon_records())
         .ok_or("runtime Canyon owners incomplete")?;

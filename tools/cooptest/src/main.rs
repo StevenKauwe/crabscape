@@ -405,13 +405,6 @@ impl Player {
     }
 }
 
-/// Co-op players draw at half density: the same 1200 x 800 CSS layout, clicks and checks, a quarter of the pixels.
-/// CI draws WebGL in software (SwiftShader) for three browsers on one 4-core machine; at full density each page
-/// made 4 to 5 frames a second under 6x CPU throttling and 8 to 11 at half, so the page that just loaded gets the
-/// CPU it needs to answer its friends. These checks are about playing together, not how the world looks; the
-/// HUD-density and terrain checks keep their own sizes.
-const PLAYER_DENSITY: f64 = 0.5;
-
 /// The game's autosave clock, as `data-cell-page-state` reports it (`elapsed=`, seconds since the last reserved
 /// save on the game's capped clock, reset to 0 when the next save is reserved).
 #[derive(Default)]
@@ -1213,7 +1206,6 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
     let o = Options {
         fake_mic: voice,
         slow: site.slow,
-        density: PLAYER_DENSITY,
     };
     if name == "cells-three-players" || name == "cell-probe-eight-players" {
         let count = if name == "cells-three-players" { 3 } else { 8 };
@@ -3140,7 +3132,6 @@ fn stress(site: &mut Site, seed: u64, steps: usize, voice: bool) -> Result<()> {
     let o = Options {
         fake_mic: voice,
         slow: site.slow,
-        density: PLAYER_DENSITY,
     };
     let mut host = Player::new(site, "host", o)?;
     let mut guest = Player::new(site, "guest", o)?;

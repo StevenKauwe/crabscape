@@ -17,7 +17,6 @@ fn main() -> Result<()> {
         Options {
             fake_mic: false,
             slow: 1.0,
-            ..Options::default()
         },
         args.len() == 3,
         3,
