@@ -85,9 +85,18 @@ const SNAPPER_A: f32 = 340.0;
 const SNAPPER_B: f32 = 590.0;
 /// The row shrimp (`level::shallows`), just past the second pocket.
 const SNAPPER_C: f32 = 622.0;
+/// The far ledge's two shrimp past the trench: the old one and the block
+/// shrimp (`level::shallows`) 14 east of it.
+const SNAPPER_FAR: f32 = 2060.0;
+const SNAPPER_BLOCK: f32 = 2074.0;
+/// Where the far fight's stated trip sets the crab down: the far ledge, 100
+/// short of the old shrimp (out of its notice) and 200 past the trench's
+/// moray.
+const FAR_FIGHT_X: f32 = 1960.0;
 /// How near a shrimp's home is to the burrow it is named by (the row shrimp
-/// stands 32 from the second pocket's).
-const SNAPPER_NEAR: f32 = 16.0;
+/// stands 32 from the second pocket's, the block shrimp 14 from the far
+/// ledge's).
+const SNAPPER_NEAR: f32 = 10.0;
 /// The kelp stalk beside the door and the egg it reaches (kick off at this
 /// height, running right).
 const KELP_X: f32 = 280.0;
@@ -140,6 +149,8 @@ struct Candidate {
 enum Session {
     Gather(NodeKind),
     Fight(f32),
+    /// The far ledge's two shrimp, a stated trip over the trench.
+    FarFight,
     Climb,
     Swim,
     Survive,
@@ -176,6 +187,7 @@ pub struct Bot {
     craft_start: f64,
     egg_done: bool,
     dig_done: bool,
+
     pub deaths: u32,
     /// Gathers finished, by item (for the report).
     pub gathers: std::collections::BTreeMap<Item, u32>,
@@ -224,6 +236,7 @@ impl Bot {
             craft_start: 0.0,
             egg_done: false,
             dig_done: false,
+
             deaths: 0,
             gathers: Default::default(),
             spot: Vec2::new(1300.0, g + 2.0),
@@ -752,6 +765,39 @@ impl Bot {
         self.go_home();
     }
 
+    // ---- The far ledge's fights ----
+
+    /// Over the trench to the far ledge (a stated trip: the route solver walks
+    /// it in about 34 s with the foes alive; `TRIP_OUT_SECS` is spent), the
+    /// old shrimp and the block shrimp beaten in turn, and back.
+    fn far_fight_session(&mut self) {
+        self.tag(None);
+        self.idle_secs(TRIP_OUT_SECS);
+        {
+            let y = self.sim.level.floor_height(FAR_FIGHT_X) + 2.0;
+            let m = &mut self.sim.crab_mut(P0).expect("crab").mover;
+            m.pos = Vec2::new(FAR_FIGHT_X, y);
+            m.vel = Vec2::ZERO;
+            m.shelter = Shelter::Out;
+            m.tucked = 0.0;
+        }
+        for at in [SNAPPER_FAR, SNAPPER_BLOCK] {
+            if !self.dead() && self.snapper_up(at) {
+                self.fight(at);
+            }
+        }
+        if self.dead() {
+            return;
+        }
+        self.tag(None);
+        self.idle_secs(TRIP_BACK_SECS);
+        let y = self.sim.level.floor_height(DOORSTEP_X) + 2.0;
+        let m = &mut self.sim.crab_mut(P0).expect("crab").mover;
+        m.pos = Vec2::new(DOORSTEP_X + 8.0, y);
+        m.vel = Vec2::ZERO;
+        self.go_home();
+    }
+
     // ---- Survival ----
 
     fn survive_session(&mut self) {
@@ -1069,15 +1115,26 @@ impl Bot {
         if focus.is_some() {
             return out;
         }
-        for at in [SNAPPER_A, SNAPPER_B, SNAPPER_C] {
-            if self.snapper_up(at) {
-                out.push(Candidate {
-                    label: "fight snapping shrimp".to_string(),
-                    kind: Session::Fight(at),
-                    serves: vec![Skill::Fighting],
-                });
-                break;
-            }
+        let home = [SNAPPER_A, SNAPPER_B, SNAPPER_C]
+            .into_iter()
+            .find(|&at| self.snapper_up(at));
+        let far = self.snapper_up(SNAPPER_FAR) || self.snapper_up(SNAPPER_BLOCK);
+        if far && home.is_none() {
+            // The home side's three are all down: the far ledge's two, over
+            // the trench. (Taking turns with home cost 90 s of trip a fight
+            // and left five skills short of 15 in three hours; a home shrimp
+            // is nearly always up when the bot wants a fight.)
+            out.push(Candidate {
+                label: "fight the far ledge's shrimp".to_string(),
+                kind: Session::FarFight,
+                serves: vec![Skill::Fighting],
+            });
+        } else if let Some(at) = home {
+            out.push(Candidate {
+                label: "fight snapping shrimp".to_string(),
+                kind: Session::Fight(at),
+                serves: vec![Skill::Fighting],
+            });
         }
         out.push(Candidate {
             label: "climb kelp".to_string(),
@@ -1135,6 +1192,7 @@ impl Bot {
                 }
                 self.go_home();
             }
+            Session::FarFight => self.far_fight_session(),
             Session::Climb => self.climb_session(),
             Session::Swim => self.swim_session(),
             Session::Survive => self.survive_session(),

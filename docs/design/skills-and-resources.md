@@ -634,7 +634,7 @@ The owner's ask: levels 1 to 15 in **all 13 skills** must be a joy for a brand-n
   - tier-1 recipes ×3;
   - Climbing and Swimming ×2.2;
   - Survival ×1.6;
-  - Fighting ×9 at levels 1 to 4, ×6.5 at 5 to 9, ×5 at 10 to 14. It was ×12, ×9 and ×7 while only the pockets' two shrimp stood near home. The row shrimp (#680) is the third, and the bot fights it too. Re-measured: Fighting reaches 15 at minute 164.1 of 180 (it was 178.0), every target still holds, and focused Prying is unchanged at 16.9.
+  - Fighting ×9 at levels 1 to 4, ×6.5 at 5 to 9, ×5 at 10 to 14. It was ×12, ×9 and ×7 while only the pockets' two shrimp stood near home. The row shrimp (#680) is the third, and the bot fights it too. Re-measured: Fighting reaches 15 at minute 164.1 of 180 (it was 178.0), every target still holds, and focused Prying is unchanged at 16.9. ×9 is the floor for now. At ×6, ×4.5 and ×3.5, Fighting and four gathering skills stop at 14, even with the far ledge's two shrimp (x 2,060 and the block shrimp at 2,074) in the bot. In mixed play Fighting is short of the bot's time, not of shrimp: a home shrimp is nearly always up when the bot wants a fight. Sending every other fight over the trench cost 90 s of trip each and left five skills short of 15, so the far ledge is the bot's fallback when all three home shrimp are down. Lowering the multiplier further needs fights that take less time, or fights on the way to other work, not more shrimp.
 - **Measured after** (bot, 3 h mixed, real ticks):
 
   | Measure | Before | After |

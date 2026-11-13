@@ -107,3 +107,31 @@ the main gathering skill about 15 at minute 20, and every skill 15 within three 
 - Co-op: the new shrimp reach x 550 to 694 and 2,002 to 2,146, clear of x 100..240 and 2,400..2,540. Crabs walking east
   from home pass the row shrimp (x 622) and the block shrimp (x 2,074); the flats ledge's stalk (x 2,392) stands just
   west of the cells check's dig at about x 2,470.
+
+## Playtest: what to try first (owner, 15 to 20 minutes)
+Start a **new crab** (a fresh save, or a private window on the web) and follow the guide's pill. The bot finishes the
+17 steps by about minute 15 on real ticks (`first_hours.rs`); a person reading the cards will take longer, and that is
+fine. Keep a timer running and jot the minute you reach each block, along with anything that made you stop and think.
+
+| Minutes (bot) | Do | Notice |
+|---|---|---|
+| 0–4 (steps 1–5) | Follow the pill out of the door: pry mussels, cut kelp, scoop grit, forage snails, gather shore-glow, all in the two pockets beside home. | A level-up every half minute or so, and each card says what it opened. Does the pill always say what to do next and where? Can you tell the five node kinds apart at a glance (they are placeholder shapes)? |
+| 4–6 (steps 6–11) | Home to the workbench: kelp cord, shucked mussels (eat one), a shell blank, the pry tip, then build into the home and the valve step from the Home tab. | Whether the three workbench tabs make sense (Goals, Craft, Home). The tool fits the claw on its own. The valve step appears at the door: the first visible change to home. Guide cards here hand you the inputs for the next step. |
+| 6–9 (steps 12–13) | Climb the kelp stalk beside the door, eat the egg at the top, and paddle a stroke over the first pocket. Then try the lookout ledge up the stand (y 704) and the paddle gap to the far lookout. | Climbing and Swimming level fast here (they pay ×2.2 below 15). Does the paddle gap read as a jump you can make? The lookouts hold nodes the pockets don't. |
+| 9–11 (step 14) | Beat a snapping shrimp: watch its tell, dodge the shock, smash it while it recovers. Three stand on the home side (x 340, 590, 622). | Whether the tell is readable on the first try, and whether one fight feels worth it (a level or two at first). Note any death and its cause. |
+| 11–13 (steps 15–16) | Go east over the shelf, past the trench rim, and down the trench into the basin band. Look into the trench hollow (tier 2: a clam bed, clay bank and worm mud you can't work yet). Then go deeper, into the twilight, for Survival. | The first "I can't do that yet" sight: does the skills panel tell you the level that opens it? Is the way down obvious, and the way back up? |
+| 13–15 (step 17) | Home, open the Goals tab and pin a want. | The guide ends there. Is there one clear thing to do next, or a list that's too long? |
+| 15–20 | Free play: do whatever the pinned want asks, or try the far ledge past the trench (two more shrimp at x 2,060 and 2,074) and the kelp ledges there. | Whether you still know what to do without the guide, and how long it is between level-ups now. |
+
+Try the **Skip guide** button once (Goals tab), then turn the guide back on. It should resume at the first step you
+haven't done.
+
+**What we want to know** (a line each is plenty)
+- **Fun:** which minute was the best, and which the dullest? Did any level-up card make you want the next one? Was the
+  first fight fun or a chore?
+- **Confusion:** where did you stop to think about what to do or where to go? Which card, tab or name didn't make
+  sense? Did you ever lose the pill?
+- **Pacing:** did levels come too fast (cheap) or too slow anywhere? Did you work one node long enough to get bored?
+  Did the guide's 17 steps feel too many, too few, or about right?
+- **Wants:** after the guide, did you want something on the Home tab or in the recipes enough to go out for it?
+- **Co-op (if a friend joins):** does the guide stay yours, and does their play ever move your steps?
