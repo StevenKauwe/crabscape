@@ -462,8 +462,8 @@ struct OnLink {
     met: bool,
 }
 
-/// How long nobody may host a link with friends on it before one of them stands in (seconds): long enough to hear
-/// every friend's hello, and for a main host who just came to be heard by all.
+/// How long nobody may host a link with friends on it before one of them stands in (real seconds, not the capped
+/// game clock): long enough to hear every friend's hello, and for a main host who just came to be heard by all.
 const STAND_IN_AFTER: f32 = 2.0;
 
 /// Who hosts, from this device (`me`) and the `friends` on the link (each as its last hello said), after `unhosted`
@@ -1939,7 +1939,15 @@ mod web {
         // Who hosts, worked out afresh while the connection works (a dead one changes nothing until it's redone).
         if let Some((conn, friends)) = heard {
             let claimed = host || friends.iter().any(|f| f.hosts);
-            coop.unhosted = if claimed { 0.0 } else { coop.unhosted + dt };
+            // Wall time: the wait is for friends' hellos to arrive over the
+            // network, not for game time to pass. The game clock is capped at
+            // 250 ms a frame, so on a page drawing a frame every 0.7 s the
+            // 2 s stand-in wait took 5.9 s (CI run 43243140612).
+            coop.unhosted = if claimed {
+                0.0
+            } else {
+                coop.unhosted + real.delta_secs()
+            };
             let mine = OnLink {
                 crab: me.0,
                 conn,
