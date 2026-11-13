@@ -412,16 +412,6 @@ impl Player {
 /// 43383641349, 2.7 to 3.0 s at half). The HUD-density and terrain checks keep their own sizes.
 const PLAYER_DENSITY: f64 = 0.5;
 
-/// The Canyon save checks stay at full density: at half, the faster reloaded page sometimes hands out F9's
-/// "Replay unavailable" (#700), a real recording-start race that is tracked there rather than hidden.
-fn density(scenario: &str) -> f64 {
-    if scenario.contains("canyon") {
-        1.0
-    } else {
-        PLAYER_DENSITY
-    }
-}
-
 /// The game's autosave clock, as `data-cell-page-state` reports it (`elapsed=`, seconds since the last reserved
 /// save on the game's capped clock, reset to 0 when the next save is reserved).
 #[derive(Default)]
@@ -1223,7 +1213,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
     let o = Options {
         fake_mic: voice,
         slow: site.slow,
-        density: density(name),
+        density: PLAYER_DENSITY,
     };
     if name == "cells-three-players" || name == "cell-probe-eight-players" {
         let count = if name == "cells-three-players" { 3 } else { 8 };
