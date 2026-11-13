@@ -146,10 +146,10 @@ fn holding_gather_gives_the_item_the_xp_and_wears_the_tool() {
     }
     let done_at = done_at.expect("it finished");
     assert!((need..=need + 2).contains(&done_at), "{done_at} for {need}");
-    // Tier 1 pays 110% below level 15 (the first hours).
-    assert_eq!(gathered, Some((Item::Mussel, 11)));
+    // Tier 1 pays 130% below level 15 (the first hours).
+    assert_eq!(gathered, Some((Item::Mussel, 13)));
     assert_eq!(count(&sim, P0, Item::Mussel), 1);
-    assert_eq!(xp_of(&sim, Skill::Prying), 11);
+    assert_eq!(xp_of(&sim, Skill::Prying), 13);
     let crab = sim.crab(P0).unwrap();
     assert_eq!(crab.econ.tool(ToolKind::Pry).uses_left, 59);
     assert_eq!(crab.econ.gathers_done, 1);
