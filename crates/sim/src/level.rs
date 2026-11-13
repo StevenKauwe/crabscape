@@ -780,7 +780,6 @@ impl Level {
             // end, past the canyon, the common octopus in its den: a rock
             // with its back to the wall, facing the way in.
             foes: vec![
-                (Kind::Snapper, Vec2::new(340.0, 0.0)),
                 (Kind::Snapper, Vec2::new(590.0, 0.0)),
                 // Buried beside the mantis mouth's door in the basin floor
                 // (the pocket chain under it; it never enters).

@@ -117,11 +117,9 @@ pub const SIGHTS: &[(&str, u8)] = &[("high garden", 3), ("glow ledge", 3)];
 /// at least 30 units apart (the hub's and the pockets' are closer).
 pub const SPOTS: &[NodeSpot] = &[
     // Tier 1.
-    // The home side on foot, in two safe pockets (the snapping shrimp at
-    // 340 and 590 notice a crab within 120 and strike within 72): one between
-    // the home burrow's first silt shaft (its mouth reaches x 220) and the
-    // first shrimp (x 222 to 242), the other between the shrimp (x 432 to
-    // 492). Ten nodes, two of each skill, 10 units apart (a crab standing in
+    // The home side on foot, in two safe pockets (the first gather is calm: no shrimp stands by the door; the
+    // snapping shrimp at 590 notices a crab within 120 and strikes within 72): one past the home burrow's first
+    // silt shaft (its mouth reaches x 220; x 222 to 242), the other short of the shrimp (x 432 to 492). Ten nodes, two of each skill, 10 units apart (a crab standing in
     // a pocket reaches the whole of it and works every skill in it).
     s(K::ShoreGlow, 222.0),
     s(K::KelpStand, 232.0),
@@ -267,7 +265,7 @@ pub const SPOTS: &[NodeSpot] = &[
     // The half-tier nodes (tier 1, level 8), three of each kind, provisional
     // (the world lane may move them). Two of each lie in the home pockets,
     // between the first pocket's nodes and the second's (5 units from them,
-    // still clear of the shrimp at 340 and 590: 93 units off), so a crab at
+    // still clear of the shrimp at 590: 93 units off), so a crab at
     // level 8 finds them where it already works; the third of each lies on
     // the plateau past the second shrimp (floor 110: a walk and a hop from
     // the second pocket), clear of the moray at 1,446. Appended, so earlier

@@ -2294,11 +2294,11 @@ fn it_flees_only_once_a_fight() {
 #[test]
 fn the_route_gets_harder_with_room_to_breathe() {
     let level = crabsim::Level::test_level();
-    let kinds: Vec<Kind> = level.foes.iter().take(7).map(|f| f.0).collect();
+    // (The home pocket's shrimp at x 340 is gone, so the opening is six.)
+    let kinds: Vec<Kind> = level.foes.iter().take(6).map(|f| f.0).collect();
     assert_eq!(
         kinds,
         [
-            Kind::Snapper,
             Kind::Snapper,
             Kind::Mantis,
             Kind::Moray,
@@ -2310,7 +2310,7 @@ fn the_route_gets_harder_with_room_to_breathe() {
     );
     // (The mantis moved to the mantis mouth, so the list is no longer in
     // order of x: the spacing is between neighbours along the route.)
-    let mut xs: Vec<f32> = level.foes.iter().take(7).map(|f| f.1.x).collect();
+    let mut xs: Vec<f32> = level.foes.iter().take(6).map(|f| f.1.x).collect();
     xs.sort_by(f32::total_cmp);
     assert!(
         xs.windows(2).all(|w| w[1] - w[0] >= 240.0),
