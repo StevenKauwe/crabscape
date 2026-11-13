@@ -1,4 +1,4 @@
-//! The ten bestiary creatures' rigs at true size, by art name. See `crates/sim/src/creatures.rs`. Their ink atlases
+//! The eleven bestiary creatures' rigs at true size, by art name. See `crates/sim/src/creatures.rs`. Their ink atlases
 //! are oil-painted like every puppet's (`tools/paint-oil.sh`); how they are drawn to paint well is
 //! `docs/design/painted-creatures.md`.
 //!
@@ -15,18 +15,20 @@ pub mod hagfish;
 pub mod hermit;
 pub mod isopod;
 pub mod lobster;
+pub mod shore_crab;
 pub mod squid;
 pub mod turtle;
 pub mod viperfish;
 
 /// The art names, in the bestiary's fixed order.
-pub const NAMES: [&str; 10] = [
+pub const NAMES: [&str; 11] = [
     "loggerhead-turtle",
     "humboldt-squid",
     "viperfish",
     "goliath-grouper",
     "american-lobster",
     "hermit-crab",
+    "shore-crab",
     "bobbit-worm",
     "giant-isopod",
     "hagfish",
@@ -34,7 +36,7 @@ pub const NAMES: [&str; 10] = [
 ];
 
 /// The creature's parts file (`art/creatures/<name>/<name>-parts.svg`), if
-/// `name` is one of the ten.
+/// `name` is one of the eleven.
 pub fn parts_svg(name: &str) -> Option<String> {
     match name {
         "loggerhead-turtle" => Some(turtle::parts_svg()),
@@ -43,6 +45,7 @@ pub fn parts_svg(name: &str) -> Option<String> {
         "goliath-grouper" => Some(grouper::parts_svg()),
         "american-lobster" => Some(lobster::parts_svg()),
         "hermit-crab" => Some(hermit::parts_svg()),
+        "shore-crab" => Some(shore_crab::parts_svg()),
         "bobbit-worm" => Some(bobbit::parts_svg()),
         "giant-isopod" => Some(isopod::parts_svg()),
         "hagfish" => Some(hagfish::parts_svg()),

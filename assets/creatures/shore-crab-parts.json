@@ -1,0 +1,364 @@
+{
+ "comment": "Written by crabrig export (cargo run -p crabrig --profile art -- export) from art/creatures/shore-crab/shore-crab-parts.svg. Coordinates are SVG units (y down) unless marked px. rect = [x, y, w, h] in atlas px; bbox = the same area in SVG units; z = drawing order (bigger is in front).",
+ "atlas": "shore-crab-atlas.png",
+ "atlas_size": [
+  1024,
+  128
+ ],
+ "px_per_unit": 0.6,
+ "ground": [
+  243.4,
+  258.9
+ ],
+ "anchors": {},
+ "parts": [
+  {
+   "name": "leg-d",
+   "parent": "carapace",
+   "pivot": [
+    109.9,
+    214.5
+   ],
+   "bbox": [
+    56.2,
+    198.7,
+    68.1,
+    65.8
+   ],
+   "rect": [
+    511,
+    3,
+    41,
+    40
+   ],
+   "z": 0,
+   "members": [
+    "leg-d"
+   ]
+  },
+  {
+   "name": "leg-e",
+   "parent": "carapace",
+   "pivot": [
+    149.9,
+    214.5
+   ],
+   "bbox": [
+    97.2,
+    197.5,
+    66.2,
+    67.3
+   ],
+   "rect": [
+    380,
+    3,
+    40,
+    41
+   ],
+   "z": 1,
+   "members": [
+    "leg-e"
+   ]
+  },
+  {
+   "name": "leg-f",
+   "parent": "carapace",
+   "pivot": [
+    197.9,
+    214.5
+   ],
+   "bbox": [
+    144.4,
+    197.6,
+    67.7,
+    67.3
+   ],
+   "rect": [
+    423,
+    3,
+    41,
+    41
+   ],
+   "z": 2,
+   "members": [
+    "leg-f"
+   ]
+  },
+  {
+   "name": "claw-far",
+   "parent": "carapace",
+   "pivot": [
+    236.3,
+    187.3
+   ],
+   "bbox": [
+    222.8,
+    121.4,
+    187.7,
+    84.4
+   ],
+   "rect": [
+    147,
+    3,
+    113,
+    51
+   ],
+   "z": 3,
+   "members": [
+    "claw-far",
+    "claw-far--belly",
+    "claw-far--pollex",
+    "claw-far--pollex-tip",
+    "claw-far--spot-0",
+    "claw-far--spot-1",
+    "claw-far--spot-2"
+   ]
+  },
+  {
+   "name": "claw-far-finger",
+   "parent": "claw-far",
+   "pivot": [
+    337.9,
+    158.5
+   ],
+   "bbox": [
+    322.8,
+    124.8,
+    92.2,
+    52.8
+   ],
+   "rect": [
+    765,
+    3,
+    56,
+    32
+   ],
+   "z": 10,
+   "members": [
+    "claw-far-finger",
+    "claw-far-finger--tip"
+   ]
+  },
+  {
+   "name": "eye-a",
+   "parent": "carapace",
+   "pivot": [
+    226.7,
+    148.9
+   ],
+   "bbox": [
+    211.6,
+    94.1,
+    40.5,
+    61.3
+   ],
+   "rect": [
+    677,
+    3,
+    25,
+    37
+   ],
+   "z": 12,
+   "members": [
+    "eye-a",
+    "eye-a--cornea",
+    "eye-a--glint",
+    "eye-a--glint2"
+   ]
+  },
+  {
+   "name": "eye-b",
+   "parent": "carapace",
+   "pivot": [
+    253.9,
+    164.9
+   ],
+   "bbox": [
+    240.1,
+    111.9,
+    50.3,
+    63.3
+   ],
+   "rect": [
+    643,
+    3,
+    31,
+    38
+   ],
+   "z": 16,
+   "members": [
+    "eye-b",
+    "eye-b--cornea",
+    "eye-b--glint",
+    "eye-b--glint2"
+   ]
+  },
+  {
+   "name": "carapace",
+   "parent": null,
+   "pivot": [
+    172.2,
+    174.85
+   ],
+   "bbox": [
+    55.0,
+    114.2,
+    234.4,
+    121.3
+   ],
+   "rect": [
+    3,
+    3,
+    141,
+    73
+   ],
+   "z": 20,
+   "members": [
+    "carapace",
+    "carapace--belly",
+    "carapace--mottle-0",
+    "carapace--mottle-1",
+    "carapace--mottle-2",
+    "carapace--mottle-3",
+    "carapace--mottle-4",
+    "carapace--mottle-5",
+    "carapace--patch-0",
+    "carapace--patch-1",
+    "carapace--patch-2",
+    "carapace--patch-3",
+    "carapace--tooth-0",
+    "carapace--tooth-1",
+    "carapace--tooth-2",
+    "carapace--tooth-3",
+    "carapace--tooth-4"
+   ]
+  },
+  {
+   "name": "leg-a",
+   "parent": "carapace",
+   "pivot": [
+    101.9,
+    214.5
+   ],
+   "bbox": [
+    88.1,
+    198.1,
+    67.5,
+    66.4
+   ],
+   "rect": [
+    467,
+    3,
+    41,
+    40
+   ],
+   "z": 37,
+   "members": [
+    "leg-a"
+   ]
+  },
+  {
+   "name": "leg-b",
+   "parent": "carapace",
+   "pivot": [
+    141.9,
+    214.5
+   ],
+   "bbox": [
+    128.2,
+    198.4,
+    67.6,
+    65.7
+   ],
+   "rect": [
+    599,
+    3,
+    41,
+    40
+   ],
+   "z": 38,
+   "members": [
+    "leg-b"
+   ]
+  },
+  {
+   "name": "leg-c",
+   "parent": "carapace",
+   "pivot": [
+    189.9,
+    214.5
+   ],
+   "bbox": [
+    175.9,
+    198.7,
+    66.7,
+    65.8
+   ],
+   "rect": [
+    555,
+    3,
+    41,
+    40
+   ],
+   "z": 39,
+   "members": [
+    "leg-c"
+   ]
+  },
+  {
+   "name": "claw-near",
+   "parent": "carapace",
+   "pivot": [
+    252.3,
+    204.9
+   ],
+   "bbox": [
+    238.1,
+    139.1,
+    188.8,
+    83.6
+   ],
+   "rect": [
+    263,
+    3,
+    114,
+    51
+   ],
+   "z": 40,
+   "members": [
+    "claw-near",
+    "claw-near--belly",
+    "claw-near--pollex",
+    "claw-near--pollex-tip",
+    "claw-near--spot-0",
+    "claw-near--spot-1",
+    "claw-near--spot-2"
+   ]
+  },
+  {
+   "name": "claw-near-finger",
+   "parent": "claw-near",
+   "pivot": [
+    353.9,
+    176.1
+   ],
+   "bbox": [
+    337.6,
+    141.1,
+    94.2,
+    54.6
+   ],
+   "rect": [
+    705,
+    3,
+    57,
+    33
+   ],
+   "z": 47,
+   "members": [
+    "claw-near-finger",
+    "claw-near-finger--tip"
+   ]
+  }
+ ]
+}
