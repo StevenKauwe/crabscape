@@ -126,6 +126,27 @@ the main gathering skill about 15 at minute 20, and every skill 15 within three 
   kick off east). With no glass, 0 or 3 eggs never reach it from the rim, the trench, the block or the far ledge (a
   fourth egg's strokes from the block kelp's top do). Two tier-1 sites (ShoreGlow, SnailRocks) and a find.
 - Both are named, in `bands.rs` and in `tests/shallows.rs` with both halves proved (about 90 s for the file).
+### Built, part 4: look and signposts (client drawing only: `src/signposts.rs`, `src/outcrop.rs`, `src/flats.rs`)
+- **The guide's glint.** Nodes of the kind the local crab's current guide step gathers (`Cond::Gather`) sparkle slowly
+  on their own shape over a warm light pool on the ground; spent nodes, a skipped or finished guide and remote crabs'
+  guides show nothing.
+- **Sights of later.** A node whose level is above the local crab's skill shimmers a quiet cool blue (never warm), so the
+  level-8 and level-15 spots read as "something there". The trench hollow's nodes glow sea-green and the glow spills out
+  of its east door into the silt mouth shaft (seen from the trench floor); the plug shaft ledge's pit glow is teal and
+  lights the shaft's walls up and, fainter, 500 down to the shaft's foot. Soft glow sprites, as the far lights down the
+  crack (`secrets.rs`): no shader, nothing over the screen.
+- **Ledges as outcrops.** `canopy.rs` is now `outcrop.rs`: the canopy and every floating ledge on the route (both
+  lookouts, the two kelp ledges, the glow ledge, the garden's ledge) get ragged rock with sponge, sea squirts and swaying
+  fronds under it. The top stays flush (a lip under 6 above the collision top), the underside hangs at most 30.
+- **Placeholders.** The silt gallery plug is wedged rubble (cobbles and packed silt in its own rect, gone when cut); the
+  glass stair is a slender spire of painted rock with glassy glints.
+- **Flat stretches.** Shell hash, small anemones, sea stars and pebbles on the shelf's top and the far ledge, low in
+  contrast, placed from position alone, 20 clear of every node. The shelf's top holds about 2.8 per 200 units and the far
+  ledge 2.6 (the brief's 3 to 6; the keep-off leaves little free ground between the nodes).
+- Tests: `outcrop` (limits for each slab, none without shallows), `signposts` (glint set is exactly the guide's kind near
+  home, follows the step, off when skipped; level-8/15 shimmer; both hidden places glow), `flats` (clear of nodes, none
+  without shallows).
+
 ## Variety audit: levels 1 to 15 in every skill (2026-11-13)
 Where a new crab trains each skill between levels 1 and 15, what the ladder (`economy/ladder.rs`) opens on the way, and
 how the method changes. "Places" are near home unless named. The bar (coordinator, 2026-11-13): at least two distinct
