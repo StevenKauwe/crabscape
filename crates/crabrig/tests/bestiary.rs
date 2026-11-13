@@ -1,4 +1,4 @@
-//! The eleven bestiary rigs match their committed parts files and ink game files, in `cargo test` (the CI art job
+//! The eleven bestiary rigs match their committed parts files, in `cargo test` (the CI art job
 //! also re-exports them and repaints their oil atlases).
 
 use crabrig::bestiary;
@@ -32,9 +32,6 @@ fn rigs_and_ink_exports_match_the_committed_files() {
             read(format!("assets/creatures/{name}-parts.json")),
             "{name} json drifted"
         );
-        let atlas = std::fs::read(root().join(format!("assets/creatures/{name}-atlas.png")))
-            .unwrap_or_else(|e| panic!("{name}: {e}"));
-        assert_eq!(export.atlas_png, atlas, "{name} atlas drifted");
     }
 }
 

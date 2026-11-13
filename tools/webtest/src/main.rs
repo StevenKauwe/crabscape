@@ -1,7 +1,7 @@
 //! Play CrabScape in a real WebKit engine (the engine of Safari and of every browser on iPhone).
 //!
 //! ```text
-//! tools/build-web.sh && cargo webtest [--landscape | --desktop] [--shots PREFIX] [--style-shots PREFIX]
+//! tools/build-web.sh && cargo webtest [--landscape | --desktop] [--shots PREFIX]
 //! cargo webtest --url https://stevenkauwe.github.io/crabscape/ --smoke
 //! cargo webtest --cellular-save # focused full-game autosave/reload/reset test
 //! ```
@@ -12,8 +12,8 @@
 //! and checks that:
 //! - WebKit accepts the .wasm file (and, as a sanity check, rejects a relaxed-SIMD module, like an iPhone does);
 //! - the game starts with no error message and draws something into the canvas, including warm lantern light;
-//! - the crab's pictures load, the style starts as Oil, and the P key and the settings panel's Ink and Oil (opened
-//!   by the "Settings" button, on its Graphics tab) switch between them (the canvas's `data-style` says which);
+//! - the crab's oil-painted picture loads and draws the lit crab; the settings panel (opened by the "Settings"
+//!   button) keeps the tab last picked, its arrows switch tabs and Esc closes it;
 //! - the settings panel's tab is kept, the arrow keys switch tabs while it is open, and Esc closes it;
 //! - holding D walks the crab right, W makes it jump, and a second press in the water doesn't (a fresh crab has no paddle strokes yet);
 //! - the on-screen touch buttons (simulated finger presses) walk it left and make it jump;
@@ -23,7 +23,7 @@
 //!   and the silent `<audio>` paused; shown again it walks on, sound resumes, and the replay below spans the gap;
 //! - F9, and the `?replay` page's Replay button, hand out a replay that the headless simulation (linked in) plays
 //!   to exactly the same state: same state hash, same place;
-//! - its resting position, and the chosen style, are saved in localStorage and survive a reload;
+//! - its resting position is saved in localStorage and survives a reload;
 //! - the feel lab (`?feel`; it shows by itself in preview builds) starts on the recommended preset, and the backtick
 //!   key, backslash and the FEEL button switch preset and juice, kept over a reload (`data-feel`);
 //! - the settings panel's Export (on its Game tab) puts the crab's code in the character box; Import refuses junk in
@@ -36,7 +36,7 @@
 //!
 //! `--smoke` stops after the start-up checks (for the live site). The game writes the crab's state onto the canvas
 //! as `data-crab="x y grounded"` (see src/view.rs); the test reads that. With `--shots PREFIX` it saves
-//! screenshots as PREFIX-1.png, ...; with `--style-shots PREFIX` it saves PREFIX-oil.png and PREFIX-ink.png.
+//! screenshots as PREFIX-1.png, ....
 //! WebKitGTK on Linux is not iOS: same JavaScript, WebAssembly and WebGL code, but not the same GPU or memory limits.
 
 #[path = "../../../src/cell_worker_path.rs"]
@@ -63,7 +63,6 @@ struct Options {
     width: f64,
     height: f64,
     shots: Option<String>,
-    style_shots: Option<String>,
     url: Option<String>,
     smoke: bool,
     feel_shots: Option<String>,
@@ -76,7 +75,6 @@ fn options() -> std::result::Result<Options, String> {
         width: 390.0,
         height: 844.0,
         shots: None,
-        style_shots: None,
         url: None,
         smoke: false,
         feel_shots: None,
@@ -88,9 +86,6 @@ fn options() -> std::result::Result<Options, String> {
             "--desktop" => (o.desktop, o.width, o.height) = (true, 1024.0, 700.0),
             "--landscape" => (o.width, o.height) = (844.0, 390.0),
             "--shots" => o.shots = Some(args.next().ok_or("--shots needs a prefix")?),
-            "--style-shots" => {
-                o.style_shots = Some(args.next().ok_or("--style-shots needs a prefix")?)
-            }
             "--url" => o.url = Some(args.next().ok_or("--url needs an address")?),
             "--smoke" => o.smoke = true,
             "--cellular-save" => o.cellular_save = true,
@@ -99,7 +94,7 @@ fn options() -> std::result::Result<Options, String> {
             }
             "-h" | "--help" => {
                 println!(
-                    "cargo webtest [--landscape | --desktop] [--shots PREFIX] [--style-shots PREFIX] \
+                    "cargo webtest [--landscape | --desktop] [--shots PREFIX] \
                      [--url URL] [--smoke] [--feel-shots PREFIX] [--cellular-save]\n(see tools/webtest/src/main.rs)"
                 );
                 std::process::exit(0);
@@ -507,12 +502,9 @@ impl Test<'_> {
         }
     }
 
-    fn style_shot(&self, name: &str) -> Result<u32> {
+    fn lit_shot(&self) -> Result<u32> {
         pump(0.6);
-        match &self.o.style_shots {
-            Some(p) => self.shot(PathBuf::from(format!("{p}-{name}.png")), true),
-            None => self.shot(self.scratch.join(format!("style-{name}.png")), false),
-        }
+        self.shot(self.scratch.join("lit.png"), false)
     }
 
     /// Load a page of the site (in the phone frame, when there is one).
@@ -724,7 +716,7 @@ impl Test<'_> {
             ),
         );
         let fetched = self.eval(
-            r#"await Promise.all(["assets/crab/crab-atlas.png", "assets/crab/crab-atlas-oil.png"].map(
+            r#"await Promise.all(["assets/crab/crab-atlas-oil.png"].map(
   async (p) => { const r = await fetch(p); return [p, r.status, (await r.arrayBuffer()).byteLength]; }))"#,
         )?;
         println!("     {fetched}");
@@ -732,22 +724,17 @@ impl Test<'_> {
             a.iter()
                 .all(|f| f[1] == 200 && f[2].as_u64().unwrap_or(0) > 10_000)
         });
-        self.check(served, "both crab atlases are served next to the page");
+        self.check(served, "the crab's atlas is served next to the page");
         let art_ok = self.wait_for(
-            &format!(r#"{CANVAS}.getAttribute("data-art") === "ink:- oil:1""#),
+            &format!(r#"{CANVAS}.getAttribute("data-art") === "oil:1""#),
             20.0,
         )?;
         self.check(
             art_ok,
             format!(
-                "the game loaded the oil atlas only, the style it shows (data-art={:?})",
+                "the game loaded the crab's oil-painted atlas (data-art={:?})",
                 self.attr("data-art")?
             ),
-        );
-        let style = self.attr("data-style")?;
-        self.check(
-            style.as_deref() == Some("oil"),
-            format!("a fresh game starts in the oil style ({style:?})"),
         );
         self.no_error_on_page("after start-up")?;
         if self.o.smoke {
@@ -769,49 +756,24 @@ impl Test<'_> {
         let ok = self.wait_for(report_closed, 5.0)?;
         self.check(ok, "Escape closes the report with the canvas focused");
 
-        // --- art style --------------------------------------------------------------------------------------------
-        let style_is = |s: &str| format!(r#"{CANVAS}.getAttribute("data-style") === "{s}""#);
-        let oil_warm = self.style_shot("oil")?;
-        self.press("KeyP", "p")?;
-        let ok = self.wait_for(&style_is("ink"), 5.0)?;
-        self.check(ok, "the P key switches to the ink style");
-        // Its atlas is loaded only now, when it is first shown.
-        let ok = self.wait_for(
-            &format!(r#"{CANVAS}.getAttribute("data-art") === "ink:1 oil:1""#),
-            20.0,
-        )?;
-        self.check(ok, "the ink atlas loads when the ink style is first shown");
-        let ink_warm = self.style_shot("ink")?;
-        println!("     warm pixels: oil {oil_warm}, ink {ink_warm}");
+        // --- the lit crab and the settings panel -------------------------------------------------------------------
+        let warm = self.lit_shot()?;
         self.check(
-            oil_warm > 300 && ink_warm > 300,
-            "both styles draw the lit crab",
+            warm > 300,
+            format!("the oil paint draws the lit crab ({warm} warm pixels)"),
         );
-        // The Settings button, top-right, its Graphics tab and that tab's "Art style" Ink and Oil (mirrors
-        // button_rect() and layout_for() in src/settings.rs: the panel opens under the co-op status line, a row
-        // lower on a narrow screen).
+        // The Settings button, top-right, and its Graphics tab (mirrors button_rect() and layout_for() in
+        // src/settings.rs: the panel opens under the co-op status line, a row lower on a narrow screen).
         let (sx, sy) = settings_button(w);
-        let (ink, oil) = ink_and_oil(w);
         let graphics = settings_tab(w, "graphics");
         let tab_is =
             |t: &str| format!(r#"localStorage.getItem("crabscape-settings-tab") === "{t}""#);
+        let closed = format!(r#"{CANVAS}.getAttribute("data-settings") === "closed""#);
         self.tap(sx, sy, 1, false)?;
         self.tap(graphics.0, graphics.1, 1, false)?;
         let ok = self.wait_for(&tab_is("graphics"), 5.0)?;
         self.check(ok, "tapping the Graphics tab picks it, and it is kept");
-        self.tap(oil.0, oil.1, 1, false)?;
-        let ok = self.wait_for(&style_is("oil"), 5.0)?;
-        self.check(
-            ok,
-            "clicking Oil in the settings panel switches back to oil",
-        );
-        let stored = self.eval(r#"localStorage.getItem("crabscape-style")"#)?;
-        self.check(
-            stored == "oil",
-            "the style choice is stored in localStorage",
-        );
-        // With the panel open, right and left switch tabs, and Esc closes it: a click where Ink was then
-        // changes nothing.
+        // With the panel open, right and left switch tabs, and Esc closes it.
         self.press("ArrowRight", "ArrowRight")?;
         let ok = self.wait_for(&tab_is("audio"), 5.0)?;
         self.check(ok, "the right arrow switches to the next tab (Audio)");
@@ -819,21 +781,18 @@ impl Test<'_> {
         let ok = self.wait_for(&tab_is("graphics"), 5.0)?;
         self.check(ok, "the left arrow switches back (Graphics)");
         self.press("Escape", "Escape")?;
-        pump(0.3);
-        self.tap(ink.0, ink.1, 1, false)?;
-        pump(0.5);
-        let style = self.attr("data-style")?;
-        self.check(
-            style.as_deref() == Some("oil"),
-            format!("Esc closes the settings panel (style after a click where Ink was: {style:?})"),
-        );
-        // Opened again on the Graphics tab, kept from before: a finger tap on Ink, which the reload at the end
-        // should keep; then Settings again closes the panel.
+        let ok = self.wait_for(&closed, 5.0)?;
+        self.check(ok, "Esc closes the settings panel");
+        // A finger tap on Settings opens it again, on the Graphics tab kept from before; another closes it.
         self.tap(sx, sy, 9, true)?;
-        self.tap(ink.0, ink.1, 9, true)?;
-        let ok = self.wait_for(&style_is("ink"), 5.0)?;
-        self.check(ok, "tapping Ink in the settings panel switches style");
+        let ok = self.wait_for(
+            &format!(r#"{CANVAS}.getAttribute("data-settings") === "Graphics""#),
+            5.0,
+        )?;
+        self.check(ok, "a tap on Settings opens it on the tab used last");
         self.tap(sx, sy, 9, true)?;
+        let ok = self.wait_for(&closed, 5.0)?;
+        self.check(ok, "another tap closes it");
 
         // --- keyboard ---------------------------------------------------------------------------------------------
         // Probe jumping at spawn, clear of both the new kelp and the next ledge.
@@ -966,17 +925,12 @@ impl Test<'_> {
                 && (saved["x"].as_f64().unwrap_or(-1e9) - resting.0).abs() < 1.5,
             format!("the resting position is saved in localStorage ({raw})"),
         );
-        // `?replay` adds a Replay button (for phones); a reload must keep the place and the style.
+        // `?replay` adds a Replay button (for phones); a reload must keep the place.
         self.open("index.html?replay")?;
         let again = self.rest()?;
         self.check(
             (again.0 - resting.0).abs() < 1.5,
             format!("after a reload the crab is back where it was ({again:?})"),
-        );
-        let style = self.attr("data-style")?;
-        self.check(
-            style.as_deref() == Some("ink"),
-            format!("after a reload the chosen style is kept ({style:?})"),
         );
         self.key("keydown", "KeyA", "a")?;
         self.hold(0.4, false)?;
@@ -986,7 +940,7 @@ impl Test<'_> {
         self.replay_matches("the ?replay page's Replay button", standing)?;
 
         // --- a fight: start 250 west of the mantis by the mantis mouth on the basin floor, facing it (as on the old plateau)
-        self.go("assets/crab/crab-atlas.png")?;
+        self.go("assets/crab/crab-atlas-oil.png")?;
         self.eval(&format!(r#"(localStorage.setItem("crabscape.save", JSON.stringify({{version: {SAVE_VERSION}, x: 3630, y: -700}})), true)"#))?;
         self.open("index.html")?;
         let by_burrow = self.crab()?;
@@ -1142,7 +1096,7 @@ impl Test<'_> {
 
         // --- start over -------------------------------------------------------------------------------------------
         // On the settings panel's Game tab, last; one tap only asks ("Sure? Start over"), a second wipes this
-        // game's saved data (the ink style chosen above among it) and reloads the page. The panel opens on the
+        // game's saved data (the settings tab kept above among it) and reloads the page. The panel opens on the
         // tab used last (Graphics, kept over the reload above), so the Game tab first.
         let (sx, sy) = settings_button(w);
         let game = settings_tab(w, "game");
@@ -1151,19 +1105,16 @@ impl Test<'_> {
         self.tap(game.0, game.1, 12, true)?;
         self.tap(ox, oy, 13, true)?;
         pump(0.5);
-        let stored = self.eval(r#"localStorage.getItem("crabscape-style")"#)?;
-        self.check(stored == "ink", "one tap on Start over wipes nothing");
+        let stored = self.eval(r#"localStorage.getItem("crabscape-settings-tab")"#)?;
+        self.check(stored == "game", "one tap on Start over wipes nothing");
         self.tap(ox, oy, 14, true)?;
         // The page reloads itself; open it afresh rather than asking a page that is mid-reload.
         pump(2.0);
         let started = self.open("index.html")?;
-        let style = self.attr("data-style")?;
-        let stored = self.eval(r#"localStorage.getItem("crabscape-style")"#)?;
+        let stored = self.eval(r#"localStorage.getItem("crabscape-settings-tab")"#)?;
         self.check(
-            started && stored.is_null() && style.as_deref() == Some("oil"),
-            format!(
-                "a second tap on \"Sure? Start over\" wipes the saved style (stored {stored}, now {style:?})"
-            ),
+            started && stored.is_null(),
+            format!("a second tap on \"Sure? Start over\" wipes this game's saved settings (stored {stored})"),
         );
         self.no_error_on_page("at the end")?;
         // Capture the new surface in the ordinary phone-sized screenshots.
@@ -1187,7 +1138,7 @@ impl Test<'_> {
             ] {
                 // Stop the previous game before writing the next fixture;
                 // otherwise its autosave can overwrite the new position.
-                self.go("assets/crab/crab-atlas.png")?;
+                self.go("assets/crab/crab-atlas-oil.png")?;
                 self.eval(&format!(
                     r#"(localStorage.clear(), localStorage.setItem("crabscape-keys", "folded"), localStorage.setItem("crabscape.save", JSON.stringify({{version: {SAVE_VERSION}, x: {x}, y: {y}}})), true)"#
                 ))?;
@@ -1215,7 +1166,7 @@ impl Test<'_> {
         // The new creatures' tells, 10x slow: walk up to a snapping shrimp (it feels the steps), stand by a
         // moray's crevice (it smells the crab).
         for (kind, x, y, walk) in [("snapper", 210, 0, true), ("moray", 2480, 20, false)] {
-            self.go("assets/crab/crab-atlas.png")?;
+            self.go("assets/crab/crab-atlas-oil.png")?;
             self.eval(&format!(
                 r#"(localStorage.clear(),
                     localStorage.setItem("crabscape.save", JSON.stringify({{version: {SAVE_VERSION}, x: {x}, y: {y}}})), true)"#
@@ -1248,7 +1199,7 @@ impl Test<'_> {
             ("tank", true, false),
         ];
         for (feel, counter, turn) in runs {
-            self.go("assets/crab/crab-atlas.png")?;
+            self.go("assets/crab/crab-atlas-oil.png")?;
             let name = if counter {
                 format!("{feel}-crush")
             } else if turn {
@@ -1508,18 +1459,6 @@ fn settings_tab(w: f64, tab: &str) -> (f64, f64) {
         x += width + 6.0;
     }
     panic!("no settings tab {tab}")
-}
-
-/// The middles of Ink and Oil on the Graphics tab, in CSS pixels: the "Art style" title, then its row.
-#[allow(clippy::type_complexity)]
-fn ink_and_oil(w: f64) -> ((f64, f64), (f64, f64)) {
-    let (_, left) = panel_frame(w);
-    let y = page_top(w) + 18.0 + 18.0;
-    // Two halves of the 260 inside the padding, 8 apart: 126 each.
-    (
-        (left + 10.0 + 63.0, y),
-        (left + 10.0 + 126.0 + 8.0 + 63.0, y),
-    )
 }
 
 /// The middle of "Start over" on the Game tab, in CSS pixels: after "Report a bug or idea" and "Enter a code"

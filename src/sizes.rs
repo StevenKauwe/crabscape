@@ -68,7 +68,7 @@ macro_rules! art {
     ($n:literal) => {
         (
             include_str!(concat!("../assets/creatures/", $n, "-parts.json")),
-            &include_bytes!(concat!("../assets/creatures/", $n, "-atlas.png"))[..],
+            &include_bytes!(concat!("../assets/creatures/", $n, "-atlas-oil.png"))[..],
         )
     };
 }
@@ -99,7 +99,7 @@ fn rows() -> Vec<Row> {
         |(json, png): (&str, &[u8]), scale: f32, parts: &[&str]| drawn(json, png, scale, parts).1;
     let crab = (
         include_str!("../assets/crab/crab-parts.json"),
-        &include_bytes!("../assets/crab/crab-atlas.png")[..],
+        &include_bytes!("../assets/crab/crab-atlas-oil.png")[..],
     );
     let shrimp = art!("snapping-shrimp");
     let mantis = art!("mantis-shrimp");

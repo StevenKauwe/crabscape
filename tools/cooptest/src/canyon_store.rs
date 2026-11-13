@@ -70,7 +70,7 @@ pub(super) fn run(player: &mut Player, site: &Site) -> Result<Found> {
     let name = database(player)?;
     let asset = player
         .b
-        .eval("new URL('assets/crab/crab-atlas.png',location.href).href")?
+        .eval("new URL('assets/crab/crab-atlas-oil.png',location.href).href")?
         .as_str()
         .ok_or("missing asset route")?
         .to_owned();
@@ -221,7 +221,7 @@ pub(super) fn play(host: &mut Player, guest: &mut Player, site: &Site) -> Result
     let name = database(host)?;
     let asset = host
         .b
-        .eval("new URL('assets/crab/crab-atlas.png',location.href).href")?
+        .eval("new URL('assets/crab/crab-atlas-oil.png',location.href).href")?
         .as_str()
         .ok_or("missing asset route")?
         .to_owned();

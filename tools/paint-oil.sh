@@ -4,10 +4,10 @@
 #   tools/paint-oil.sh                    the crab and every creature
 #   tools/paint-oil.sh crab mantis-shrimp only these
 #
-# Writes assets/crab/crab-atlas-oil.png and assets/creatures/<creature>-atlas-oil.png.
-# Run after `cargo run -p crabrig --profile art -- export [--creature C]` (an oil
-# atlas uses the same rectangles as its ink atlas, so <name>-parts.json serves both
-# styles). Takes about 15 seconds per puppet (plus a first build of the painter).
+# Writes assets/crab/crab-atlas-oil.png and assets/creatures/<creature>-atlas-oil.png, with their
+# <name>-parts.json (the oil atlas uses the rectangles of the drawn atlas the rig exports, which is made in a
+# scratch folder and not kept: the game shows only the oil paint). Takes about 15 seconds per puppet (plus a
+# first build of the painter).
 # Deterministic: the same inputs give the same bytes.
 #
 # For each puppet:
@@ -56,17 +56,20 @@ for name in "$@"; do
   esac
   if [ "$name" = crab ]; then
     dir=assets/crab
-    "$rig" export --scale "$zoom" --out "$out/big" >/dev/null
+    who=()
   else
     dir=assets/creatures
-    "$rig" export --creature "$name" --scale "$zoom" --out "$out/big" >/dev/null
+    who=(--creature "$name")
   fi
+  "$rig" export ${who[@]+"${who[@]}"} --scale "$zoom" --out "$out/big" >/dev/null
+  "$rig" export ${who[@]+"${who[@]}"} --out "$out/game" >/dev/null
+  cp "$out/game/$name-parts.json" "$dir/$name-parts.json"
   "$tool" layout "$out/big/$name-atlas.png" "$out/big/$name-parts.json" "$out"
   for sheet in "$out"/sheet-*.png; do
     n=${sheet##*/sheet-}
     echo "painting $name ${sheet##*/}..."
     "$painter" oilphoto "$sheet" "$out/painted-$n" --attention off --ground subject >/dev/null
   done
-  "$tool" pack "$out/big/$name-parts.json" "$dir/$name-atlas.png" "$dir/$name-parts.json" \
+  "$tool" pack "$out/big/$name-parts.json" "$out/game/$name-atlas.png" "$dir/$name-parts.json" \
     "$out" "$dir/$name-atlas-oil.png"
 done

@@ -40,7 +40,7 @@ pub(crate) const ART_SCALE: f32 = 0.338;
 fn load(mut commands: Commands, assets: Res<AssetServer>) {
     commands.insert_resource(Art(CreatureArt::load_scaled(
         include_str!("../../assets/creatures/hermit-crab-parts.json"),
-        "creatures/hermit-crab-atlas.png",
+        "creatures/hermit-crab-atlas-oil.png",
         ART_SCALE,
         &assets,
     )));

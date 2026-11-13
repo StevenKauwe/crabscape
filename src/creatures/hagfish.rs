@@ -54,7 +54,7 @@ fn load(mut commands: Commands, assets: Res<AssetServer>, mut images: ResMut<Ass
     commands.insert_resource(Art {
         puppet: CreatureArt::load_scaled(
             include_str!("../../assets/creatures/hagfish-parts.json"),
-            "creatures/hagfish-atlas.png",
+            "creatures/hagfish-atlas-oil.png",
             ART_SCALE,
             &assets,
         ),

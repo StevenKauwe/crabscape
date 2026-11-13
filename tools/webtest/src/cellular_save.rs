@@ -262,7 +262,7 @@ impl Test<'_> {
 
     pub(crate) fn cellular_autosave(&mut self) -> Result<()> {
         // Stop the previous game before replacing its fixture; an old autosave must not race setup.
-        self.go("assets/crab/crab-atlas.png")?;
+        self.go("assets/crab/crab-atlas-oil.png")?;
         let bytes = fixture()?;
         let initial = decode(&bytes)?;
         let object = object_from_frame(&bytes)?;
@@ -354,7 +354,7 @@ impl Test<'_> {
             return Ok(());
         }
         // Stop first, then read the final committed value, so another save cannot race reload expectations.
-        self.go("assets/crab/crab-atlas.png")?;
+        self.go("assets/crab/crab-atlas-oil.png")?;
         let saved = decode(
             &self
                 .cellular_record()?
@@ -570,7 +570,7 @@ impl Test<'_> {
         if !saved {
             return Ok(());
         }
-        self.go("assets/crab/crab-atlas.png")?;
+        self.go("assets/crab/crab-atlas-oil.png")?;
         let current = decode(&self.cellular_record()?.ok_or("reset autosave missing")?)?;
         self.check(
             terrain_has_marker(&current.terrain),
@@ -620,7 +620,7 @@ impl Test<'_> {
             );
             return Ok(());
         }
-        self.go("assets/crab/crab-atlas.png")?;
+        self.go("assets/crab/crab-atlas-oil.png")?;
         let saved = decode(
             &self
                 .cellular_record()?

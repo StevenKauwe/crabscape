@@ -24,8 +24,8 @@ The player crab is the reference (its parts: `assets/crab/crab-atlas-oil.png`). 
 - **Painted**: visible brush strokes inside each shape, following it, never across the outline; nothing over the
   whole frame (no filters, no overlays).
 
-Ink and oil, side by side (`oil-atlas preview`): the oil is the game's default style; ink stays as the other choice
-in Settings and as the painter's input.
+Ink and oil, side by side (`oil-atlas preview`): the game shows only the oil paint (owner's call, 2026-11-13); the
+drawn (ink) atlas is the painter's input, made in a scratch folder and not kept.
 
 ![Loggerhead turtle, ink and oil](painted-creatures/turtle-ink-oil.png)
 
@@ -59,12 +59,13 @@ All commands run from the repository root. Each is deterministic.
      `bestiary::owner(id)` first, so each detail is drawn into its part;
    - materials: `pal.insert("name", Mat::Tri([lit, base, shade]))`, with the lit colour well above the base and the
      shade well below. Draw back to front: far limbs, body, details, near limbs.
-2. **Export the ink**:
+2. **Export the drawing**:
    `cargo run -p crabrig --profile art -- parts --creature <name>` (writes `art/creatures/<name>/<name>-parts.svg`), then
-   `cargo run -p crabrig --profile art -- export --creature <name>` (writes `assets/creatures/<name>-atlas.png` and
-   `<name>-parts.json`).
+   `cargo run -p crabrig --profile art -- export --creature <name> --out /tmp/<name>` (writes the drawn
+   `/tmp/<name>/<name>-atlas.png` and `<name>-parts.json`; without `--out` it writes only the parts file into
+   `assets/creatures/`).
 3. **Look at the whole animal**:
-   `cargo run -p oil-atlas --profile art -- preview /tmp/<name>.png 400 assets/creatures/<name>-parts.json assets/creatures/<name>-atlas.png`
+   `cargo run -p oil-atlas --profile art -- preview /tmp/<name>.png 400 /tmp/<name>/<name>-parts.json /tmp/<name>/<name>-atlas.png`
    (assembles the puppet at rest; add `--hide <part>,<part>` to leave out overlays the game shows only sometimes,
    like the squid's `body-flash,head-flash`). Fix and repeat steps 1 to 3 until it reads.
 4. **Choose the painting zoom** in `tools/paint-oil.sh` (and add the name to its default list): **1.8** for most;
@@ -72,19 +73,19 @@ All commands run from the repository root. Each is deterministic.
    spots: the shrimps, lobster, isopod, hagfish, viperfish, hermit crab, bobbit worm, amphipods); **lower** (1.5 for
    the grouper) when a part at 1.8 would be wider than about 1,850 pixels, the painter's sheet. A part's width at
    zoom 1 is its `rect` width in `<name>-parts.json`.
-5. **Paint**: `tools/paint-oil.sh <name>` (writes `assets/creatures/<name>-atlas-oil.png`, same rectangles as the ink).
+5. **Paint**: `tools/paint-oil.sh <name>` (writes `assets/creatures/<name>-atlas-oil.png` and `<name>-parts.json`,
+   the same rectangles as the drawing).
 6. **Compare ink and oil**: the preview of step 3 with both atlases,
-   `... preview /tmp/<name>.png 400 assets/creatures/<name>-parts.json assets/creatures/<name>-atlas.png assets/creatures/<name>-atlas-oil.png`.
+   `... preview /tmp/<name>.png 400 assets/creatures/<name>-parts.json /tmp/<name>/<name>-atlas.png assets/creatures/<name>-atlas-oil.png`.
    Details lost in the oil? Make them bigger or filled (step 1), or raise the zoom (step 4).
-7. **Load it in the game**: `CreatureArt::load_scaled(parts_json, "creatures/<name>-atlas.png", scale, &assets)`
-   loads the oil atlas next to it by itself. Add the name to `every_creature_has_an_oil_atlas_the_size_of_its_ink_one`
+7. **Load it in the game**: `CreatureArt::load_scaled(parts_json, "creatures/<name>-atlas-oil.png", scale, &assets)`.
+   Add the name to `every_creature_atlas_holds_every_part_of_its_parts_file`
    in `src/creature_art.rs`, and its `parts` and `export` to the art job in `.github/workflows/ci.yml`.
 8. **Look at it in the game, at true scale** (desktop):
    `cargo run -- --visit <kind> --photo /tmp/<name>` writes `/tmp/<name>-1.png`, `-2.png` and `-3.png` (1600 x 900,
    about a phone's pixels per world unit): a fresh crab beside the first animal of that kind, lantern at full glow,
    the camera on the animal, no save touched. `<kind>` is the sim's name (`crabsim::Kind::name`: `mantis`, `snapper`,
-   `moray`, `octopus`, `triggerfish`, `alarm-jelly`, `loggerhead-turtle`, ...). `--style ink` for the ink look,
-   `--beside 90` to start nearer (wakes an ambusher). Check: does it read as a silhouette? Can you see the tell? Does
+   `moray`, `octopus`, `triggerfish`, `alarm-jelly`, `loggerhead-turtle`, ...). `--beside 90` to start nearer (wakes an ambusher). Check: does it read as a silhouette? Can you see the tell? Does
    it sit with the crab? Fix and repeat.
 9. **Check and ship**: `cargo fmt`, `cargo test -p crabrig` (rig drift), `cargo test --bin crabscape creature_art`,
    clippy native and wasm32. Push: the CI art job re-exports and repaints everything on Linux, and a Mac paints a few

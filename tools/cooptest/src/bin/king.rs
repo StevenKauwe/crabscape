@@ -863,12 +863,8 @@ fn main() -> Result<()> {
     button(&mut b, "open-ledger")?;
     wait(&mut b, "data-king-ddd", "ledger", 10)?;
     let crab = position(&mut b)?;
-    let style = b.attr("data-style");
     button(&mut b, "workbook")?;
     b.type_line("pr")?;
-    if b.attr("data-style") != style {
-        return Err("Spreadsheet P toggled the ocean art style".into());
-    }
     if b.eval("document.getElementById('report')?.hidden===false")? == true {
         return Err("Spreadsheet R opened the report form".into());
     }

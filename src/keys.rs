@@ -16,10 +16,10 @@ use crate::player::GameSet;
 
 /// The keys and what they do, in the order a new player needs them (the
 /// same keys as `input.rs`, `go_home.rs`, `view.rs`, `codes.rs`,
-/// `report.rs`, `style.rs` and `replay.rs` read). Each token is a keycap,
+/// `report.rs` and `replay.rs` read). Each token is a keycap,
 /// except the [`joiner`]s between them ("/" or, "+" with, "then", and the
 /// mouse in lower case).
-pub(crate) const KEYS: [(&[&str], &str); 18] = [
+pub(crate) const KEYS: [(&[&str], &str); 17] = [
     (&["A", "D", "/", "\u{2190}", "\u{2192}"], "walk"),
     (&["W", "/", "\u{2191}"], "jump or paddle; hold to climb"),
     (&["Shift", "J", "+", "a way"], "dodge; hold it: sprint"),
@@ -35,7 +35,6 @@ pub(crate) const KEYS: [(&[&str], &str); 18] = [
     (&["-", "=", "/", "wheel"], "zoom out: the crab's memory"),
     (&["Enter"], "type a code, or chat"),
     (&["R"], "report a bug or idea"),
-    (&["P"], "art style: ink or oil"),
     (&["F9"], "save a replay"),
     (&["?"], "fold these away"),
 ];
@@ -365,7 +364,7 @@ mod tests {
             .collect();
         for key in [
             "A", "D", "Space", "W", "K", "B", "Shift", "J", "S", "E", "L", "Q", "O", "F", "I", "T",
-            "H", "Y", "-", "=", "Enter", "R", "P", "F9", "?", "Home", "C",
+            "H", "Y", "-", "=", "Enter", "R", "F9", "?", "Home", "C",
         ] {
             assert!(caps.contains(&key), "{key} missing");
         }

@@ -8,8 +8,7 @@
 //!   ([`crate::screen_fit::MAX_DENSITY`]) instead of the screen's 3.
 //! - **High** (everything else): draws at the screen's own density. Room for better pictures later.
 //!
-//! Every tier loads only the art style on screen, and keeps the pictures it only draws on the graphics card, not
-//! in the game's own memory too.
+//! Every tier keeps the pictures it only draws on the graphics card, not in the game's own memory too.
 //!
 //! Picked from the page's address first (`?quality=low` or `?quality=high`, for testing), then the device: an
 //! iPhone, iPad or Android browser, a touch screen no wider than a tablet, or a browser that says it has 4 GB of

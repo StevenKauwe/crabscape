@@ -35,11 +35,11 @@ const Z: f32 = 9.0;
 
 /// The snapping shrimp's puppet: its parts file (baked in) and picture.
 const SHRIMP_PARTS: &str = include_str!("../assets/creatures/snapping-shrimp-parts.json");
-const SHRIMP_ATLAS: &str = "creatures/snapping-shrimp-atlas.png";
+const SHRIMP_ATLAS: &str = "creatures/snapping-shrimp-atlas-oil.png";
 /// The snowflake moray's puppet. crabrig draws it four units to the world
 /// unit, and its parts file at twice that.
 const MORAY_PARTS: &str = include_str!("../assets/creatures/snowflake-moray-parts.json");
-const MORAY_ATLAS: &str = "creatures/snowflake-moray-atlas.png";
+const MORAY_ATLAS: &str = "creatures/snowflake-moray-atlas-oil.png";
 pub(crate) const MORAY_ART_SCALE: f32 = 1.0 / 8.0;
 /// Its body segments (each with its own blotches), taken in turn.
 const MORAY_SEGMENTS: [&str; 3] = ["segment-a", "segment-b", "segment-c"];

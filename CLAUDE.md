@@ -166,10 +166,10 @@ the project's: CI and anyone without sccache must still build), so worktrees sha
 | Headless sim | `cargo crabsim --script "t=0 walk=right; t=1 jump; t=1.45 jump" --seconds 4` |
 | Replay a bug report | `cargo crabsim --inputs replay.txt --dump -` (F9 in the game saves a replay; `?replay` adds a button on the web) |
 | Crab rig → SVG | `cargo run -p crabrig --profile art -- parts` (writes `art/crab/crab-parts.svg`) |
-| Rig → game atlas | `cargo run -p crabrig --profile art -- export` (writes `assets/crab/`) |
+| Rig → parts file (and the drawn atlas with `--out DIR`) | `cargo run -p crabrig --profile art -- export [--out DIR]` (the parts file into `assets/crab/`) |
 | Oil-paint the atlases (crab and creatures) | `tools/paint-oil.sh [crab \| <creature>...]` |
-| See a puppet whole (ink and oil side by side) | `cargo run -p oil-atlas --profile art -- preview out.png 400 assets/creatures/<c>-parts.json assets/creatures/<c>-atlas.png assets/creatures/<c>-atlas-oil.png` |
-| Photograph an animal in the game at true scale | `cargo run -- --visit <kind> --photo /tmp/<name>` (`[--style ink] [--beside 90]`; desktop, no save touched) |
+| See a puppet whole (drawing and oil side by side) | `cargo run -p oil-atlas --profile art -- preview out.png 400 assets/creatures/<c>-parts.json /tmp/<c>/<c>-atlas.png assets/creatures/<c>-atlas-oil.png` (the drawing from `export --creature <c> --out /tmp/<c>`) |
+| Photograph an animal in the game at true scale | `cargo run -- --visit <kind> --photo /tmp/<name>` (`[--beside 90]`; desktop, no save touched) |
 | Oil painter | `cargo run -p painter --profile art --bin crabpaint -- oilphoto in.png out.png` |
 | Disk housekeeping | `cargo tidy` (`cargo tidy report` only looks) |
 | Co-op introducer | `cargo run --release` in `tools/introducer`, then the game with `?introducer=ws://localhost:3536`. Live: one Fly.io machine, redeployed by `introducer.yml` on `main` (setup and rules in its `src/main.rs`). It also files player reports (`POST /report`, `src/report.rs`) when the `GITHUB_REPORT_TOKEN` secret is set; locally, `GITHUB_REPORT_TOKEN=$(gh auth token)` files a real issue (close it after) |
