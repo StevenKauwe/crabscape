@@ -1223,6 +1223,11 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 save_fixture::CAPTURE_SCRIPT
             ))?;
             let started = Instant::now();
+            // Publish the autosave state (data-cell-page-state) so a miss says
+            // whether a save was due, running or never reserved.
+            guest.b.eval(
+                "document.getElementById('crabscape').setAttribute('data-cell-work-profile','1')",
+            )?;
             loop {
                 let head = guest.b.eval(&format!(
                     "({}).then(r=>r&&r.head)",
@@ -1232,9 +1237,10 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                     break;
                 }
                 if started.elapsed().as_secs() > 30 {
-                    return Err(
-                        guest.failed("guest did not save while the transfer was held".into())
-                    );
+                    let state = guest.b.attr("data-cell-page-state");
+                    return Err(guest.failed(format!(
+                        "guest did not save while the transfer was held; autosave {state:?}"
+                    )));
                 }
                 sleep(0.5);
             }
