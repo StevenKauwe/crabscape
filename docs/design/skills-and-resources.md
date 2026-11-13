@@ -579,6 +579,7 @@ The owner's ask: levels 1 to 15 in **all 13 skills** must be a joy for a brand-n
   - Several distinct activities in every 5-minute window.
   - No stretch longer than 3 minutes on one node or recipe while anything else is available.
 - **No silent level** from 2 to 15 in any of the 13 skills. Each says what it opened.
+- **A steady pull after the guide** (`next-goals.md`): no next goal stays open longer than about 10 minutes of mixed play, and at least 25 are met in the three hours.
 - **Guardrail:** no padding. Costs stay at one trip, gathers never get slower, and the pace comes from what there is to do.
 
 **How we get there**
