@@ -90,3 +90,20 @@ the main gathering skill about 15 at minute 20, and every skill 15 within three 
 - `shallows::SITES`: ten mixed tier-1 groups from x 234 to 2,760 (gaps under 420 but the trench's ~600) and three
   tier-2 sites in the hollow; `shallows::FINDS`: nine small finds. The systems lead places the nodes and resolves the
   shelf sites against the baked ground (the shelf's sand settles about 100 lower than its authored floor).
+
+### Built, part 2 (`level/shallows.rs`: weak creatures, short climbs, a paddle gap)
+- **Two more snapping shrimp** (`shallows::FIGHTS`), each beside an old one: "row shrimp" at x 622 (by the shrimp at 590)
+  and "block shrimp" at x 2,074 (by the one at 2,060). Creatures stand on the floor, and almost none is left that keeps
+  92 off every node and site, off the shelf's creature arena (x 900 to 1,290), 294 off the plug shaft, and clear of the
+  co-op walks, the rests and the moray; more shrimp needs nodes moved (see `decisions.md`). A bare level-1 crab beats each
+  colony of two untouched.
+- **Two kelp ledges** (`KELP_LEDGES`): "block kelp ledge" (stalk x 1,980 on the block's top, ledge x 1,802 to 1,892, top 460)
+  and "flats kelp ledge" (stalk x 2,392, ledge x 2,480 to 2,570, top 200). Each is climbed with no upgrade and pays
+  Climbing XP. (Nothing under y 664 fits in x 400 to 1,400: the cell-join tests' pebbles lie there.)
+- **The paddle gap**: the lookout's east end to the "far lookout" (x 758 to 848, top 704), 300 apart and 600 above the
+  floor. A jump alone carries about 275; one egg's stroke crosses. The far lookout holds two sites (ShoreGlow,
+  SnailRocks) and a find. A miss lands on the egg ledge or the floor, unhurt.
+- The boulder sites moved to x 695 and 710 (92 clear of the row shrimp); "the lookout" gained a neighbour, "far lookout".
+- Co-op: the new shrimp reach x 550 to 694 and 2,002 to 2,146, clear of x 100..240 and 2,400..2,540. Crabs walking east
+  from home pass the row shrimp (x 622) and the block shrimp (x 2,074); the flats ledge's stalk (x 2,392) stands just
+  west of the cells check's dig at about x 2,470.

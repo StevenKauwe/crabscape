@@ -368,3 +368,350 @@ fn the_baked_pools_and_hollow_keep_their_shape() {
     println!("hollow {open}/{total} open");
     assert!(open * 10 >= total * 9);
 }
+
+// --- First hour, part 2: weak creatures, short climbs and a paddle gap --------
+
+/// The home door, the rest points, and the co-op walks' stretches.
+#[test]
+fn the_new_shrimp_keep_clear_of_nodes_homes_rests_and_the_co_op_walks() {
+    let level = Level::test_level();
+    let t = Tuning::default();
+    assert!(sh::FIGHTS.len() >= 2, "{}", sh::FIGHTS.len());
+    let strike = danger(crabsim::Kind::Snapper, &t);
+    let nodes = crabsim::economy::place::nodes(&level);
+    let rests = level.rest_points();
+    for &(name, kind, at) in sh::FIGHTS {
+        assert_eq!(kind, crabsim::Kind::Snapper, "{name}");
+        assert!(
+            level.foes.contains(&(kind, at)),
+            "{name} is not in the level"
+        );
+        assert!((0.0..2700.0).contains(&at.x), "{name}");
+        assert!(level.place_at(at).is_none(), "{name} is in a doorway");
+        // Standing on something: the floor, or a rock's top within a hair.
+        let floor = level.floor_height(at.x);
+        let on_rock = level
+            .rocks
+            .iter()
+            .any(|r| r.min.x <= at.x && at.x <= r.max.x && (r.max.y - at.y).abs() < 1.0);
+        assert!(
+            (floor - at.y).abs() < 8.0 || on_rock,
+            "{name} floats at {at}"
+        );
+        for n in &nodes {
+            assert!(at.distance(n.pos) >= strike, "{name} near a {:?}", n.kind);
+        }
+        for &(place, kind, s) in sh::SITES {
+            assert!(at.distance(s) >= strike, "{name} near {place} {kind}");
+        }
+        for &f in sh::FINDS {
+            assert!(at.distance(f) >= strike, "{name} near a find at {f}");
+        }
+        for r in &rests {
+            assert!(
+                at.distance(r.at) > 72.0 + 40.0,
+                "{name} within reach of {}",
+                r.name
+            );
+        }
+        let door = level.home;
+        let (dx, dy) = (
+            (door.min.x - at.x).max(0.0).max(at.x - door.max.x),
+            (door.min.y - at.y).max(0.0).max(at.y - door.max.y),
+        );
+        assert!(dx.hypot(dy) > 72.0 + 40.0, "{name} reaches the home door");
+        // The co-op walks: strike reach clear of x 100..240 and 2,400..2,540.
+        for (a, b) in [(100.0, 240.0), (2400.0, 2540.0)] {
+            assert!(
+                at.x + 72.0 < a || at.x - 72.0 > b,
+                "{name} reaches {a}..{b}"
+            );
+        }
+        // Nor a climb's foot.
+        for (ledge, climb, _) in sh::KELP_LEDGES {
+            let foot = Vec2::new(climb.x, climb.bottom);
+            assert!(at.distance(foot) >= strike, "{name} reaches {ledge}");
+        }
+    }
+}
+
+/// The existing fair snapper bot (`economy_skill_scaling.rs`): walk up, read
+/// the tell, dodge through the shock, smash the recovery. Fights every shrimp
+/// in `spots` (nearest live one first); whether all are beaten, and the health
+/// left.
+fn bare_crab_beats(start: Vec2, spots: &[Vec2]) -> (bool, f32) {
+    use crabsim::enemy::State;
+    let mut sim = route::world(KIT, start, false);
+    for &s in spots {
+        sim.spawn_enemy(crabsim::Kind::Snapper, s);
+    }
+    for _ in 0..30 {
+        sim.tick();
+    }
+    let live = |sim: &Sim| {
+        let me = sim.crab(route::ME).expect("crab").mover.pos.x;
+        sim.enemies()
+            .iter()
+            .filter(|e| e.state != State::Gone)
+            .min_by(|a, b| (a.pos.x - me).abs().total_cmp(&(b.pos.x - me).abs()))
+            .cloned()
+    };
+    for tick in 0..18000u32 {
+        let Some(e) = live(&sim) else { break };
+        let me = sim.crab(route::ME).expect("crab").mover.pos.x;
+        let dir = (e.pos.x - me).signum();
+        let close = (e.pos.x - me).abs() < 70.0;
+        let answer = e.state == State::Tell && e.state_tick + 4 >= e.state_len;
+        let punish = matches!(e.state, State::Recover | State::Stagger);
+        sim.set_controls(
+            route::ME,
+            Controls {
+                walk: if answer {
+                    -dir
+                } else if close && e.state == State::Idle {
+                    // Close, but not noticed: shuffle (it feels steps).
+                    if tick % 40 < 20 {
+                        0.4 * dir
+                    } else {
+                        -0.4 * dir
+                    }
+                } else if close {
+                    0.0
+                } else {
+                    0.8 * dir
+                },
+                // Hop now and then: the boulder and the slope are in the way.
+                jump_pressed: !close && tick % 50 == 0,
+                jump_held: tick % 50 < 30,
+                dodge_pressed: answer,
+                smash_pressed: close && punish && e.state_tick.is_multiple_of(8),
+                ..Default::default()
+            },
+        );
+        sim.tick();
+        if sim.crab(route::ME).expect("crab").fighter.vitals.health <= 0.0 {
+            return (false, 0.0);
+        }
+    }
+    let health = sim.crab(route::ME).expect("crab").fighter.vitals.health;
+    (live(&sim).is_none(), health)
+}
+
+#[test]
+fn a_level_one_crab_with_no_kit_beats_each_new_shrimp_with_its_colony_beside_it() {
+    let level = Level::test_level();
+    for &(name, _, spot) in sh::FIGHTS {
+        // The old shrimp beside it fights too.
+        let mut spots = vec![spot];
+        spots.extend(
+            level
+                .foes
+                .iter()
+                .filter(|(k, p)| *k == crabsim::Kind::Snapper && (p.x - spot.x).abs() < 80.0)
+                .map(|(_, p)| *p)
+                .filter(|p| *p != spot),
+        );
+        // Walked up to from 190 off on the same ground (the far ledge's from
+        // the east: the block and the trench are in the way from the west).
+        let x = if spot.x > 1900.0 {
+            spots.iter().map(|p| p.x).fold(f32::MIN, f32::max) + 190.0
+        } else {
+            spots.iter().map(|p| p.x).fold(f32::MAX, f32::min) - 190.0
+        };
+        let start = Vec2::new(x, level.floor_height(x));
+        let (won, health) = bare_crab_beats(start, &spots);
+        println!(
+            "{name} with {} beside it: won {won}, {health:.0} health left",
+            spots.len() - 1
+        );
+        assert!(spots.len() >= 2, "{name} has no colony");
+        assert!(won && health > 0.0, "{name}");
+    }
+}
+
+#[test]
+fn each_kelp_ledge_is_climbed_from_the_floor_by_a_crab_with_no_upgrade() {
+    let level = Level::test_level();
+    let t = Tuning::default();
+    for (name, climb, ledge) in sh::KELP_LEDGES {
+        let height = climb.top - climb.bottom;
+        assert!((200.0..=500.0).contains(&height), "{name}: {height} tall");
+        assert_eq!(climb.kind, crabsim::level::Growth::Kelp);
+        assert!(level.climbs.contains(climb), "{name} is not in the level");
+        assert!(level.rocks.contains(ledge), "{name} has no ledge");
+        let top = ledge.max.y;
+        assert!(
+            climb.top > top + 10.0,
+            "{name}: the stalk ends under its ledge"
+        );
+        // Out of every creature's reach: the stalk's foot and the ledge top.
+        for at in [
+            Vec2::new(climb.x, climb.bottom),
+            Vec2::new(ledge.center().x, top),
+        ] {
+            for &(kind, f) in &foes(&level) {
+                assert!(at.distance(f) > danger(kind, &t), "{name}: {kind:?} at {f}");
+            }
+        }
+        // Up from the side the ledge lies on, stepping off onto it.
+        let dir = (ledge.center().x - climb.x).signum();
+        // (From the floor beside it: the block's stalk grows on the block, a
+        // hop up.)
+        let sx = climb.x + dir * 55.0;
+        let mut sim = route::world(KIT, Vec2::new(sx, level.floor_height(sx)), false);
+        let mut tick = 0;
+        let up = hold(
+            &mut sim,
+            |m, _| {
+                tick += 1;
+                Controls {
+                    walk: if m.pos.y >= top + 10.0 {
+                        // Steer onto the ledge's middle and sink.
+                        ((ledge.center().x - m.pos.x) / 40.0).clamp(-1.0, 1.0)
+                    } else if m.climbing {
+                        0.0
+                    } else {
+                        -dir
+                    },
+                    jump_pressed: tick % 40 == 1 && !m.climbing,
+                    jump_held: m.pos.y < top + 10.0,
+                    ..Default::default()
+                }
+            },
+            40.0,
+            |m| m.grounded && m.pos.y > top - 5.0,
+        );
+        let m = crab(&sim);
+        println!("{name}: up={up} at {:?}, climb xp {}", m.pos, m.climb_xp);
+        assert!(
+            up,
+            "{name}: the crab never stands on its ledge: {:?}",
+            m.pos
+        );
+        assert!(m.climb_xp > 0.0, "{name} pays no Climbing XP");
+        assert!(m.pos.x >= ledge.min.x - 45.0 && m.pos.x <= ledge.max.x + 45.0);
+        sim.set_controls(route::ME, Controls::default());
+        for _ in 0..240 {
+            sim.tick();
+        }
+        let m = crab(&sim);
+        assert!(
+            m.grounded && (m.pos.y - top).abs() < 2.0,
+            "{name}: {:?}",
+            m.pos
+        );
+    }
+}
+
+/// Off the lookout's east edge: run, jump, then strokes `n` times.
+fn leap(eggs: u32, n: u32) -> (Sim, bool) {
+    let top = sh::LOOKOUT_TOP;
+    let mut sim = route::world(
+        Kit::eggs(eggs),
+        Vec2::new(sh::LOOKOUT.max.x - 30.0, top),
+        false,
+    );
+    for _ in 0..60 {
+        sim.tick();
+    }
+    let mut presses = 0;
+    let mut since = 0u32;
+    let mut jumped = false;
+    let mut across = false;
+    for _ in 0..(8.0 * 120.0) as u32 {
+        let m = crab(&sim);
+        let edge = m.pos.x >= sh::LOOKOUT.max.x - 8.0;
+        let mut c = Controls {
+            walk: 1.0,
+            ..Default::default()
+        };
+        since += 1;
+        if m.grounded && edge && !jumped {
+            c.jump_pressed = true;
+            c.jump_held = true;
+            jumped = true;
+            since = 0;
+        } else if jumped && !m.grounded && presses < n && since >= 24 {
+            c.jump_pressed = true;
+            presses += 1;
+            since = 0;
+        }
+        c.jump_held |= jumped && !m.grounded && m.vel.y > 0.0;
+        sim.set_controls(route::ME, c);
+        sim.tick();
+        let m = crab(&sim);
+        if m.grounded && m.pos.x > sh::FAR_LOOKOUT.min.x && m.pos.y > top - 5.0 {
+            across = true;
+            break;
+        }
+        if jumped && m.grounded && m.pos.y < top - 5.0 {
+            break;
+        }
+    }
+    (sim, across)
+}
+
+#[test]
+fn the_paddle_gap_is_crossed_with_a_stroke_or_two_and_a_miss_lands_on_the_floor() {
+    let level = Level::test_level();
+    let gap = sh::FAR_LOOKOUT.min.x - sh::LOOKOUT.max.x;
+    assert!((200.0..=300.0).contains(&gap), "gap {gap}");
+    let floor_under = level.floor_height(sh::LOOKOUT.max.x + gap / 2.0);
+    assert!(sh::LOOKOUT_TOP - floor_under >= 150.0);
+    // The far lookout holds a site worth crossing for.
+    assert!(sh::SITES.iter().filter(|s| s.0 == "far lookout").count() >= 2);
+    // A jump alone falls short, and the crab lands on the floor, unhurt.
+    let (sim, across) = leap(0, 0);
+    let m = crab(&sim);
+    println!("no strokes: across={across}, landed {:?}", m.pos);
+    assert!(!across);
+    let mut sim = sim;
+    for _ in 0..(6.0 * 120.0) as u32 {
+        sim.set_controls(route::ME, Controls::default());
+        sim.tick();
+    }
+    let m = crab(&sim);
+    let hp = sim.crab(route::ME).expect("crab").fighter.vitals.health;
+    println!("missed: {:?}, health {hp}", m.pos);
+    assert!(
+        m.grounded && m.pos.y < sh::LOOKOUT_TOP - 100.0,
+        "{:?}",
+        m.pos
+    );
+    assert!(hp > 0.0);
+    // Stepping off the edge without a jump lands on the floor, unhurt.
+    let mut sim = route::world(
+        KIT,
+        Vec2::new(sh::LOOKOUT.max.x - 20.0, sh::LOOKOUT_TOP),
+        false,
+    );
+    for _ in 0..(10.0 * 120.0) as u32 {
+        sim.set_controls(
+            route::ME,
+            Controls {
+                walk: 0.3,
+                ..Default::default()
+            },
+        );
+        sim.tick();
+    }
+    let m = crab(&sim);
+    let hp = sim.crab(route::ME).expect("crab").fighter.vitals.health;
+    println!("stepped off: {:?}, health {hp}", m.pos);
+    assert!(m.grounded && (m.pos.y - level.floor_height(m.pos.x)).abs() < 3.0);
+    assert!(hp >= 100.0, "{hp}");
+    // One or two strokes carry across.
+    let mut best = None;
+    for (eggs, strokes) in [(1, 1), (2, 2), (2, 1)] {
+        let (sim, across) = leap(eggs, strokes);
+        println!(
+            "{eggs} eggs, {strokes} strokes: across={across} at {:?}",
+            crab(&sim).pos
+        );
+        if across {
+            best = Some((eggs, strokes));
+            break;
+        }
+    }
+    assert!(best.is_some(), "no stroke or two crosses the gap");
+}
