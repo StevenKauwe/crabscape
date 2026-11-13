@@ -116,7 +116,7 @@ See [the performance workflow and measured examples](docs/engineering/rust-perfo
 - CI (`.github/workflows/ci.yml`, Rust pinned in `rust-toolchain.toml`): fmt, clippy (native + wasm32), tests,
   cargo-deny, the tidy tool's checks (and on `main`, a coverage report: see "Testing and linting" below), the web build, relaxed-SIMD check, a size report, the browser tests (after the web
   build, at once: `cargo webtest` portrait and landscape in WebKit, `cargo cooptest` in three parts, frame strips;
-  the tools are built once beside the web build), native = wasm determinism (`tools/determinism.sh`, the sim's tests in wasmtime too) and an art
+  the tools are built once beside the web build), native = wasm determinism (`tools/determinism.sh`, and the sim's tests in wasmtime in three parallel parts, `tools/wasm-sim-tests.sh`) and an art
   check (re-exports the rigs and oil atlases; the committed crab and creature art must match; on a Mac, take the
   oil atlases from its `art-as-ci-made-it` download). On `main` it deploys
   `web/` to GitHub Pages (https://stevenkauwe.github.io/crabscape/), then checks the live site starts

@@ -200,26 +200,45 @@ jobs:
         run: bash tools/check-component-gate.sh
 
 
-  determinism:
-    name: native and wasm sims agree
+  determinism-part:
+    name: native and wasm sims agree (part ${{ matrix.part }})
     # The game rules must play out bit for bit the same natively and as WebAssembly (co-op and replays rely on it).
+    # Parts 1-3 run the simulation's tests in wasmtime, a third of the test binaries each, side by side on the
+    # runner's CPUs (wasm32-wasip1 has no threads, so one binary runs its tests one at a time: in one job they took
+    # 30 of its 35-45 minutes); part 4 compares native and wasm runs tick for tick.
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true') }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Rust (the version, targets and components in rust-toolchain.toml)
         run: rustup toolchain install && rustc --version
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          key: determinism
+          key: determinism-${{ matrix.part == 4 && 'hashes' || 'tests' }}
+          save-if: ${{ matrix.part >= 3 }}
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
           tool: wasmtime
-      - name: The simulation's tests (property tests too), as WebAssembly in wasmtime
-        run: cargo test -p crabsim --locked --target wasm32-wasip1
+      - name: The simulation's tests (property tests too), as WebAssembly in wasmtime, a third of them
+        if: ${{ matrix.part <= 3 }}
+        run: tools/wasm-sim-tests.sh ${{ matrix.part }} 3
       - name: Native and wasm runs match tick for tick, same state hash
+        if: ${{ matrix.part == 4 }}
         run: tools/determinism.sh
+
+  determinism:
+    name: native and wasm sims agree
+    # The required check: every part above passed (or all were skipped: nothing they test changed).
+    needs: [changes, determinism-part]
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true') }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.determinism-part.result }}" = success
 
   art:
     name: committed art matches the rig
