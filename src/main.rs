@@ -72,6 +72,7 @@ mod bone_hall;
 mod brittle;
 mod build;
 mod burrows;
+mod canopy;
 mod canyon;
 mod canyon_drift;
 mod cell_save;

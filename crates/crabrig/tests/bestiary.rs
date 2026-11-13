@@ -1,4 +1,4 @@
-//! The ten bestiary rigs match their committed parts files and ink game files, in `cargo test` (the CI art job
+//! The eleven bestiary rigs match their committed parts files and ink game files, in `cargo test` (the CI art job
 //! also re-exports them and repaints their oil atlases).
 
 use crabrig::bestiary;
@@ -39,7 +39,7 @@ fn rigs_and_ink_exports_match_the_committed_files() {
 }
 
 #[test]
-fn only_the_ten_names_have_rigs() {
-    assert_eq!(bestiary::NAMES.len(), 10);
+fn only_the_eleven_names_have_rigs() {
+    assert_eq!(bestiary::NAMES.len(), 11);
     assert!(bestiary::parts_svg("snapping-shrimp").is_none());
 }

@@ -1,6 +1,6 @@
 # Common shore crab, a juvenile (*Carcinus maenas*)
 
-Rig: none yet. A stand-in of simple shapes with an ink edge, like the gathering nodes (`src/creatures/shore_crab.rs`): a green carapace with a paler back, eyes on stalks, three legs a side, and claws that rise and spread in the tell. Shared rules: `README.md`.
+Rig: `crates/crabrig/src/bestiary/shore_crab.rs` (painted; puppet `src/creatures/shore_crab.rs`). Shared rules: `README.md`.
 
 ## Biology that matters
 - **Where and what:** the green crab is a small crab of intertidal and shallow rubble and shores, an opportunistic
