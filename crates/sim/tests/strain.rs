@@ -197,3 +197,21 @@ fn snapshot_fields_roundtrip_and_missing_fields_default() {
         (0.0, 0, -3600.0)
     );
 }
+
+#[test]
+fn survival_10_starts_the_strain_deeper() {
+    let mut sim = Sim::with_one_crab(Vec2::ZERO);
+    let depth = sim.crab(ID).unwrap().adapted_depth;
+    let room = crabsim::economy::ladder::headroom(10);
+    assert_eq!(room, 200.0);
+    assert_eq!(crabsim::economy::ladder::headroom(9), 0.0);
+    sim.crab_mut(ID)
+        .unwrap()
+        .econ
+        .skills
+        .set(Skill::Survival, crabsim::economy::xp::xp_for_level(10));
+    at_depth(&mut sim, depth - room + 1.0, 240);
+    assert_eq!(sim.crab(ID).unwrap().strain, 0.0, "inside the headroom");
+    at_depth(&mut sim, depth - room - 1.0, 120);
+    assert!(sim.crab(ID).unwrap().strain > 0.0, "below it");
+}

@@ -160,13 +160,13 @@ places or methods by 15, and something new around level 5 or 10, so no skill is 
 | Foraging | Snail rocks in every group; brittle-star crevice (8); worm mud (15: trench hollow, basin) | Quicker picks, second-item chance, brittle stars at 8, worms at 15 | Pick by hand throughout | Level 8 node only in the home pockets |
 | Prying | Mussel clumps in most groups; barnacle rock (8); clam bed (15: trench hollow, basin) | Quicker, second item, pearl chance 1 in 64 to 1 in 40, barnacles at 8, clams at 15 | Pry tip from step 9; better tips after 15 | Level 8 node only in the home pockets |
 | Excavating | Grit heaps; digging the cells themselves; sand-dollar bed (8); clay bank (15: trench hollow, basin) | Quicker, second item, sand dollars at 8, clay at 15 | Scoop, plus real digging (the plug from below) | Level 8 node only in the home pockets |
-| Harvesting | Kelp stands; eelgrass bed (8); sea-pen field (15: the basin, x 4,500) | Quicker, second item, eelgrass at 8, quills at 15 | Cutter throughout | Level 8 only at home; the first quill is the basin's (the loom at Building 12 wants 4 quills) |
+| Harvesting | Kelp stands; eelgrass bed (8); sea-pen field (15: the basin, x 4,500) | Quicker, second item, eelgrass at 8, quills at 15 | Cutter throughout | Level 8 only at home; the first quill is the basin's (the loom, Building 10, takes valves, not quills) |
 | Culturing | Shore glow; purple film (8); pit glow (15: the basin); home culture beds (bed 1, Building 5) | Broths at 2 and 4, beds 10/20/30% quicker at 6/10/14, starter at 9, glow seed at 12, plant culture at 15 | Take wild strains, then plant and tend beds at home | Level 8 only at home; pit glow only in the basin |
-| Cooking | Workbench; brine pot (Building 10) | A dish at nearly every level, 3-portion batches at 4, 9, 14 and 15 | Workbench dishes, then the brine pot (worm paste, 12) | The jelly salad (6) needs the alarm jelly at x 15,180, inked kelp (14) the octopus (x 8,650): neither is near home (other dishes cover those levels) |
-| Shellcraft | Workbench | Polished valve (2), cement (4), plating (5), sand polish (8), barnacle cement (9), plating mend (11), doubled blanks and polish, tools last longer, tier-2 tools at 15 | Workbench only to 15; inputs change (valves, sand dollars, barnacles) | One station for 15 levels (systems lane) |
-| Weaving | Workbench | Rope (2), mat (4), quick twist (5), sack (8), eelgrass cord (9), slime twine (10), eelgrass mat (12), rope coil (14), doubled cord, rope and mats | Workbench only to 15 (the loom's recipes come later) | One station for 15 levels (systems lane) |
-| Building | Home (the Home tab) | A piece or station at every level: valve step (2) to barnacle wall (15); bed 1 (5), brine pot (10), loom (12) | Pieces, then stations that change other skills' methods | None |
-| Survival | The twilight band (below y -700): the upper gallery down the silt mouth (y -1,040), the basin's deep end, the canyon walls | 1% less pressure strain a level, 2% to 15% | Sitting deep; twice as fast under strain | Only percentages; nothing new at 5 or 10 (systems lane) |
+| Cooking | Workbench; brine pot (Building 10) | A dish at nearly every level, 3-portion batches at 4, 9, 14 and 15 | Workbench dishes, then the brine pot (worm paste, 12) | Built: the mussel and snail hash (6) and the barnacle and kelp roll (14) take their place; the jelly salad and inked kelp move to 18 and 19 |
+| Shellcraft | Workbench | Polished valve (2), cement (4), plating (5), sand polish (8), barnacle cement (9), plating mend (11), doubled blanks and polish, tools last longer, tier-2 tools at 15 | Workbench, then the grindstone (Building 14): ground valves at 14 | Built: a second method at 14 |
+| Weaving | Workbench | Rope (2), mat (4), quick twist (5), sack (8), eelgrass cord (9), slime twine (10), eelgrass mat (12), rope coil (14), doubled cord, rope and mats | Workbench, then the loom (Building 10): loom-woven mats at 11 | Built: a second method at 11 |
+| Building | Home (the Home tab) | A piece or station at every level: valve step (2) to barnacle wall (15); bed 1 (5), brine pot and loom (10), grindstone (14) | Pieces, then stations that change other skills' methods | None |
+| Survival | The twilight band (below y -700): the upper gallery down the silt mouth (y -1,040), the basin's deep end, the canyon walls | 1% less pressure strain a level, 2% to 15% | Sitting deep; twice as fast under strain | Built: at 5 a meal keeps you well fed 15% longer; at 10, 30% longer, and the strain starts 200 deeper |
 
 ### What the world adds (built)
 - **Level-8 places of their own.** Each half-tier node also grows in one place out on the route that fits it, so level 8
@@ -180,7 +180,7 @@ places or methods by 15, and something new around level 5 or 10, so no skill is 
   skill then has two places (near home and the basin), and the loom's quills come within one trip.
   Sites: sea-pen field x 1,435 (hollow floor -480), pit glow site x 1,120 (plug shaft ledge, floor -540).
 
-### For the systems lane (proposed, not built here)
+### For the systems lane (built)
 - Survival: something at 5 or 10 beyond the percentage (a longer stay before strain, or slower hunger, as the
   skills table promises).
 - Shellcraft and Weaving: a second method before 15 (a station or a place to work), so neither is only the workbench.

@@ -55,7 +55,7 @@ All skills use one **RuneScape experience table** to a cap of **99**: `xp(L) = f
 | 10 | **Shellcraft** | Smithing | Shaping shell, quill, glass, bone, nodule into blanks, tools and plating | Recipes |
 | 11 | **Weaving** | Crafting/Fletching | Kelp into cord, braids, sacks and packs | Recipes (bags = more carrying) |
 | 12 | **Building** | Construction | Building into the home: stations, culture beds, the shell | Stations, beds |
-| 13 | **Survival** | Hitpoints/Prayer-ish | Time spent cold, deep and under pressure (band ≥ twilight) | −1% pressure strain per level (cap −40%), slower hunger |
+| 13 | **Survival** | Hitpoints/Prayer-ish | Time spent cold, deep and under pressure (band ≥ twilight) | −1% pressure strain per level (cap −40%); a meal lasts 15% longer at 5 and 30% at 10; strain starts 200 deeper at 10 |
 | (14) | Data-Driven (royal) | n/a | The royal observatory | Unchanged: keeps its own quadratic curve, listed last |
 
 Existing skills migrate to the RuneScape table; their earn rates are rescaled so **level 5 (the moult feat level) lands
@@ -192,9 +192,9 @@ Making is a command through the sim exactly like today's `Sim::make` (only its o
 |---|---|---|---|
 | Workbench | — | exists | T1–T2 shellcraft, cord, shucking |
 | Culture bed 1 / 2 / 3 / 4 | 5 / 20 / 40 / 60 | Grit 3 + Valve 2 / Clay 3 + Grit 3 + Valve 2 / WhaleBone 1 + Clay 3 + mantis club 1 / Nodule 2 + Clay 4 + jelly mesoglea 2 | Culturing beds |
-| Loom | 12 | Quill 4 + KelpCord 4 + Grit 3 | Braids, packs |
+| Loom | 10 | KelpCord 4 + Valve 2 + Grit 3 | Loom-woven mats (Weaving 11), braids, packs |
 | Brine pot (clay curing pot) | 10 | Clay 3 + Valve 2 | Curing recipes |
-| Grindstone | 18 | Grit 6 + Clay 2 + snapper claw 2 | T3+ tools, plating |
+| Grindstone | 14 | Grit 6 + Valve 4 + snapper claw 2 | Ground valves (Shellcraft 14), T3+ tools, plating |
 | Fermenting crock | 30 | Clay 6 + Glass 1 | Fermenting |
 | Home stages (exists) | 1 / 3 / 5 grit built | Grit | unchanged; each grit built gives 20 Building XP |
 | Whelk room / hall / keep | 30 / 45 / 62 | whelk shell 1 + Clay 4 / whelk shell 2 + Clay 6 + octopus ink 1 + braided cord 2 / whelk shell 3 + Nodule 2 + black coral 2 | home stage 1 / 2 / 3, in order |
@@ -281,8 +281,8 @@ level's; the item tier is the nearest zone. Real parts, but that crabs could use
 | Peacock mantis shrimp | shallows (1) | mantis club | Club claw tips: 2 + kelp cord, Shellcraft 16, claws +9%; culture bed 3 |
 | Snowflake moray | trench (2) | moray tooth | Mend a worn tool (1 + 2 grit, Shellcraft 1); moray-tooth claw tips: 3 + bone splint, Shellcraft 42, claws +14% |
 | Queen triggerfish | basin (2) | triggerfish plate | Mend worn plating (1 + 2 grit, Shellcraft 1) |
-| Alarm jelly | midwater (2) | jelly mesoglea | Jelly salad: 1 + kelp, Cooking 6; culture bed 4 |
-| Common octopus | far rim (3) | octopus ink | Inked kelp: 1 + 2 kelp, Cooking 14 (+2 reserve strokes); whelk hall |
+| Alarm jelly | midwater (2) | jelly mesoglea | Jelly salad: 1 + kelp, Cooking 18; culture bed 4 |
+| Common octopus | far rim (3) | octopus ink | Inked kelp: 1 + 2 kelp, Cooking 19 (+2 reserve strokes); whelk hall |
 
 Every drop, old and new, also has a part of a high-level recipe or a repeatable sink (mending, eating, planting) **and**
 a recipe below level 20 (`economy_every_way_pays.rs`). The older ten got the early uses: mending a worn tool or plating
@@ -335,8 +335,8 @@ Building recipe above level 10 draws on at least two; no single skill or Fightin
 |---|---|---|
 | Culture bed 1 | 5 | Gathering, Digging |
 | Brine pot | 10 | Gathering, Digging |
-| Loom | 12 | Gathering, Digging |
-| Grindstone | 18 | Fighting, Digging |
+| Loom | 10 | Gathering, Digging |
+| Grindstone | 14 | Fighting, Digging |
 | Culture bed 2 | 20 | Gathering, Digging |
 | Fermenting crock | 30 | Gathering, Digging |
 | Whelk room | 30 | Fighting, Digging |
@@ -616,7 +616,7 @@ The owner's ask: levels 1 to 15 in **all 13 skills** must be a joy for a brand-n
   - **Cooking:** a new or existing dish at most levels, and 3-portion batches.
   - **Shellcraft and Weaving:** recipes, plus chances to double blanks, cord, rope and mats, and tools that last longer.
   - **Building:** a piece or station at every level.
-  - **Survival:** pressure strain eases by 2% at level 2, then by one more point per level, to 15% at 15.
+  - **Survival:** pressure strain eases by 2% at level 2, then by one more point per level, to 15% at 15. At 5 a meal keeps the crab well fed 15% longer, at 10 30% longer, and at 10 the strain starts 200 units deeper than the depth it is used to.
 - **Half-tier nodes at level 8** (tier 1, 56 XP, 2 charges, 150 s regrowth):
   - barnacle rock (Prying), brittle-star crevice (Foraging), sand-dollar bed (Excavating), eelgrass bed (Harvesting), purple film (Culturing);
   - the organisms are real; what a crab does with each is not verified;
@@ -634,7 +634,7 @@ The owner's ask: levels 1 to 15 in **all 13 skills** must be a joy for a brand-n
   - tier-1 recipes ×3;
   - Climbing and Swimming ×2.2;
   - Survival ×1.6;
-  - Fighting ×6 at levels 1 to 4, ×4.5 at 5 to 9, ×3.5 at 10 to 14 (it was ×12 / ×9 / ×7, then ×9 / ×6.5 / ×5). With the shore crabs placed and the bot fighting the slope one on its trips, Fighting reaches 15 at minute 166.5 and the last skill (Prying) at 170.1 of 180: a ten-minute margin. Focused Prying reaches 15 at minute 15.8 (the target is 15 to 25).
+  - Fighting ×6 at levels 1 to 4, ×4.5 at 5 to 9, ×3.5 at 10 to 14 (it was ×12 / ×9 / ×7, then ×9 / ×6.5 / ×5). With the shore crabs placed and the bot fighting the slope one on its trips, Fighting reaches 15 at minute 172.1 and the last skill (Excavating) at 176.3 of 180 (with #706's spots and the seven-kelp step, main measured 170.5; the new stations, dishes and their crafts at home cost the mixed bot about six minutes). Focused Prying reaches 15 at minute 15.6 (the target is 15 to 25), which leaves no room to raise gather XP further.
   - **Fight time (measured, bot, 3 h):** a home shrimp fight takes about 9 s, and 14.9 s door to door. A far-ledge trip takes about 100 s, both shrimp included. Fights were never the slow part. What held ×6 back before was the bot's far-ledge trip: it set the crab down inside the block (x 1,940 to 2,030), so each trip spent two 60 s fight timeouts and 213 s in all. Now the crab is set down east of the shrimp.
   - **The shore crab** (`Kind::ShoreCrab`, `creatures/shore_crab.rs`): a juvenile green crab that roams within 120 of its home and never starts a fight. Struck, it pinches back: a 36-tick tell, 40 ticks of recovery to punish, 26 health, a 2.25 pinch. It pays a snapping shrimp's win XP and returns after 90 s. A level-1 crab beats it in about 2 s. Being passive, it may share the floor with nodes (its danger distance is 0). The world lane places it on the gather route.
 - **Measured after** (bot, 3 h mixed, real ticks):

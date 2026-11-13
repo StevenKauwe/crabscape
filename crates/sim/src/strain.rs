@@ -22,11 +22,13 @@ pub(crate) fn step(crab: &mut SimCrab, tuning: &StrainTuning) {
         return;
     }
     let before = crab.strain;
-    if crab.mover.pos.y < crab.adapted_depth {
+    let level = crate::economy::xp::level_for(crab.econ.skills.get(crate::skills::Skill::Survival));
+    // Survival 10: the strain starts a little deeper than the depth the crab
+    // is used to (`ladder::headroom`).
+    let limit = crab.adapted_depth - crate::economy::ladder::headroom(level);
+    if crab.mover.pos.y < limit {
         // Survival toughens the shell against pressure: 1% less strain per
         // level, at most 40% less.
-        let level =
-            crate::economy::xp::level_for(crab.econ.skills.get(crate::skills::Skill::Survival));
         let eased = (1.0 - (level as f32 * 0.01).min(0.4)) * crab.econ.pressure_factor();
         crab.strain = (before + STEP / tuning.full_seconds * eased).min(1.0);
         for threshold in [0.25, 0.5, 0.75, 1.0] {
@@ -34,7 +36,7 @@ pub(crate) fn step(crab: &mut SimCrab, tuning: &StrainTuning) {
                 crab.scars = crab.scars.saturating_add(1).min(8);
             }
         }
-    } else if crab.mover.pos.y > crab.adapted_depth {
+    } else if crab.mover.pos.y > limit {
         crab.strain = (before - STEP / tuning.ease_seconds).max(0.0);
     }
 }

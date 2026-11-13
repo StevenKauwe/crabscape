@@ -119,6 +119,11 @@ pub enum Perk {
     ClawsBeyond,
     /// Survival: the shell takes pressure this many percent easier.
     Pressure,
+    /// Survival: a meal keeps the crab well fed this many percent longer.
+    FedLonger,
+    /// Survival: pressure strain starts this many units deeper than the
+    /// depth the crab is used to.
+    Headroom,
     /// A moult feat comes within reach at this level.
     FeatReady(Feat),
 }
@@ -157,8 +162,8 @@ const fn row(skill: Skill, level: u32, opening: Opening) -> Row {
 use NodeKind as N;
 use Opening::{Node, Perk as P, Piece as Pc, Recipe as Rc, Tool as Tl};
 use Perk::{
-    BedQuicker, Claws, ClawsBeyond, Climb, Double, DoubleCraft, FeatReady, Legs, Portions,
-    Pressure, Quicker, Rare, Stroke, ToolHold,
+    BedQuicker, Claws, ClawsBeyond, Climb, Double, DoubleCraft, FeatReady, FedLonger, Headroom,
+    Legs, Portions, Pressure, Quicker, Rare, Stroke, ToolHold,
 };
 use Skill::{
     Building, Climbing, Cooking, Culturing, Excavating, Fighting, Foraging, Harvesting, Prying,
@@ -298,7 +303,7 @@ pub const LADDER: &[Row] = &[
     row(Cooking, 3, Rc("snail-half-shell")),
     row(Cooking, 4, P(Portions("shucked-mussels"), 3)),
     row(Cooking, 5, Rc("snail-wrap")),
-    row(Cooking, 6, Rc("jelly-salad")),
+    row(Cooking, 6, Rc("mussel-snail-hash")),
     row(Cooking, 7, Rc("shrimp-strips")),
     row(Cooking, 8, Rc("barnacle-chowder")),
     row(Cooking, 9, P(Portions("kelp-wrapped-mussel"), 3)),
@@ -308,7 +313,7 @@ pub const LADDER: &[Row] = &[
     row(Cooking, 12, Rc("worm-paste")),
     row(Cooking, 12, Rc("amphipod-mash")),
     row(Cooking, 13, Rc("eelgrass-salad")),
-    row(Cooking, 14, Rc("inked-kelp")),
+    row(Cooking, 14, Rc("barnacle-kelp-roll")),
     row(Cooking, 14, P(Portions("barnacle-chowder"), 3)),
     row(Cooking, 15, Rc("purple-film-paste")),
     row(Cooking, 15, P(Portions("brittle-star-stew"), 3)),
@@ -327,6 +332,7 @@ pub const LADDER: &[Row] = &[
     row(Shellcraft, 12, P(ToolHold, 20)),
     row(Shellcraft, 13, P(DoubleCraft(Group::Polish), 15)),
     row(Shellcraft, 14, P(DoubleCraft(Group::Polish), 20)),
+    row(Shellcraft, 14, Rc("ground-valves")),
     row(Shellcraft, 15, Tl(ToolKind::Pry, 2)),
     row(Shellcraft, 15, Tl(ToolKind::Scoop, 2)),
     row(Shellcraft, 15, Tl(ToolKind::Cutter, 2)),
@@ -342,6 +348,7 @@ pub const LADDER: &[Row] = &[
     row(Weaving, 9, Rc("eelgrass-cord")),
     row(Weaving, 10, Rc("slime-twine")),
     row(Weaving, 11, P(DoubleCraft(Group::Cord), 20)),
+    row(Weaving, 11, Rc("loom-mats")),
     row(Weaving, 12, Rc("eelgrass-mat")),
     row(Weaving, 13, P(DoubleCraft(Group::Mat), 15)),
     row(Weaving, 14, Rc("rope-bulk")),
@@ -358,23 +365,27 @@ pub const LADDER: &[Row] = &[
     row(Building, 8, Pc(Piece::GlassLamp)),
     row(Building, 9, Pc(Piece::RopeRail)),
     row(Building, 10, Rc("brine-pot")),
+    row(Building, 10, Rc("loom")),
     row(Building, 10, Pc(Piece::KelpGarden)),
     row(Building, 11, Pc(Piece::ClawRack)),
-    row(Building, 12, Rc("loom")),
     row(Building, 12, Pc(Piece::ValveShelf)),
     row(Building, 13, Pc(Piece::SandSill)),
     row(Building, 14, Pc(Piece::EelgrassThatch)),
+    row(Building, 14, Rc("grindstone")),
     row(Building, 15, Pc(Piece::BarnacleWall)),
     // ---- Survival: 1% less pressure strain a level (cap 40%) ----
     row(Survival, 2, P(Pressure, 2)),
     row(Survival, 3, P(Pressure, 3)),
     row(Survival, 4, P(Pressure, 4)),
     row(Survival, 5, P(Pressure, 5)),
+    row(Survival, 5, P(FedLonger, 15)),
     row(Survival, 6, P(Pressure, 6)),
     row(Survival, 7, P(Pressure, 7)),
     row(Survival, 8, P(Pressure, 8)),
     row(Survival, 9, P(Pressure, 9)),
     row(Survival, 10, P(Pressure, 10)),
+    row(Survival, 10, P(Headroom, 200)),
+    row(Survival, 10, P(FedLonger, 30)),
     row(Survival, 11, P(Pressure, 11)),
     row(Survival, 12, P(Pressure, 12)),
     row(Survival, 13, P(Pressure, 13)),
@@ -458,6 +469,17 @@ pub fn bed_quicker_percent(level: u32) -> u32 {
     best(Culturing, level, |p| p == BedQuicker).unwrap_or(0)
 }
 
+/// Percent longer a meal keeps the crab well fed at Survival `level`.
+pub fn fed_longer_percent(level: u32) -> u32 {
+    best(Survival, level, |p| p == FedLonger).unwrap_or(0)
+}
+
+/// How many units deeper than its adapted depth pressure strain starts at
+/// Survival `level`.
+pub fn headroom(level: u32) -> f32 {
+    best(Survival, level, |p| p == Headroom).unwrap_or(0) as f32
+}
+
 /// Percent faster the paddle legs rest at Swimming `level` (above 10).
 pub fn legs_rest_percent(level: u32) -> u32 {
     best(Swimming, level, |p| p == Legs).unwrap_or(0)
@@ -538,6 +560,10 @@ impl Perk {
             Perk::Legs => format!("Your paddle legs rest {n}% faster on solid ground."),
             Perk::ClawsBeyond => format!("Your claws hit a further {n}% harder."),
             Perk::Pressure => format!("Pressure strain is {n}% easier on your shell."),
+            Perk::FedLonger => format!("A meal keeps you well fed {n}% longer."),
+            Perk::Headroom => {
+                format!("Your shell takes {n} more depth before pressure strain starts.")
+            }
             Perk::FeatReady(feat) => {
                 let what = match feat {
                     Feat::GrippingDactyls => "gripping dactyls",

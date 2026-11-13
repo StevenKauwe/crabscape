@@ -31,32 +31,32 @@ const FOCUS_SECS: f64 = 90.0 * 60.0;
 /// Cooking, Shellcraft, Weaving, Building, Survival) in the mixed three hours;
 /// -1 is "not by 3 h".
 const MIXED: [[f64; 3]; 13] = [
-    [10.7, 11.7, 110.7],
-    [3.3, 77.4, 153.0],
-    [8.9, 86.7, 166.5],
-    [36.5, 86.3, 167.9],
-    [38.3, 91.2, 170.1],
-    [37.4, 84.9, 169.2],
-    [37.9, 90.6, 145.6],
-    [28.8, 44.3, 64.6],
-    [15.1, 28.0, 62.7],
-    [30.8, 93.3, 157.1],
-    [38.1, 70.5, 164.1],
-    [37.5, 90.0, 157.3],
-    [32.6, 82.8, 160.7],
+    [10.9, 11.9, 115.2],
+    [3.3, 79.6, 168.4],
+    [8.9, 88.9, 172.1],
+    [39.5, 86.5, 166.2],
+    [38.8, 91.4, 174.6],
+    [38.3, 93.4, 176.3],
+    [40.3, 90.4, 173.5],
+    [28.4, 43.6, 57.3],
+    [15.5, 27.7, 56.2],
+    [38.5, 88.5, 167.5],
+    [38.0, 64.8, 158.9],
+    [38.6, 88.3, 171.4],
+    [33.2, 84.3, 163.4],
 ];
 
 /// Level-ups across all thirteen skills in each 5-minute window of the mixed run.
 const LEVELUPS_PER_5MIN: [u32; 36] = [
-    12, 6, 13, 10, 9, 8, 4, 11, 5, 8, 4, 7, 7, 3, 7, 12, 3, 3, 8, 1, 8, 7, 6, 3, 4, 4, 0, 2, 6, 4,
-    2, 2, 3, 3, 2, 1,
+    13, 6, 13, 9, 8, 10, 3, 9, 8, 8, 3, 10, 6, 2, 6, 8, 4, 7, 5, 4, 2, 6, 6, 8, 3, 3, 5, 2, 1, 1,
+    6, 3, 1, 4, 4, 4,
 ];
 
 /// Distinct kinds of work (node kinds, recipes, fights, climbs...) in each
 /// 5-minute window of the mixed run.
 const DISTINCT_PER_5MIN: [u32; 36] = [
-    13, 5, 7, 11, 13, 14, 6, 13, 15, 15, 16, 13, 16, 16, 14, 11, 9, 11, 20, 5, 15, 14, 11, 9, 17,
-    15, 9, 9, 11, 14, 12, 13, 15, 14, 13, 9,
+    13, 6, 7, 13, 12, 13, 8, 11, 14, 13, 14, 18, 11, 16, 13, 12, 4, 14, 16, 11, 4, 15, 15, 14, 6,
+    13, 15, 9, 9, 10, 16, 13, 7, 14, 13, 10,
 ];
 
 /// Every stretch of over 3 minutes on one node kind or recipe while something
@@ -64,7 +64,7 @@ const DISTINCT_PER_5MIN: [u32; 36] = [
 const LONG_STRETCHES: &[(f64, &str, f64)] = &[];
 
 /// The focused Prying run: minutes to level 5, 10 and 15 (-1: not reached).
-const PRYING_FOCUS: [f64; 3] = [4.9, 10.2, 15.8];
+const PRYING_FOCUS: [f64; 3] = [4.9, 10.0, 15.6];
 
 // ---- The measurement ----
 

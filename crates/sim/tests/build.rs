@@ -8,7 +8,7 @@
 //! Each crab grows its own home, and it is saved.
 
 use bevy_math::Vec2;
-use crabsim::{Carry, Controls, Hit, PlayerId, Progress, Recipe, Shelter, Sim};
+use crabsim::{Carry, Controls, Hit, PlayerId, Progress, Recipe, Shelter, Sim, Skill};
 
 const P0: PlayerId = PlayerId(0);
 
@@ -248,6 +248,32 @@ fn stage_three_makes_a_meal_at_home_last_longer() {
         built,
         (t.food.well_fed_ticks as f32 * t.build.meal_longer).round() as u32
     );
+}
+
+#[test]
+fn survival_5_and_10_make_a_meal_last_longer() {
+    let t = Sim::with_one_crab(Vec2::ZERO).tuning;
+    let fed_at = |survival: u32| {
+        let mut sim = by_home();
+        sim.crab_mut(P0).unwrap().econ.skills.set(
+            Skill::Survival,
+            crabsim::economy::xp::xp_for_level(survival),
+        );
+        sim.crab_mut(P0).unwrap().larder = 1;
+        walk_home(&mut sim);
+        let mut fed = 0;
+        for _ in 0..t.food.eat_after_ticks + 10 {
+            sim.tick();
+            if sim.crab(P0).unwrap().events.ate_clam {
+                fed = sim.crab(P0).unwrap().mover.well_fed;
+            }
+        }
+        fed
+    };
+    let base = t.food.well_fed_ticks as f32;
+    assert_eq!(fed_at(4), t.food.well_fed_ticks);
+    assert_eq!(fed_at(5), (base * 1.15).round() as u32);
+    assert_eq!(fed_at(10), (base * 1.30).round() as u32);
 }
 
 #[test]
