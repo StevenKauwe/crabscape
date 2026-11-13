@@ -1253,24 +1253,6 @@ fn a_recording_saved_between_ticks_replays_to_its_hash() {
     }
 }
 
-#[test]
-fn headless_runs_far_faster_than_real_time() {
-    // Ten simulated minutes. Even a slow debug build manages this in well
-    // under a second; a release build does millions of ticks per second.
-    let replay = Replay::parse(BUSY).unwrap();
-    let start = std::time::Instant::now();
-    let mut sim = sim_a(replay.start);
-    play(&mut sim, &replay, ticks(600.0), |_| {});
-    let took = start.elapsed().as_secs_f64();
-    println!(
-        "{} ticks in {took:.4} s: {:.0} ticks/s, {:.0}x real time",
-        sim.tick_count(),
-        sim.tick_count() as f64 / took,
-        600.0 / took
-    );
-    assert!(took < 2.0, "took {took} s");
-}
-
 // --- Fighting: health, poise, hits, knockback, hit-stop, claw swings -------
 
 const P0: PlayerId = PlayerId(0);

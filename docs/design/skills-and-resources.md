@@ -78,8 +78,8 @@ Five tiers, one per depth band (`level/bands.rs`). A node's tier sets everything
 
 | Tier | Band (y) | Places on today's map | Level req | Tool tier | XP per gather | Gather s (base) | Charges | Respawn s | Nodes per kind |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | Shallows (> -260) | home side pockets x 222–242 and 432–492; far ledge x 1,850–2,470; region 6's upper caves (grit heaps: rubble hall x 11,980, cobble cave 13,000, pillar cave 14,420, y -6,694; deep but tier 1 by the rule) | 1 | 0 (bare claw) | 10 | 2.5 | 5 | 45 | 4 |
-| 2 | Basin and mudbanks (-260 to -700) | far basin hub x 4,500–4,940 for all five skills (the home burrow gallery holds none: lead's call, see Where things stand) (the first basin, x 2,800–3,300, holds none: a moray and a hermit crab) | 15 | 1 shell | 110 | 3.0 | 5 | 60 | 3 |
+| 1 | Shallows (> -260) | home side pockets x 222–242 and 432–492; far ledge x 1,850–2,470; region 6's upper caves (grit heaps: rubble hall x 11,980, cobble cave 13,000, pillar cave 14,420, y -6,694; deep but tier 1 by the rule); the shallows' sites (`level::shallows::SITES`): the lookout up the kelp stand and the far lookout across the paddle gap (y 704), the boulder, the shelf and shelf east, the trench rim, the far ledge's start, slope and foot | 1 | 0 (bare claw) | 10 | 2.5 | 5 | 45 | 4 |
+| 2 | Basin and mudbanks (-260 to -700) | far basin hub x 4,500–4,940 for all five skills (the home burrow gallery holds none: lead's call, see Where things stand) (the first basin, x 2,800–3,300, holds none: a moray and a hermit crab); the trench hollow (a clam bed, clay bank and worm mud at y -480: a level-1 crab's first dive) | 15 | 1 shell | 110 | 3.0 | 5 | 60 | 3 |
 | 3 | Canyon walls / twilight (-700 to -3,400) | doorstep x 5,443–5,790 (none on the shelf); far rim x 7,905–8,015; the glass gardens in the Silt Galleries' sponge galleries (x 2,060–2,620, floor -1,040: #638); the bone hall's floor (fish falls and tooth beds, y about -2,534, x 3,880–4,130: the chamber prize); the Deep Galleries' lanternfish hall (fish falls, y -4,200, x 2,100–2,700); region 5's shelf tops (glass gardens and scallop beds: tower shelf x 9,350, first arch 11,980, second arch 13,230); region 6's midden cave (a tooth bed, x 8,950, y -6,694) | 30 | 2 quill | 160 | 3.5 | 4 | 90 | 3 |
 | 4 | Canyon floor / midnight (-3,400 to -9,500) | canyon floor far end x 7,130–7,610 (y -6,000); the Deep Galleries' black coral hall (y -6,200) and whale-fall hall (whale-fall bones, y -8,200), x 2,200–4,000; the seep garden (seep mussels and the sulfur mat, y about -10,514, x 19,430–19,605); region 6's sunken reef mounds (black coral: x 12,500, 13,850, 14,550, y -8,594 to -8,194) | 45 | 3 glass | 260 | 4.0 | 4 | 150 | 3 |
 | 5 | Deep (< -9,500) | lower canyon vent field east end (`level::lower_canyon::VENTS`, x 19,730–20,450, west of the crust vault's door); the Deep Galleries' nodule field (nodules, x 1,620–1,780, y -10,200) | 60 | 4 bone | 750 | 4.5 | 4 | 240 | 3 |
@@ -620,7 +620,7 @@ The owner's ask: levels 1 to 15 in **all 13 skills** must be a joy for a brand-n
 - **Half-tier nodes at level 8** (tier 1, 56 XP, 2 charges, 150 s regrowth):
   - barnacle rock (Prying), brittle-star crevice (Foraging), sand-dollar bed (Excavating), eelgrass bed (Harvesting), purple film (Culturing);
   - the organisms are real; what a crab does with each is not verified;
-  - the spots are provisional, in the home pockets and on the plateau, until the world lane's `shallows::SITES` are wired.
+  - they stay in the home pockets and on the shelf (x 900 to 1,060); the shallows' sites (#664) hold tier 1 and 2 only.
 - **New items, recipes and pieces:**
   - **Items (9):** barnacle, brittle star, sand dollar, eelgrass blade, purple film, polished valve, shell cement, kelp rope, kelp mat.
   - **Recipes (21)**, all from tier-1 inputs:
@@ -634,7 +634,7 @@ The owner's ask: levels 1 to 15 in **all 13 skills** must be a joy for a brand-n
   - tier-1 recipes ×3;
   - Climbing and Swimming ×2.2;
   - Survival ×1.6;
-  - Fighting ×12 at levels 1 to 4, ×9 at 5 to 9, ×7 at 10 to 14. This stands in for creatures the world doesn't have yet near home; see item 7.
+  - Fighting ×9 at levels 1 to 4, ×6.5 at 5 to 9, ×5 at 10 to 14. It was ×12, ×9 and ×7 while only the pockets' two shrimp stood near home. The row shrimp (#680) is the third, and the bot fights it too. Re-measured: Fighting reaches 15 at minute 164.1 of 180 (it was 178.0), every target still holds, and focused Prying is unchanged at 16.9. ×9 is the floor for now. At ×6, ×4.5 and ×3.5, Fighting and four gathering skills stop at 14, even with the far ledge's two shrimp (x 2,060 and the block shrimp at 2,074) in the bot. In mixed play Fighting is short of the bot's time, not of shrimp: a home shrimp is nearly always up when the bot wants a fight. Sending every other fight over the trench cost 90 s of trip each and left five skills short of 15, so the far ledge is the bot's fallback when all three home shrimp are down. Lowering the multiplier further needs fights that take less time, or fights on the way to other work, not more shrimp.
 - **Measured after** (bot, 3 h mixed, real ticks):
 
   | Measure | Before | After |
