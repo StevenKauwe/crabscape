@@ -233,8 +233,15 @@ impl Plugin for ViewPlugin {
 /// area is visible whatever shape the window is. Bevy re-applies it when the
 /// window (or phone) is resized or rotated.
 fn spawn_camera(mut commands: Commands) {
+    // On a phone (the low tier) the screen is drawn at 2x and its edges are already fine: no multisampling, whose
+    // four-sample colour and depth pictures took 40 MiB at 2x (90 MiB at 3x) of the phone's memory.
+    let msaa = match crate::quality::current() {
+        crate::quality::Quality::Low => Msaa::Off,
+        crate::quality::Quality::High => Msaa::default(),
+    };
     commands.spawn((
         Camera2d,
+        msaa,
         Camera {
             clear_color: ClearColorConfig::Custom(WATER),
             ..default()

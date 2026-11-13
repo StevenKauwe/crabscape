@@ -23,6 +23,36 @@ use bevy::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use bevy::window::PrimaryWindow;
 
+/// The most device pixels the game draws per CSS pixel on a phone (the low tier, `quality.rs`). A recent iPhone is 3x: drawing all of them made every
+/// full-screen picture the game keeps (the multisampled colour and depth, the two it draws between, the canvas's
+/// own) 1170 x 2532 pixels, about 160 MiB of the phone's memory, which helped push its browser past the size at
+/// which iOS kills the page (the white flash and reload). At 2x the same pictures take 70 MiB, and on a phone
+/// screen the difference is hard to see. Desktops and native windows are not capped.
+pub const MAX_DENSITY: f64 = 2.0;
+
+/// The density the game should draw at for a screen of `density` device pixels per CSS pixel.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+pub fn capped(density: f64) -> Option<f64> {
+    (density.is_finite() && density > MAX_DENSITY).then_some(MAX_DENSITY)
+}
+
+/// Before the window exists: tell the game's window library the screen is at most [`MAX_DENSITY`]. winit sizes
+/// the canvas and turns touches into pixels by the page's `devicePixelRatio`, so the page's own value is replaced
+/// (it is a replaceable property); the browser then shows the 2x canvas on the 3x screen, smoothly scaled.
+#[cfg(target_arch = "wasm32")]
+pub fn cap_density() {
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let Some(cap) = capped(window.device_pixel_ratio()) else {
+        return;
+    };
+    let descriptor = js_sys::Object::new();
+    let _ = js_sys::Reflect::set(&descriptor, &"value".into(), &cap.into());
+    let _ = js_sys::Reflect::set(&descriptor, &"configurable".into(), &true.into());
+    js_sys::Object::define_property(&window, &"devicePixelRatio".into(), &descriptor);
+}
+
 pub struct ScreenFitPlugin;
 
 impl Plugin for ScreenFitPlugin {
@@ -73,6 +103,15 @@ fn fit_canvas(mut window: Single<&mut Window, With<PrimaryWindow>>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_three_times_phone_draws_at_twice_and_lower_screens_as_they_are() {
+        assert_eq!(capped(3.0), Some(2.0));
+        assert_eq!(capped(2.625), Some(2.0));
+        for density in [1.0, 1.5, 2.0, f64::NAN] {
+            assert_eq!(capped(density), None, "{density}");
+        }
+    }
 
     #[test]
     fn a_three_times_phone_reported_in_css_pixels_is_scaled_up() {

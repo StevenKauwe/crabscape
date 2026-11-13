@@ -51,15 +51,19 @@ pub fn choose(style: &mut ResMut<ArtStyle>, to: ArtStyle) {
     }
 }
 
+/// The style the game starts in: the remembered choice, else the default.
+pub fn stored() -> ArtStyle {
+    storage::read()
+        .as_deref()
+        .and_then(ArtStyle::from_name)
+        .unwrap_or_default()
+}
+
 pub struct StylePlugin;
 
 impl Plugin for StylePlugin {
     fn build(&self, app: &mut App) {
-        let style = storage::read()
-            .as_deref()
-            .and_then(ArtStyle::from_name)
-            .unwrap_or_default();
-        app.insert_resource(style)
+        app.insert_resource(stored())
             .add_systems(Update, toggle.in_set(GameSet::Input));
         #[cfg(target_arch = "wasm32")]
         app.add_systems(Update, show_style.in_set(GameSet::Present));
