@@ -25,6 +25,7 @@ pub enum Quality {
 }
 
 impl Quality {
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
     pub fn name(self) -> &'static str {
         match self {
             Quality::Low => "low",
