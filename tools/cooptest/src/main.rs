@@ -1924,11 +1924,32 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 ));
             }
             guest.b.set_key("ArrowDown", true)?;
+            // Since 13 Nov the crab has three times hung at about x 2,380,
+            // y 320 for the whole wait (the near-home content added that day
+            // sits under this descent). When it stops sinking for three
+            // seconds, walk it a step right, off whatever holds it, and print
+            // where it was and its data-crab, so a failure names the snag.
+            let mut lowest = (f64::MAX, Instant::now());
             let landed = guest.until(90.0, "guest lands on far substrate", |p| {
-                p.b.attr("data-crab")
-                    .is_some_and(|v| v.split_whitespace().last() == Some("1"))
-                    && local_position(p).is_ok_and(|(_, y)| y < 100.0)
-                    && p.b.attr("data-cell-region-state").as_deref() == Some("running")
+                let at = local_position(p).ok();
+                let landed =
+                    p.b.attr("data-crab")
+                        .is_some_and(|v| v.split_whitespace().last() == Some("1"))
+                        && at.is_some_and(|(_, y)| y < 100.0)
+                        && p.b.attr("data-cell-region-state").as_deref() == Some("running");
+                if !landed && let Some((x, y)) = at {
+                    if y < lowest.0 - 5.0 {
+                        lowest = (y, Instant::now());
+                    } else if lowest.1.elapsed().as_secs_f64() > 3.0 {
+                        eprintln!(
+                            "cells-regions descent held up at {x:.1},{y:.1} ({:?}); stepping right",
+                            p.b.attr("data-crab")
+                        );
+                        let _ = p.b.hold_key("KeyD", 0.5);
+                        lowest = (y, Instant::now());
+                    }
+                }
+                landed
             });
             landed.map_err(|why| format!("{why}; {}", region_status(&mut guest)))?;
             guest.b.set_key("ArrowDown", false)?;
