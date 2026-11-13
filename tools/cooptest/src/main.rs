@@ -1604,10 +1604,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                         .last()
                         .is_none_or(|last| !last.contains(&format!(" {valid} ")))
                     {
-                        spots.push(format!(
-                            "{:.0}s {valid} {spot}",
-                            started.elapsed().as_secs_f32()
-                        ));
+                        spots.push(format!("{:.0}s {spot}", started.elapsed().as_secs_f32()));
                     }
                 }
                 if clock.observe(state.as_deref(), Instant::now())
