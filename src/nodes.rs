@@ -45,7 +45,13 @@ pub struct NodesPlugin;
 impl Plugin for NodesPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Built>()
-            .add_systems(Update, (stream, show).chain().in_set(GameSet::Present));
+            .add_systems(Startup, spawn_guide_marker)
+            .add_systems(
+                Update,
+                (stream, show, guide_marker)
+                    .chain()
+                    .in_set(GameSet::Present),
+            );
     }
 }
 
@@ -423,6 +429,63 @@ fn stream(
         }
         built.0.insert(i, made);
     }
+}
+
+/// The guide's marker: a small gold diamond that bobs over the nearest node
+/// the guide's current gather step wants (`Sim::guide_target`), so a new crab
+/// sees which of the pocket's nodes the pill means.
+#[derive(Component)]
+struct GuideMarker;
+
+/// How far from the crab the marker looks for the step's node (a screen or
+/// so: past that the pill's words lead).
+const MARK_REACH: f32 = 900.0;
+/// How high over the node's centre it hangs, and how far it bobs.
+const MARK_ABOVE: f32 = 40.0;
+const MARK_BOB: f32 = 4.0;
+
+fn spawn_guide_marker(mut commands: Commands) {
+    let gold = crate::ui_theme::AMBER;
+    commands
+        .spawn((
+            GuideMarker,
+            Transform::from_xyz(0.0, 0.0, 11.6)
+                .with_rotation(Quat::from_rotation_z(std::f32::consts::FRAC_PI_4)),
+            Visibility::Hidden,
+        ))
+        .with_children(|m| {
+            m.spawn((
+                Sprite::from_color(INK, Vec2::splat(15.0)),
+                Transform::from_xyz(0.0, 0.0, -0.01),
+            ));
+            m.spawn(Sprite::from_color(gold, Vec2::splat(10.5)));
+        });
+}
+
+fn guide_marker(
+    time: Res<Time>,
+    sim: Res<Sim>,
+    marker: Single<(&mut Transform, &mut Visibility), With<GuideMarker>>,
+) {
+    let (mut at, mut shown) = marker.into_inner();
+    // Hidden once the crab is in reach of it: the gather prompt says it there.
+    // A full shell points it at the door instead (`wants_ui::guide_shell_full`).
+    let target = sim.crabs().iter().find(|c| !c.remote).and_then(|c| {
+        let goal = if crate::wants_ui::guide_shell_full(&sim, c.id) {
+            Some(sim.level.home.center())
+        } else {
+            sim.guide_target(c.id, MARK_REACH)
+        };
+        goal.filter(|n| n.distance(c.mover.pos) > crabsim::economy::gather::REACH)
+    });
+    let Some(node) = target else {
+        shown.set_if_neq(Visibility::Hidden);
+        return;
+    };
+    let bob = (time.elapsed_secs() * 3.0).sin() * MARK_BOB;
+    at.translation.x = node.x;
+    at.translation.y = node.y + MARK_ABOVE + bob;
+    shown.set_if_neq(Visibility::Inherited);
 }
 
 /// A node shows its full look while it has charges, its bare one after.

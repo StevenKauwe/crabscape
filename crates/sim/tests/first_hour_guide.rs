@@ -249,7 +249,7 @@ fn a_step_done_pays_its_reward_and_says_so() {
 fn steps_already_met_finish_at_once_and_silently() {
     let mut s = sim();
     // A skilled crab: the three gather skills of the first steps are past 2.
-    for skill in [Skill::Prying, Skill::Harvesting, Skill::Excavating] {
+    for skill in GUIDE[..3].iter().map(|s| s.skill) {
         set_level(&mut s, skill, 3);
     }
     s.tick();
@@ -306,7 +306,7 @@ fn skip_then_on_resumes_at_the_first_step_not_done() {
     let at = index(&s);
     assert!(s.guide_status(P0).expect("status").skipped);
     // While skipped nothing moves, whatever the crab does.
-    for skill in [Skill::Prying, Skill::Harvesting] {
+    for skill in GUIDE[..2].iter().map(|s| s.skill) {
         set_level(&mut s, skill, 3);
     }
     for _ in 0..120 {
@@ -405,4 +405,73 @@ fn the_replay_words_skip_and_on_round_trip() {
     assert!(replay.to_text().contains("guide=skip"));
     assert!(replay.to_text().contains("guide=on"));
     let _ = &mut s;
+}
+
+#[test]
+fn the_guide_points_at_the_nearest_seen_node_of_its_step() {
+    let mut s = sim();
+    let Cond::Gather(kind, _) = GUIDE[0].cond else {
+        panic!("step 1 is a gather");
+    };
+    for _ in 0..240 {
+        s.tick();
+    }
+    let at = s
+        .guide_target(P0, 1200.0)
+        .expect("the first step's node is in sight of home");
+    let placed = s.placed_nodes();
+    let node = placed.iter().find(|n| n.pos == at).expect("a placed node");
+    assert_eq!(node.kind, kind);
+    // Nothing once the guide is skipped.
+    assert!(s.guide_skip(P0));
+    assert_eq!(s.guide_target(P0, 1200.0), None);
+}
+
+#[test]
+fn a_hold_between_two_nodes_takes_the_kind_the_guide_asks_for() {
+    // The home pocket's shore-glow (x 222) and kelp stand (x 232) stand 10
+    // apart: a new crab nearer the shore-glow, on step 1 (kelp), cuts kelp.
+    let Cond::Gather(want, _) = GUIDE[0].cond else {
+        panic!("step 1 is a gather");
+    };
+    let mut s = sim();
+    let placed = s.placed_nodes().to_vec();
+    let target = placed
+        .iter()
+        .filter(|n| n.kind == want)
+        .min_by(|a, b| a.pos.x.total_cmp(&b.pos.x))
+        .expect("a node of step 1's kind");
+    let other = placed
+        .iter()
+        .filter(|n| n.kind != want && (n.pos.x - target.pos.x).abs() <= 12.0)
+        .min_by(|a, b| a.pos.x.total_cmp(&b.pos.x))
+        .expect("another kind beside it");
+    // Stand nearer the other one.
+    let x = other.pos.x + (other.pos.x - target.pos.x).signum() * 2.0;
+    {
+        let c = s.crab_mut(P0).expect("crab");
+        c.mover.pos = Vec2::new(x, s_floor(&Level::test_level(), x));
+        c.mover.vel = Vec2::ZERO;
+    }
+    for _ in 0..30 {
+        s.tick();
+    }
+    s.set_controls(
+        P0,
+        crabsim::Controls {
+            gather_held: true,
+            ..Default::default()
+        },
+    );
+    for _ in 0..(120 * 8) {
+        s.tick();
+    }
+    assert!(
+        s.crab(P0).expect("crab").econ.guide.count > 0,
+        "the hold took the other kind"
+    );
+}
+
+fn s_floor(level: &Level, x: f32) -> f32 {
+    level.floor_height(x) + 1.0
 }

@@ -265,6 +265,9 @@ fn hint(kind: Kind) -> Option<&'static str> {
         Kind::Sixgill => Some(
             "The water swells: something big has turned your way.\nGet under coral, kelp or into a crevice before it comes.",
         ),
+        Kind::ShoreCrab => Some(
+            "A shore crab only pinches back once struck.\nDODGE the raised claw, then strike while it recovers.",
+        ),
         Kind::Fixture => None,
         // The bestiary's lanes write each hint; until then they run the plain tell and strike.
         Kind::LoggerheadTurtle
@@ -273,7 +276,6 @@ fn hint(kind: Kind) -> Option<&'static str> {
         | Kind::GoliathGrouper
         | Kind::Lobster
         | Kind::HermitCrab
-        | Kind::ShoreCrab
         | Kind::BobbitWorm
         | Kind::GiantIsopod
         | Kind::Hagfish

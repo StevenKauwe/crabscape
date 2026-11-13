@@ -12,7 +12,7 @@
 //!   chime) is `skill_juice.rs`, `puppet.rs` and `sound.rs`.
 //! - **A goal in hand**: the same card in amber, "GOAL READY", "go home and
 //!   make it".
-//! - The touch hint ("JUMP again in the water: swim") sits under them for the
+//! - The touch hint (wide touch screens only) sits under them for the
 //!   first seconds of play (`view.rs` writes it).
 //!
 //! Presentation only: it reads the sim's experience and the local crab's
@@ -624,7 +624,7 @@ mod tests {
         assert_eq!(card.title, first.title);
         assert_eq!(card.lines.len(), 1);
         assert!(
-            card.lines[0].starts_with("You get 2 kelp"),
+            card.lines[0].starts_with("You get 2 shell grit"),
             "{:?}",
             card.lines
         );
