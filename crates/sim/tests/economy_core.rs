@@ -28,8 +28,18 @@ fn every_node_is_in_its_depth_band_and_out_of_the_rock() {
     for (i, n) in placed.iter().enumerate() {
         let def = n.kind.def();
         let band = band_index(&level, n.pos);
+        // A sight's nodes take the tier of the upgrade that reaches it.
+        let sight = crabsim::economy::place::SIGHTS.iter().find(|(name, _)| {
+            level
+                .landmarks()
+                .iter()
+                .any(|m| m.name == *name && m.rect.contains(n.pos))
+        });
+        if let Some((name, tier)) = sight {
+            assert!(def.tier <= *tier, "node {i} {:?} in {name}", n.kind);
+        }
         assert!(
-            band + 1 >= usize::from(def.tier),
+            sight.is_some() || band + 1 >= usize::from(def.tier),
             "node {i} {:?} (tier {}) at {:?} lies in band {band}",
             n.kind,
             def.tier,
@@ -75,6 +85,32 @@ fn shallows_sites(kind: NodeKind) -> usize {
     }
 }
 
+/// The sights' nodes (`place::SIGHTS`): two twilight glows, a scallop bed
+/// and a shore glow.
+fn sights(kind: NodeKind) -> usize {
+    use NodeKind as K;
+    match kind {
+        K::TwilightGlow => 2,
+        K::ScallopBed | K::ShoreGlow => 1,
+        _ => 0,
+    }
+}
+
+#[test]
+fn the_sights_hold_their_nodes_on_their_ledges() {
+    use crabsim::level::shallows::SIGHT_SITES;
+    let level = Level::test_level();
+    let placed = nodes(&level);
+    for (place, _, at) in SIGHT_SITES {
+        let near = placed
+            .iter()
+            .map(|n| n.pos.distance(*at))
+            .min_by(f32::total_cmp)
+            .unwrap_or(f32::INFINITY);
+        assert!(near < 12.0, "{place} {at:?}: nearest node is {near} away");
+    }
+}
+
 #[test]
 fn the_shallows_sites_hold_their_nodes_on_the_ground() {
     use crabsim::level::shallows::SITES;
@@ -117,7 +153,8 @@ fn nodes_per_kind_follow_the_tiers() {
             NodeKind::GritHeap => 3,
             NodeKind::SeaPenField | NodeKind::ClamBed | NodeKind::ToothBed => 1,
             _ => 0,
-        } + shallows_sites(def.kind);
+        } + shallows_sites(def.kind)
+            + sights(def.kind);
         // The half-tier kinds (level 8) have three spots each.
         let half = def.tier == 1 && def.level == 8;
         let want = if half {
@@ -547,8 +584,8 @@ fn a_level_without_a_pocket_drops_its_nodes_and_keeps_the_rest() {
     // and trench hollow (rocks) theirs.
     assert_eq!(
         left.len(),
-        all - 51,
-        "the pockets' 12, the galleries' 3, the deep halls' 12, the shelves' 8, region 6's 7 and the shallows' 9 are gone"
+        all - 55,
+        "the pockets' 12, the galleries' 3, the deep halls' 12, the shelves' 8, region 6's 7 and the shallows' 9 and the sights' 4 are gone"
     );
     assert!(left.iter().all(|n| home_of(n.kind) != Some("bone hall")));
 }
