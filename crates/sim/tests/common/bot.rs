@@ -83,6 +83,11 @@ const STRETCH_SWITCH_SECS: f64 = 60.0;
 /// The home side: the snapping shrimps of the safe pockets.
 const SNAPPER_A: f32 = 340.0;
 const SNAPPER_B: f32 = 590.0;
+/// The row shrimp (`level::shallows`), just past the second pocket.
+const SNAPPER_C: f32 = 622.0;
+/// How near a shrimp's home is to the burrow it is named by (the row shrimp
+/// stands 32 from the second pocket's).
+const SNAPPER_NEAR: f32 = 16.0;
 /// The kelp stalk beside the door and the egg it reaches (kick off at this
 /// height, running right).
 const KELP_X: f32 = 280.0;
@@ -451,7 +456,7 @@ impl Bot {
         self.sim
             .enemies()
             .iter()
-            .filter(|e| e.kind == Kind::Snapper && (e.home.x - at).abs() < 60.0)
+            .filter(|e| e.kind == Kind::Snapper && (e.home.x - at).abs() < SNAPPER_NEAR)
             .any(|e| e.state != State::Gone)
     }
 
@@ -476,7 +481,7 @@ impl Bot {
                 .sim
                 .enemies()
                 .iter()
-                .filter(|e| e.kind == Kind::Snapper && (e.home.x - at).abs() < 60.0)
+                .filter(|e| e.kind == Kind::Snapper && (e.home.x - at).abs() < SNAPPER_NEAR)
                 .min_by(|a, b| (a.pos.x - at).abs().total_cmp(&(b.pos.x - at).abs()))
             else {
                 break;
@@ -527,8 +532,13 @@ impl Bot {
             .placed_nodes()
             .iter()
             .enumerate()
+            // The bot walks: the seabed's nodes, not the lookouts' or the
+            // boulder's (a climb or a jump up).
             .filter(|(i, n)| {
-                n.kind == kind && n.pos.x < POCKET_MAX_X && self.sim.shared.nodes[*i].charges > 0
+                n.kind == kind
+                    && n.pos.x < POCKET_MAX_X
+                    && (n.pos.y - self.sim.level.floor_height(n.pos.x)).abs() < 20.0
+                    && self.sim.shared.nodes[*i].charges > 0
             })
             .map(|(i, n)| (i, n.pos.x))
             .collect()
@@ -1059,7 +1069,7 @@ impl Bot {
         if focus.is_some() {
             return out;
         }
-        for at in [SNAPPER_A, SNAPPER_B] {
+        for at in [SNAPPER_A, SNAPPER_B, SNAPPER_C] {
             if self.snapper_up(at) {
                 out.push(Candidate {
                     label: "fight snapping shrimp".to_string(),
@@ -1114,6 +1124,10 @@ impl Bot {
                 self.leave_home();
                 if at > SNAPPER_A && self.snapper_up(SNAPPER_A) {
                     self.fight(SNAPPER_A);
+                }
+                if at > SNAPPER_B && !self.dead() && self.snapper_up(SNAPPER_B) {
+                    self.walk_to(SNAPPER_B - 190.0, 4.0);
+                    self.fight(SNAPPER_B);
                 }
                 if !self.dead() && self.snapper_up(at) {
                     self.walk_to(at - 190.0, 4.0);

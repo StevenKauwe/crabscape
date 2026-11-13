@@ -65,7 +65,13 @@ impl Bot {
             .placed_nodes()
             .iter()
             .enumerate()
-            .filter(|(_, n)| wanted.contains(&n.kind) && n.pos.x < FOOT_X)
+            // This bot only walks: the seabed's nodes, not the lookout's
+            // (700 up the kelp stand) or the boulder's.
+            .filter(|(_, n)| {
+                wanted.contains(&n.kind)
+                    && n.pos.x < FOOT_X
+                    && (n.pos.y - sim.level.floor_height(n.pos.x)).abs() < 20.0
+            })
             .map(|(i, _)| i)
             .collect();
         Bot { sim, skill, kinds }

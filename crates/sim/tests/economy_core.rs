@@ -59,6 +59,42 @@ fn every_node_is_in_its_depth_band_and_out_of_the_rock() {
     }
 }
 
+/// How many of the shallows' sites (`level::shallows::SITES`) add a node of
+/// `kind`: every site but the ones a home-side or far-ledge spot already
+/// covers (same kind, within 25 units, on the same floor).
+fn shallows_sites(kind: NodeKind) -> usize {
+    use NodeKind as K;
+    match kind {
+        K::KelpStand => 2,
+        K::MusselClump => 4,
+        K::SnailRocks => 5,
+        K::GritHeap => 3,
+        K::ShoreGlow => 3,
+        K::ClamBed | K::ClayBank | K::WormMud => 1,
+        _ => 0,
+    }
+}
+
+#[test]
+fn the_shallows_sites_hold_their_nodes_on_the_ground() {
+    use crabsim::level::shallows::SITES;
+    let level = Level::test_level();
+    let placed = nodes(&level);
+    for (place, kind, at) in SITES {
+        let near = placed
+            .iter()
+            .filter(|n| format!("{:?}", n.kind) == *kind)
+            .map(|n| n.pos.distance(*at))
+            .min_by(f32::total_cmp)
+            .unwrap_or(f32::INFINITY);
+        // A covered site's node is the old spot beside it (within 25).
+        assert!(
+            near < 30.0,
+            "{kind} at {place}: nearest is {near} from {at:?}"
+        );
+    }
+}
+
 #[test]
 fn nodes_per_kind_follow_the_tiers() {
     let level = Level::test_level();
@@ -81,7 +117,7 @@ fn nodes_per_kind_follow_the_tiers() {
             NodeKind::GritHeap => 3,
             NodeKind::SeaPenField | NodeKind::ClamBed | NodeKind::ToothBed => 1,
             _ => 0,
-        };
+        } + shallows_sites(def.kind);
         // The half-tier kinds (level 8) have three spots each.
         let half = def.tier == 1 && def.level == 8;
         let want = if half {
@@ -507,11 +543,12 @@ fn a_level_without_a_pocket_drops_its_nodes_and_keeps_the_rest() {
     // The Silt and Deep Galleries and region 5's shelves go with the rocks
     // too (their roofs and tops are rocks), and with them the three glass
     // gardens, the halls' twelve and the shelves' eight; region 6's caves and
-    // reef (rocks too) take their seven.
+    // reef (rocks too) take their seven, and the shallows' lookouts, boulder
+    // and trench hollow (rocks) theirs.
     assert_eq!(
         left.len(),
-        all - 42,
-        "the pockets' 12, the galleries' 3, the deep halls' 12, the shelves' 8 and region 6's 7 are gone"
+        all - 51,
+        "the pockets' 12, the galleries' 3, the deep halls' 12, the shelves' 8, region 6's 7 and the shallows' 9 are gone"
     );
     assert!(left.iter().all(|n| home_of(n.kind) != Some("bone hall")));
 }
