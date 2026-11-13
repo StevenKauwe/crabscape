@@ -43,13 +43,16 @@ pub fn save_periodically(
     // replace a good save with a position startup would refuse; try again
     // when the body is in a valid spot.
     if !crate::player::valid_saved_spot(mover.pos, mover.grown(&sim.tuning), &sim) {
+        super::browser::hold(Some("shown-spot"));
         return;
     }
     if let Some(live) = sim.crab(*id)
         && !crate::player::valid_saved_spot(live.mover.pos, live.mover.grown(&sim.tuning), &sim)
     {
+        super::browser::hold(Some("live-spot"));
         return;
     }
+    super::browser::hold(None);
     let Some(generation) = super::browser::reserve_save(time.delta_secs()) else {
         return;
     };
