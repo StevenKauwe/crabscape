@@ -11,6 +11,7 @@ of them on `art/creatures/bestiary-contact-sheet.png`. World and food web: `../u
 | [Queen triggerfish](queen-triggerfish.md) | Tank + ranged | Reef and sand | Hovers nose-down over you, spine up |
 | [Common octopus](common-octopus.md) | Boss | Rocky shallows, its den | Rises and spreads its web |
 | [Alarm jelly](alarm-jelly.md) | Hazard | Midnight zone | None: a red shape on black and a drifting tentacle |
+| [Shore crab](shore-crab.md) (juvenile green crab) | Passive roamer: never starts a fight | Shallows, on the gather route | Raises and spreads both claws (0.3 s), then a long recovery to punish |
 
 ## Sizes at crab scale (drawn, hit and real on the same measure)
 Each animal is measured the way its research measures it: our crab's 12 cm is a carapace *width*, most fish are a
@@ -48,6 +49,7 @@ or a hurtbox stops fitting its drawing; `crates/sim/tests/creatures.rs` checks e
 | American lobster | body length, claws and feelers extra | 20.0-61.0: commonly 20-61 cm [WP]; about 25 cm caught [ADW] | 30.0 cm (188) | 30.4 cm (190) |
 | Red hermit crab | length, shell and the crab out of it | 10.0-12.0: about 10, up to 12 cm (Wikipedia; Oldenburg Giglio guide) | 10.0 cm (62) | - |
 | Red hermit crab | shell and head (its hurtbox) | 6.0-10.0: the above without the claws and legs (not verified) | 8.9 cm (56) | 7.5 cm (47) |
+| Shore crab (juvenile green crab) | carapace width | 2.0-9.0: juveniles to adults of about 9 cm across (not verified) | 4.2 cm (26), a stand-in of shapes | 4.2 cm (26) |
 | Bobbit worm | body width | 1.0-2.5: the 299 cm record was 25.5 mm wide [WP-EA] | 2.5 cm (16) | 2.6 cm (16) |
 | Giant isopod | body length, feelers extra | 19.0-36.0: typically 19-36 cm [WIKI-GI] | 30.8 cm (193) | 30.4 cm (190) |
 | Pacific hagfish (a knot of six) | the knot's width (each fish 30-63.5 cm, coiled) | 15.0-35.0: fish 30-63.5 cm [ADW]; the knot's size not verified | 30.1 cm (188) | 24.0 cm (150) |

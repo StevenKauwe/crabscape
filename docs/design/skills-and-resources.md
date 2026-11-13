@@ -658,25 +658,25 @@ The owner's ask: levels 1 to 15 in **all 13 skills** must be a joy for a brand-n
 
 | # | Skill | Step (where) | Done when | Reward | Minute (bot) |
 |---|---|---|---|---|---|
-| 1 | Prying | Pry mussels from the home rocks (rock pocket past the door) | 8 mussel gathers | 2 kelp | 0.8 |
-| 2 | Harvesting | Cut kelp from the stands (home pockets) | 6 kelp gathers | 2 grit | 1.3 |
-| 3 | Excavating | Scoop grit from the heaps (home pockets) | 8 grit gathers | 2 valves | 1.9 |
-| 4 | Foraging | Forage snails from the rocks (far home pocket) | 8 snail gathers | 2 mussels | 2.4 |
-| 5 | Culturing | Gather shore-glow (pocket rocks) | 12 shore-glow gathers | 4 kelp | 3.8 |
-| 6 | Weaving | Twist kelp into cord (workbench) | make kelp cord x4 | 2 mussels | 4.3 |
-| 7 | Cooking | Shuck and cook mussels (workbench) | make shucked mussels x3 | 2 valves, 1 grit | 5.0 |
-| 8 | Shellcraft | Cut a shell blank (workbench) | make a shell blank | 1 kelp cord | 5.2 |
-| 9 | Shellcraft | Make a shell pry tip (workbench) | make a shell pry tip | 4 grit | 5.3 |
-| 10 | Building | Build grit into the home (workbench) | Building level 2 | 4 valves | 5.8 |
-| 11 | Building | Build the valve step (Home tab) | valve step built | 10 Climbing XP | 6.2 |
-| 12 | Climbing | Climb the kelp stalk beside the door | Climbing level 2 | 10 Swimming XP | 6.5 |
-| 13 | Swimming | Paddle a stroke or two (eat the egg first) | Swimming level 2 | 10 Fighting XP | 8.6 |
-| 14 | Fighting | Beat a snapping shrimp (home pockets) | a snapper beaten | 2 mussels | 10.7 |
-| 15 | Survival | Dive into the basin (down the trench) | basin band or deeper | 10 Survival XP | 11.6 |
-| 16 | Survival | Weather the twilight (canyon walls) | Survival level 2 | 2 kelp | 12.3 |
-| 17 | Building | Pick a want (Goals tab) | a want pinned | nothing | 15.0 |
+| 1 | Harvesting | Cut kelp by the door (the home pocket) | 6 kelp gathers | 2 grit | 0.6 |
+| 2 | Foraging | Forage snails by the door (the home pocket) | 8 snail gathers | 2 mussels | 1.2 |
+| 3 | Prying | Pry mussels past the shrimp (the second pocket) | 8 mussel gathers | 2 kelp | 1.7 |
+| 4 | Excavating | Scoop grit from the heaps (the second pocket) | 8 grit gathers | 2 valves | 2.2 |
+| 5 | Culturing | Gather shore-glow (either pocket) | 12 shore-glow gathers | 4 kelp | 3.6 |
+| 6 | Weaving | Twist kelp into cord (workbench) | make kelp cord x4 | 2 mussels | 4.1 |
+| 7 | Cooking | Shuck and cook mussels (workbench) | make shucked mussels x3 | 2 valves, 1 grit | 4.7 |
+| 8 | Shellcraft | Cut a shell blank (workbench) | make a shell blank | 1 kelp cord | 5.0 |
+| 9 | Shellcraft | Make a shell pry tip (workbench) | make a shell pry tip | 4 grit | 5.1 |
+| 10 | Building | Build grit into the home (workbench) | Building level 2 | 4 valves | 5.6 |
+| 11 | Building | Build the valve step (Home tab) | valve step built | 10 Climbing XP | 5.9 |
+| 12 | Climbing | Climb the kelp stalk beside the door | Climbing level 2 | 10 Swimming XP | 6.3 |
+| 13 | Swimming | Paddle a stroke or two (eat the egg first) | Swimming level 2 | 10 Fighting XP | 8.4 |
+| 14 | Fighting | Beat a snapping shrimp (home pockets) | a snapper beaten | 2 mussels | 10.5 |
+| 15 | Survival | Dive into the basin (down the trench) | basin band or deeper | 10 Survival XP | 11.3 |
+| 16 | Survival | Weather the twilight (canyon walls) | Survival level 2 | 2 kelp | 12.1 |
+| 17 | Building | Pick a want (Goals tab) | a want pinned | nothing | 14.8 |
 
-The bot follows the guide on real ticks (`first_hours.rs`, `a_crab_following_the_guide_finishes_it_within_an_hour`): it finishes all 17 steps at minute 15.0 (the target is inside 60), and every one of the 13 skills has gained a level by then (levels at the end: Climbing 11, Swimming 9, Fighting 7, the rest 2 to 4). Re-measure with `cargo test -p crabsim --test first_hours measure_the_guide -- --ignored --nocapture`. The Fighting step is skipped silently by a crab that has already reached Fighting 6 (the snapping shrimps stand on the way to the second pocket); the bot reaches the step first.
+The bot follows the guide on real ticks (`first_hours.rs`, `a_crab_following_the_guide_finishes_it_within_an_hour`): it finishes all 17 steps at minute 14.8 (the target is inside 60), and every one of the 13 skills has gained a level by then (levels at the end: Climbing 11, Swimming 9, Fighting 7, the rest 2 to 4). Re-measure with `cargo test -p crabsim --test first_hours measure_the_guide -- --ignored --nocapture`. The Fighting step is skipped silently by a crab that has already reached Fighting 6 (the snapping shrimps stand on the way to the second pocket); the bot reaches the step first.
 
 7. **Fighting near home.** The first-hour world adds a few weak creatures near home. That is the world lane's part; this lane owns the XP and the ladder lines.
 

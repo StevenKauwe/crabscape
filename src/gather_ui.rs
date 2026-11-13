@@ -33,32 +33,36 @@ const EMPTY: Color = Color::srgba(0.05, 0.12, 0.14, 0.55);
 const PROMPT: Color = Color::srgba(0.96, 0.91, 0.82, 0.92);
 const WHY: Color = Color::srgba(0.85, 0.92, 0.95, 0.8);
 
-/// The nearest node of the local crab that is within reach (a ready one
-/// first, as the rules choose), and whether it has charges.
+/// The node the local crab's hold would work, within reach: as the rules
+/// choose (`Sim`'s gather takes the nearest node it can work), a workable
+/// node with charges first, then any with charges, then the nearest; and
+/// whether it has charges. So a new crab beside a level-8 node and a level-1
+/// one is offered the one it can gather, not "Foraging 8".
 pub fn in_reach(sim: &Sim, id: crabsim::PlayerId) -> Option<(usize, bool)> {
     let crab = sim.crab(id).filter(|c| c.fighter.dead.is_none())?;
-    let mut best: Option<(usize, bool, f32)> = None;
+    let mut best: Option<(usize, bool, bool, f32)> = None;
     for (i, p) in sim.placed_nodes().iter().enumerate() {
         let d = p.pos.distance(crab.mover.pos);
         if d > gather::REACH {
             continue;
         }
         let ready = sim.shared.nodes.get(i).is_some_and(|n| n.charges > 0);
+        let workable = ready && gather::check(crab, p.kind, &sim.tuning).is_ok();
         let better = match best {
             None => true,
-            Some((_, was, far)) => (ready, -d) > (was, -far),
+            Some((_, was_ok, was, far)) => (workable, ready, -d) > (was_ok, was, -far),
         };
         if better {
-            best = Some((i, ready, d));
+            best = Some((i, workable, ready, d));
         }
     }
-    best.map(|(i, ready, _)| (i, ready))
+    best.map(|(i, _, ready, _)| (i, ready))
 }
 
 /// The words for a refused hold.
 pub fn why_not(why: GatherBlocked) -> String {
     match why {
-        GatherBlocked::Level(skill, level) => format!("{} {level}", skill.name()),
+        GatherBlocked::Level(skill, level) => format!("Opens at {} {level}", skill.name()),
         GatherBlocked::Tool(kind, tier) => {
             let material = TOOL_MATERIALS
                 .get(usize::from(tier))
@@ -197,7 +201,7 @@ mod tests {
     fn the_reasons_read_as_the_spec_says() {
         assert_eq!(
             why_not(GatherBlocked::Level(Skill::Prying, 15)),
-            "Prying 15"
+            "Opens at Prying 15"
         );
         assert_eq!(
             why_not(GatherBlocked::Tool(ToolKind::Pry, 1)),
