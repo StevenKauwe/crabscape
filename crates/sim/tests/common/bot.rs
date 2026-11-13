@@ -95,6 +95,8 @@ const FAR_FIGHT_X: f32 = 2170.0;
 /// The shore crab on the slope past the second pocket (`shallows::SHORE_CRABS`):
 /// it roams x 680 to 920 and never starts a fight, so the bot strikes first.
 const SHORE_HOME: f32 = 800.0;
+/// The pocket shore crab (`level::shallows`), where the door's shrimp stood.
+const SHORE_POCKET: f32 = 400.0;
 /// How near a shrimp's home is to the burrow it is named by (the row shrimp
 /// stands 32 from the second pocket's, the block shrimp 14 from the far
 /// ledge's).
@@ -154,7 +156,7 @@ enum Session {
     /// The far ledge's two shrimp, a stated trip over the trench.
     FarFight,
     /// The shore crab on the slope.
-    ShoreFight,
+    ShoreFight(f32),
     Climb,
     Swim,
     Survive,
@@ -455,14 +457,18 @@ impl Bot {
             self.fight(SNAPPER_B);
             return true;
         }
+        // The pocket shore crab is passive, so a crab walking past it stops for a scrap, as a player would.
+        let past_pocket = (from < SHORE_POCKET) != (to_x < SHORE_POCKET);
+        if past_pocket && self.shore_crab_up(SHORE_POCKET) {
+            self.fight(SHORE_POCKET);
+            return true;
+        }
         false
     }
 
-    fn shore_crab_up(&self) -> bool {
+    fn shore_crab_up(&self, home: f32) -> bool {
         self.sim.enemies().iter().any(|e| {
-            e.kind == Kind::ShoreCrab
-                && (e.home.x - SHORE_HOME).abs() < 1.0
-                && e.state != State::Gone
+            e.kind == Kind::ShoreCrab && (e.home.x - home).abs() < 1.0 && e.state != State::Gone
         })
     }
 
@@ -1135,11 +1141,15 @@ impl Bot {
             .into_iter()
             .find(|&at| self.snapper_up(at));
         let far = self.snapper_up(SNAPPER_FAR) || self.snapper_up(SNAPPER_BLOCK);
-        if self.shore_crab_up() {
-            // The shore crab on the slope: a quick fight on the way out.
+        let shore = [SHORE_POCKET, SHORE_HOME]
+            .into_iter()
+            .find(|&at| self.shore_crab_up(at));
+        if let Some(at) = shore {
+            // A shore crab, in the first pocket or on the slope: a quick
+            // fight on the way out.
             out.push(Candidate {
                 label: "fight the shore crab".to_string(),
-                kind: Session::ShoreFight,
+                kind: Session::ShoreFight(at),
                 serves: vec![Skill::Fighting],
             });
         } else if far && home.is_none() {
@@ -1213,19 +1223,19 @@ impl Bot {
                 self.go_home();
             }
             Session::FarFight => self.far_fight_session(),
-            Session::ShoreFight => {
+            Session::ShoreFight(home) => {
                 self.tag(None);
                 self.leave_home();
-                // Past the pockets' shrimp (fighting each that is up), then to
-                // the crab wherever it roams.
-                for at in [SNAPPER_A, SNAPPER_B, SNAPPER_C] {
-                    if !self.dead() && self.snapper_up(at) {
+                // Past the pockets' shrimp on the way (fighting each that is
+                // up), then to the crab wherever it roams.
+                for at in [SNAPPER_B, SNAPPER_C] {
+                    if at < home && !self.dead() && self.snapper_up(at) {
                         self.walk_to(at - 190.0, 4.0);
                         self.fight(at);
                     }
                 }
-                if !self.dead() && self.shore_crab_up() {
-                    self.fight(SHORE_HOME);
+                if !self.dead() && self.shore_crab_up(home) {
+                    self.fight(home);
                 }
                 self.go_home();
             }
