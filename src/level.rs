@@ -154,7 +154,7 @@ pub const ROCK: Color = Color::srgb(0.06, 0.10, 0.11);
 // alpha (a tile layer's number plus one, in tenths; an alpha of 1 is a plain colour). The colour's red, green and
 // blue are unused there, so every painted shape of one material shares one material.
 const SAND_PAINTED: Color = Color::srgba(0.0, 0.0, 0.0, 0.1);
-const ROCK_PAINTED: Color = Color::srgba(0.0, 0.0, 0.0, 0.6);
+pub(crate) const ROCK_PAINTED: Color = Color::srgba(0.0, 0.0, 0.0, 0.6);
 // Kelp and coral: a little lighter than the rock, so the lantern finds
 // them. Kelp olive-brown with paler floats; the deep coral pale as bone,
 // with orange polyps, so the two never look like one plant.
@@ -521,7 +521,7 @@ fn strip_mesh(strips: &[(f32, f32, f32)], height: f32, bottom: f32) -> Mesh {
 }
 
 /// A plain rectangle that never shows an edge: its distance to a painted rim reads as far away.
-fn wall_mesh(size: Vec2) -> Mesh {
+pub(crate) fn wall_mesh(size: Vec2) -> Mesh {
     let (w, h) = (size.x * 0.5, size.y * 0.5);
     Mesh::new(
         PrimitiveTopology::TriangleList,

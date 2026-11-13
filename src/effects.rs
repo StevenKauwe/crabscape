@@ -158,7 +158,7 @@ pub(crate) fn radial_image(size: u32, alpha: impl Fn(f32) -> f32) -> Image {
 
 /// Runs before everything else at startup (`PreStartup`), because the
 /// lantern needs these pictures.
-fn make_textures(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
+pub(crate) fn make_textures(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     // Bright core, fast fall-off, fading to exactly nothing at the edge.
     let dot = radial_image(64, |r| (-5.0 * r * r).exp() * (1.0 - r * r));
     let ring = radial_image(32, |r| {

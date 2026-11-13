@@ -91,6 +91,7 @@ mod creatures;
 mod crevices;
 mod critters;
 mod deep;
+mod descent;
 mod effects;
 mod eggs;
 mod ending;
@@ -252,6 +253,7 @@ fn run_app() {
     .add_plugins(alarm_jelly::AlarmJellyPlugin)
     .add_plugins((home_pieces::HomePiecesPlugin, wants_ui::WantsUiPlugin))
     .add_plugins(bone_hall::BoneHallPlugin)
+    .add_plugins(descent::DescentPlugin)
     .add_plugins((
         critters::CrittersPlugin,
         deep::DeepPlugin,

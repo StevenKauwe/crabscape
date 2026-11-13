@@ -201,6 +201,14 @@ fine. Keep a timer running and jot the minute you reach each block, along with a
 | 13–15 (step 17) | Home, open the Goals tab and pin a want. | The guide ends there. Is there one clear thing to do next, or a list that's too long? |
 | 15–20 | Free play: do whatever the pinned want asks, or try the far ledge past the trench (two more shrimp at x 2,060 and 2,074) and the kelp ledges there. | Whether you still know what to do without the guide, and how long it is between level-ups now. |
 
+### First descent (a crab of about level 15, after the guide)
+1. From the shelf at x about 1,230, look east and down: does the rock gate and its cool glow read as a door?
+2. Drop through the mouth and walk to the "silt mouth rest" by the trench floor: is the cairn and warm glow easy to spot?
+3. Land at the shaft's foot: the light should change (a dark back wall east, cool specks, open sea behind you to the west).
+4. Look east through sponge door 1: can you see the pale glow of sponge 1 and the glass garden before you reach them?
+5. Take the sponge, then walk west and climb the plug shaft (rest on its ledge) and dig the plug open from below.
+6. Notice the light pouring down the shaft, the grit and the rock's grumble; from the shelf the open plug is a dark hole with a stone rim.
+
 Try the **Skip guide** button once (Goals tab), then turn the guide back on. It should resume at the first step you
 haven't done.
 
