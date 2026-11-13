@@ -12,9 +12,7 @@ fn bestiary() -> Vec<Kind> {
         .filter(|k| {
             !matches!(
                 k,
-                // The shore crab is the world lead's to place (its `spots` are
-                // empty for now); `tests/shore_crab.rs` covers it.
-                Kind::Fixture | Kind::Mantis | Kind::Snapper | Kind::Moray | Kind::ShoreCrab
+                Kind::Fixture | Kind::Mantis | Kind::Snapper | Kind::Moray
             )
         })
         .filter(|k| creatures::tuning(*k).is_some())
@@ -22,8 +20,8 @@ fn bestiary() -> Vec<Kind> {
 }
 
 #[test]
-fn ten_new_kinds_are_listed() {
-    assert_eq!(bestiary().len(), 10);
+fn eleven_new_kinds_are_listed() {
+    assert_eq!(bestiary().len(), 11);
 }
 
 #[test]
