@@ -138,7 +138,11 @@ fn changed_material_cells(before: &World, after: &World) -> usize {
     changed
 }
 
-// Lightweight test-only inspection; production compression/paging stays Rust.
+// Lightweight test-only inspection: one read-only transaction returns the
+// committed head and the player record it names. Rust decodes both with the
+// production codecs, so a head layout change cannot silently turn the tick
+// into garbage (an ad-hoc JS varint parse did, once `canyon_hash` was added
+// in front of `tick`, and let the large-save wait pass before any new tick).
 const READ_PLAYER: &str = r#"await new Promise((resolve,reject)=>{
  const opening=indexedDB.open('crabscape.cells',1);opening.onerror=()=>reject(String(opening.error));
  opening.onsuccess=()=>{
@@ -147,16 +151,43 @@ const READ_PLAYER: &str = r#"await new Promise((resolve,reject)=>{
   epoch.onsuccess=()=>{const bytes=epoch.result;const n=bytes?new DataView(bytes.buffer,bytes.byteOffset,8).getBigUint64(0,true):0n;
    player=store.get([n.toString().padStart(20,'0'),'player',0,0,'00000000000000000000']);};
   tx.onabort=()=>{db.close();reject(String(tx.error));};
-  tx.oncomplete=async()=>{db.close();try {
+  tx.oncomplete=()=>{db.close();
    const raw=head.result,data=player&&player.result;
-   if(!(raw instanceof Uint8Array)||new TextDecoder().decode(raw.subarray(0,8))!=='CRABSP05'||!(data instanceof Uint8Array)){resolve(null);return;}
-   let at=8;const number=()=>{let n=0n,shift=0n;for(;;){const byte=raw[at++];n|=BigInt(byte&127)<<shift;if(!(byte&128))return Number(n);shift+=7n;}};
-   number();number();const tick=number();
-   const stream=new Blob([data.subarray(40)]).stream().pipeThrough(new DecompressionStream('deflate'));
-   resolve({tick,player:JSON.parse(await new Response(stream).text())});
-  }catch(error){reject(String(error));}};
+   if(!(raw instanceof Uint8Array)||!(data instanceof Uint8Array)){resolve(null);return;}
+   const encode=bytes=>{const pieces=[];for(let i=0;i<bytes.length;i+=32768)pieces.push(String.fromCharCode(...bytes.subarray(i,i+32768)));return btoa(pieces.join(''));};
+   resolve({head:encode(raw),player:encode(data)});};
  };
 })"#;
+
+/// A committed spatial save as the game published it: its head and the
+/// player record authenticated against that head's revision.
+struct Committed {
+    head: crabsim::cell_codec::spatial::SpatialHead,
+    player: Value,
+}
+
+fn committed_from(value: &Value) -> Result<Option<Committed>> {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    use crabsim::cell_codec::spatial::{SPATIAL_MAGIC, SpatialHead, decode_record};
+    if value.is_null() {
+        return Ok(None);
+    }
+    let bytes = |field: &str| -> Result<Vec<u8>> {
+        STANDARD
+            .decode(value[field].as_str().ok_or("missing committed field")?)
+            .map_err(|e| e.to_string())
+    };
+    let raw = bytes("head")?;
+    if !raw.starts_with(SPATIAL_MAGIC) {
+        return Ok(None);
+    }
+    let head: SpatialHead =
+        postcard::from_bytes(&raw[SPATIAL_MAGIC.len()..]).map_err(|e| format!("head: {e}"))?;
+    let player = decode_record(&bytes("player")?, head.revision, 4 * 1024 * 1024)
+        .map_err(|e| format!("player record does not belong to its head: {e:?}"))?;
+    let player = serde_json::from_slice(&player).map_err(|e| e.to_string())?;
+    Ok(Some(Committed { head, player }))
+}
 
 fn preserved_normal_save() -> crabsim::SaveData {
     crabsim::SaveData {
@@ -193,6 +224,22 @@ impl Test<'_> {
         })"#,
         )?;
         Ok(exists == Value::Bool(true))
+    }
+
+    fn committed(&self) -> Result<Option<Committed>> {
+        committed_from(&self.eval(READ_PLAYER)?)
+    }
+
+    /// Poll the committed save (not a timer) until `done` accepts it.
+    fn wait_for_commit(&self, seconds: f64, done: impl Fn(&Committed) -> bool) -> Result<bool> {
+        let end = std::time::Instant::now() + std::time::Duration::from_secs_f64(seconds);
+        while std::time::Instant::now() < end {
+            if self.committed()?.as_ref().is_some_and(&done) {
+                return Ok(true);
+            }
+            crate::pump(0.25);
+        }
+        Ok(false)
     }
 
     fn cellular_record(&self) -> Result<Option<Vec<u8>>> {
@@ -295,17 +342,10 @@ impl Test<'_> {
         }
         // An earlier autosave may have committed while the slow browser was
         // still walking. Wait specifically for a committed post-dig position.
-        let newer = self.wait_for(
-            &format!(
-                r#"await (async () => {{
-          const record = {READ_PLAYER};
-          if (!record) return false;
-          const player = record.player;
-          return player.x > 405 && player.y < -12;
-        }})()"#
-            ),
-            60.0,
-        )?;
+        let newer = self.wait_for_commit(60.0, |saved| {
+            saved.player["x"].as_f64().is_some_and(|x| x > 405.0)
+                && saved.player["y"].as_f64().is_some_and(|y| y < -12.0)
+        })?;
         self.check(
             newer,
             "the running game commits a newer cellular autosave through its real worker",
@@ -467,11 +507,7 @@ impl Test<'_> {
         }
         let restarted = self.open("index.html?cells")?;
         let fresh_session = restarted && self.attr("data-cell-save")?.as_deref() == Some("fresh");
-        let saved_again = fresh_session
-            && self.wait_for(
-                &format!("await (async () => ({READ_PLAYER}) !== null)()"),
-                60.0,
-            )?;
+        let saved_again = fresh_session && self.wait_for_commit(60.0, |_| true)?;
         self.check(
             saved_again,
             "a newly loaded cellular session saves after a cross-tab reset",
@@ -520,10 +556,13 @@ impl Test<'_> {
         if !recovered {
             return Ok(());
         }
-        let saved = self.wait_for(&format!(
-            "await (async () => {{ const r = {READ_PLAYER}; return !!r && r.tick > 17 && r.player.progress?.swim_xp === 0 && r.player.progress?.eaten.length === {}; }})()",
-            initial.fresh_progress().eaten.len()
-        ), 60.0)?;
+        let eaten = initial.fresh_progress().eaten.len();
+        let saved = self.wait_for_commit(60.0, |saved| {
+            let progress = &saved.player["progress"];
+            saved.head.tick > 17
+                && progress["swim_xp"].as_f64() == Some(0.0)
+                && progress["eaten"].as_array().map(Vec::len) == Some(eaten)
+        })?;
         self.check(
             saved,
             "reset crab autosaves compatible fresh progress through the real worker",
@@ -552,9 +591,20 @@ impl Test<'_> {
         println!("     committed large cellular fixture; opening game");
         let started = self.open("index.html?cells")?;
         let loaded = started && self.attr("data-cell-save")?.as_deref() == Some("loaded");
-        let saved_large = loaded && self.wait_for(&format!(
-            "await (async () => {{ const r = {READ_PLAYER}; return !!r && r.tick > 17; }})()"
-        ), 180.0)?;
+        // The first save after load may be a paging flush at the restored
+        // tick 17. Wait for a commit the running simulation produced.
+        let first = std::cell::Cell::new(None);
+        let saved_large = loaded
+            && self.wait_for_commit(180.0, |saved| {
+                let at = (saved.head.revision, saved.head.tick);
+                if saved.head.revision > 1 && first.get().is_none() {
+                    first.set(Some(at));
+                }
+                saved.head.tick > 17
+            })?;
+        if let Some((revision, tick)) = first.get() {
+            println!("     first game commit after load: revision {revision}, tick {tick}");
+        }
         self.check(
             saved_large,
             "a world larger than the former browser limit loads and autosaves",
@@ -564,7 +614,8 @@ impl Test<'_> {
                 "large world diagnostics: loaded={loaded}, save={:?}, autosave={:?}, player={:?}, page={:?}",
                 self.attr("data-cell-save")?,
                 self.attr("data-cell-autosave")?,
-                self.eval(READ_PLAYER)?,
+                self.committed()?
+                    .map(|saved| (saved.head.revision, saved.head.tick, saved.player)),
                 self.eval("document.body.innerText")?
             );
             return Ok(());
@@ -599,6 +650,43 @@ impl Test<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn committed_reader_decodes_the_tick_behind_a_published_canyon_hash() {
+        use base64::{Engine, engine::general_purpose::STANDARD};
+        use crabsim::cell_codec::spatial::{SPATIAL_MAGIC, SpatialHead, encode_record};
+        // The old JS parse read three varints after the magic: here the
+        // Option tag (1), hash byte 5, and hash byte 64 as "tick 64", so the
+        // large-save wait passed on a flush committed at the restored tick 17.
+        let mut hash = [0; 32];
+        hash[..2].copy_from_slice(&[5, 64]);
+        let head = SpatialHead {
+            canyon_hash: Some(hash),
+            epoch: 0,
+            revision: 4,
+            tick: 17,
+            cols: 3,
+            rows: 2,
+        };
+        let mut raw = SPATIAL_MAGIC.to_vec();
+        raw.extend(postcard::to_allocvec(&head).unwrap());
+        let player = br#"{"x":400.0}"#;
+        let packed = miniz_oxide::deflate::compress_to_vec_zlib(player, 6);
+        let value = |written| {
+            serde_json::json!({
+                "head": STANDARD.encode(&raw),
+                "player": STANDARD.encode(encode_record(player, &packed, written)),
+            })
+        };
+        let saved = committed_from(&value(4)).unwrap().unwrap();
+        assert_eq!((saved.head.revision, saved.head.tick), (4, 17));
+        assert_eq!(saved.player["x"], 400.0);
+        assert!(
+            committed_from(&value(5)).is_err(),
+            "a player record newer than its head is not that head's save"
+        );
+        assert!(committed_from(&Value::Null).unwrap().is_none());
+    }
 
     #[test]
     fn preserved_normal_fixture_has_a_current_valid_restore_position() {
