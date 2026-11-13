@@ -252,6 +252,13 @@ fn prove(level: &Level, pockets: &[Pocket], c: &Complex, ducts: bool) -> Report 
         .landmarks()
         .into_iter()
         .filter(|l| matches!(l.kind, crabsim::level::landmarks::Kind::Frame))
+        // Open ground that is only named (the shrimp row, the shelf...) is not
+        // a sealed frame.
+        .filter(|l| {
+            !crabsim::level::shallows::GROUND
+                .iter()
+                .any(|(n, _)| *n == l.name)
+        })
         .map(|l| l.rect)
         .collect();
     let doors: Vec<Rect> = c

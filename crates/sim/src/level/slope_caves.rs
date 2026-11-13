@@ -519,13 +519,9 @@ pub const NODE_SITES: [(&str, &str, Vec2); 7] = [
         "GritHeap",
         Vec2::new(14420.0, LINE_FLOOR + 6.0),
     ),
-    ("reef west bay", "BambooCoral", Vec2::new(12500.0, -8594.0)),
-    (
-        "reef great hall",
-        "BambooCoral",
-        Vec2::new(13850.0, -8594.0),
-    ),
-    ("reef east bay", "BambooCoral", Vec2::new(14550.0, -8194.0)),
+    ("reef west bay", "BlackCoral", Vec2::new(12500.0, -8594.0)),
+    ("reef great hall", "BlackCoral", Vec2::new(13850.0, -8594.0)),
+    ("reef east bay", "BlackCoral", Vec2::new(14550.0, -8194.0)),
 ];
 
 /// The places of the slope caves, for `Level::landmarks`.

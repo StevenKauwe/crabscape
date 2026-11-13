@@ -214,6 +214,14 @@ fn exact_bed(name: &str) -> Option<Declared> {
         | "silt mouth rest"
         | "moray hall door rest"
         | "plug shaft ledge"
+        // The shallows (`level/shallows.rs`).
+        | "shrimp row"
+        | "the shelf"
+        | "the trench"
+        | "far ledge"
+        | "the crest"
+        | "the lookout"
+        | "trench hollow"
         // The Drop and the Deep Galleries (`level/deep_galleries.rs`).
         | "drop approach"
         | "drop shaft"

@@ -2582,7 +2582,8 @@ mod tests {
         assert!(m.grounded && m.pos.x > 820.0, "on the plateau: {}", m.pos);
         // Down the far slope: grounded the whole way.
         let mut m = Mover::new(Vec2::new(2050.0, level.floor_height(2050.0)));
-        for _ in 0..120 {
+        // (A hundred steps ends at x 2,280, before the ledge pool at x 2,290.)
+        for _ in 0..100 {
             run(
                 &mut m,
                 Controls {

@@ -286,6 +286,7 @@ pub(super) fn existing_level(level: &Level) -> Vec<Landmark> {
     landmarks.extend(super::silt_galleries::landmarks(level));
     landmarks.extend(super::deep_galleries::landmarks(level));
     landmarks.extend(super::open_canyon::landmarks(level));
+    landmarks.extend(super::shallows::landmarks(level));
     landmarks.extend(super::slope_caves::landmarks(level));
     landmarks
 }
