@@ -725,7 +725,7 @@ fn fill_scene(
 // --- the crafting menu -------------------------------------------------------
 
 /// The menu's rows' heights, its header's, and its padding.
-const ROW: f32 = 52.0;
+const ROW: f32 = 48.0;
 const HEADER: f32 = 30.0;
 const PAD: f32 = 10.0;
 const MAKE_W: f32 = 72.0;
@@ -2218,9 +2218,9 @@ mod tests {
         let rows = rows_for(Tab::Goals, &sim, id, crab);
         assert_eq!(rows[0], Row::Guide, "{rows:?}");
         let v = row_view(&sim, id, crab, Row::Guide);
-        assert_eq!(v.name, "Pry mussels from the home rocks");
-        assert_eq!(v.tag, "0/8");
-        assert!(v.line.contains("mussel"), "{}", v.line);
+        assert_eq!(v.name, "Cut kelp by the door");
+        assert_eq!(v.tag, "0/6");
+        assert!(v.line.contains("kelp"), "{}", v.line);
         assert_eq!(v.button, Some(("Skip guide", true)));
         perform(&mut sim, id, Row::Guide);
         let crab = sim.crab(id).unwrap();

@@ -624,7 +624,7 @@ mod tests {
         assert_eq!(card.title, first.title);
         assert_eq!(card.lines.len(), 1);
         assert!(
-            card.lines[0].starts_with("You get 2 kelp"),
+            card.lines[0].starts_with("You get 2 shell grit"),
             "{:?}",
             card.lines
         );

@@ -33,6 +33,10 @@ const EMPTY: Color = Color::srgba(0.05, 0.12, 0.14, 0.55);
 const PROMPT: Color = Color::srgba(0.96, 0.91, 0.82, 0.92);
 const WHY: Color = Color::srgba(0.85, 0.92, 0.95, 0.8);
 
+/// How [`in_reach`] ranks a node: workable, workable and the guide's kind,
+/// ready and the guide's kind, open at the crab's level.
+type Rank = (bool, bool, bool, bool);
+
 /// The node the local crab's hold would work, within reach: as the rules
 /// choose (`Sim`'s gather takes the nearest node it can work), a workable
 /// node with charges first, then any with charges, then the nearest; and
@@ -54,7 +58,7 @@ pub fn in_reach(sim: &Sim, id: crabsim::PlayerId) -> Option<(usize, bool)> {
     // named is the guide's kind, then one the crab has the level for: so a
     // full shell at the kelp says "Shell full", not the level-8 crevice
     // beside it's "Opens at Foraging 8".
-    let mut best: Option<(usize, bool, (bool, bool, bool, bool), f32)> = None;
+    let mut best: Option<(usize, bool, Rank, f32)> = None;
     for (i, p) in sim.placed_nodes().iter().enumerate() {
         let d = p.pos.distance(crab.mover.pos);
         if d > gather::REACH {
