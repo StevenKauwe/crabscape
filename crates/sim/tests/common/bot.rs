@@ -93,6 +93,9 @@ const SNAPPER_BLOCK: f32 = 2074.0;
 /// of the two shrimp (the block, x 1,940 to 2,030, stands west of them), out
 /// of the block shrimp's reach (to 2,146) and 230 short of the moray's den.
 const FAR_FIGHT_X: f32 = 2170.0;
+/// The shore crab on the slope past the second pocket (`shallows::SHORE_CRABS`):
+/// it roams x 680 to 920 and never starts a fight, so the bot strikes first.
+const SHORE_HOME: f32 = 800.0;
 /// How near a shrimp's home is to the burrow it is named by (the row shrimp
 /// stands 32 from the second pocket's, the block shrimp 14 from the far
 /// ledge's).
@@ -151,6 +154,8 @@ enum Session {
     Fight(f32),
     /// The far ledge's two shrimp, a stated trip over the trench.
     FarFight,
+    /// The shore crab on the slope.
+    ShoreFight,
     Climb,
     Swim,
     Survive,
@@ -468,11 +473,22 @@ impl Bot {
         false
     }
 
+    fn shore_crab_up(&self) -> bool {
+        self.sim.enemies().iter().any(|e| {
+            e.kind == Kind::ShoreCrab
+                && (e.home.x - SHORE_HOME).abs() < 1.0
+                && e.state != State::Gone
+        })
+    }
+
     fn snapper_up(&self, at: f32) -> bool {
         self.sim
             .enemies()
             .iter()
-            .filter(|e| e.kind == Kind::Snapper && (e.home.x - at).abs() < SNAPPER_NEAR)
+            .filter(|e| {
+                (e.kind == Kind::Snapper && (e.home.x - at).abs() < SNAPPER_NEAR)
+                    || (e.kind == Kind::ShoreCrab && (e.home.x - at).abs() < 1.0)
+            })
             .any(|e| e.state != State::Gone)
     }
 
@@ -497,7 +513,10 @@ impl Bot {
                 .sim
                 .enemies()
                 .iter()
-                .filter(|e| e.kind == Kind::Snapper && (e.home.x - at).abs() < SNAPPER_NEAR)
+                .filter(|e| {
+                    (e.kind == Kind::Snapper && (e.home.x - at).abs() < SNAPPER_NEAR)
+                        || (e.kind == Kind::ShoreCrab && (e.home.x - at).abs() < 1.0)
+                })
                 .min_by(|a, b| (a.pos.x - at).abs().total_cmp(&(b.pos.x - at).abs()))
             else {
                 break;
@@ -506,9 +525,17 @@ impl Bot {
             let dir = (e.pos.x - me).signum();
             let gap = (e.pos.x - me).abs();
             let gone = e.state == State::Gone;
-            let close = gap < 70.0;
+            let close = gap
+                < if e.kind == Kind::ShoreCrab {
+                    40.0
+                } else {
+                    70.0
+                };
             let answer = e.state == State::Tell && e.state_tick + 4 >= e.state_len;
-            let punish = matches!(e.state, State::Recover | State::Stagger);
+            // A passive roamer (the shore crab) is struck first, while it
+            // only roams; after that, the same read-and-punish as a shrimp.
+            let opener = e.kind == Kind::ShoreCrab && matches!(e.state, State::Idle);
+            let punish = opener || matches!(e.state, State::Recover | State::Stagger);
             let tick_in = e.state_tick;
             let c = if gone {
                 won = true;
@@ -527,7 +554,7 @@ impl Bot {
                         0.8 * dir
                     },
                     dodge_pressed: answer,
-                    smash_pressed: close && punish && tick_in.is_multiple_of(8),
+                    smash_pressed: close && punish && (opener || tick_in.is_multiple_of(8)),
                     ..Controls::default()
                 }
             };
@@ -1123,7 +1150,14 @@ impl Bot {
             .into_iter()
             .find(|&at| self.snapper_up(at));
         let far = self.snapper_up(SNAPPER_FAR) || self.snapper_up(SNAPPER_BLOCK);
-        if far && home.is_none() {
+        if self.shore_crab_up() {
+            // The shore crab on the slope: a quick fight on the way out.
+            out.push(Candidate {
+                label: "fight the shore crab".to_string(),
+                kind: Session::ShoreFight,
+                serves: vec![Skill::Fighting],
+            });
+        } else if far && home.is_none() {
             // The home side's three are all down: the far ledge's two, over
             // the trench. (Taking turns with home cost 90 s of trip a fight
             // and left five skills short of 15 in three hours; a home shrimp
@@ -1197,6 +1231,22 @@ impl Bot {
                 self.go_home();
             }
             Session::FarFight => self.far_fight_session(),
+            Session::ShoreFight => {
+                self.tag(None);
+                self.leave_home();
+                // Past the pockets' shrimp (fighting each that is up), then to
+                // the crab wherever it roams.
+                for at in [SNAPPER_A, SNAPPER_B, SNAPPER_C] {
+                    if !self.dead() && self.snapper_up(at) {
+                        self.walk_to(at - 190.0, 4.0);
+                        self.fight(at);
+                    }
+                }
+                if !self.dead() && self.shore_crab_up() {
+                    self.fight(SHORE_HOME);
+                }
+                self.go_home();
+            }
             Session::Climb => self.climb_session(),
             Session::Swim => self.swim_session(),
             Session::Survive => self.survive_session(),

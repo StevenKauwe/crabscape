@@ -296,13 +296,22 @@ fn the_sites_make_groups_of_different_skills_along_the_way() {
             .expect("kind");
         format!("{:?}", def.skill)
     };
+    let is_half = |k: &str| {
+        crabsim::economy::NODES
+            .iter()
+            .any(|n| format!("{:?}", n.kind) == k && n.tier == 1 && n.level == 8)
+    };
     let mut centres = Vec::new();
     for g in &tier1 {
-        let n = g.1.len();
+        // The half-tier kinds (level 8) are a second place for a skill a
+        // group already holds, so they stay out of the count and the repeat
+        // check (the variety audit, `first-hour.md`).
+        let whole: Vec<_> = g.1.iter().filter(|s| !is_half(s.0)).collect();
+        let n = whole.len();
         assert!((2..=4).contains(&n), "{} has {n} sites", g.0);
-        let skills: BTreeSet<_> = g.1.iter().map(|s| skill(s.0)).collect();
+        let skills: BTreeSet<_> = whole.iter().map(|s| skill(s.0)).collect();
         assert_eq!(skills.len(), n, "{} repeats a skill", g.0);
-        centres.push(g.1.iter().map(|s| s.1).sum::<f32>() / n as f32);
+        centres.push(g.1.iter().map(|s| s.1).sum::<f32>() / g.1.len() as f32);
     }
     centres.sort_by(f32::total_cmp);
     let mut worst: f32 = 0.0;

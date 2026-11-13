@@ -227,6 +227,10 @@ fn hollow_rocks() -> [Rect; 5] {
 /// start, its slope and its foot (the crest of the cliff above the basin holds none: the loggerhead at
 /// (2,429, 919) reaches it)
 /// (reached only with the strokes the far ledge's eggs give).
+/// The variety audit (`first-hour.md`) adds, as the last site of a group, a level-8 node out on the route (barnacles on
+/// the far lookout, brittle stars on the boulder, purple film at the trench rim, eelgrass on the far ledge's slope,
+/// sand dollars at its foot), a sea-pen field in the trench hollow and a pit glow site on the plug shaft ledge (tier 2
+/// near home). Half-tier kinds do not count toward a group's size or its different skills.
 /// Sights of later, seen from the way out and not reached by a new crab: the high garden (two eggs' strokes from the
 /// kelp) and the glow ledge (glass grips). `(place, suggested node kind, point on its top)`, apart from `SITES` until
 /// the systems lead wires them (every `SITES` entry holds a node: `economy_core`), tier 3 and tier 1 kinds for it to
@@ -250,6 +254,7 @@ pub const SITES: &[(&str, &str, Vec2)] = &[
     // On the far lookout, across the paddle gap.
     ("far lookout", "ShoreGlow", Vec2::new(785.0, 704.0)),
     ("far lookout", "SnailRocks", Vec2::new(820.0, 704.0)),
+    ("far lookout", "BarnacleRock", Vec2::new(838.0, 704.0)),
     // The shrimp row's pocket, between the two shrimp (x 340 and 590).
     ("shrimp row", "MusselClump", Vec2::new(440.0, 0.0)),
     ("shrimp row", "GritHeap", Vec2::new(458.0, 0.0)),
@@ -258,6 +263,7 @@ pub const SITES: &[(&str, &str, Vec2)] = &[
     // On top of the boulder half-buried in the slope: a jump up.
     ("the boulder", "MusselClump", Vec2::new(695.0, 100.0)),
     ("the boulder", "SnailRocks", Vec2::new(710.0, 100.0)),
+    ("the boulder", "BrittleStarCrevice", Vec2::new(720.0, 100.0)),
     // The shelf's west end, on the slope's top.
     ("the shelf", "KelpStand", Vec2::new(776.0, 94.0)),
     ("the shelf", "MusselClump", Vec2::new(806.0, 105.0)),
@@ -268,6 +274,7 @@ pub const SITES: &[(&str, &str, Vec2)] = &[
     // The trench's west rim, under the sea arch.
     ("trench rim", "SnailRocks", Vec2::new(1264.0, 110.0)),
     ("trench rim", "GritHeap", Vec2::new(1284.0, 110.0)),
+    ("trench rim", "PurpleFilmMat", Vec2::new(1246.0, 110.0)),
     // The far ledge's start, past the trench, out of the shrimp at x 2,060.
     ("far ledge", "GritHeap", Vec2::new(1846.0, 110.0)),
     ("far ledge", "ShoreGlow", Vec2::new(1876.0, 110.0)),
@@ -276,13 +283,18 @@ pub const SITES: &[(&str, &str, Vec2)] = &[
     ("far ledge slope", "SnailRocks", Vec2::new(2190.0, 76.0)),
     ("far ledge slope", "MusselClump", Vec2::new(2235.0, 64.0)),
     ("far ledge slope", "KelpStand", Vec2::new(2280.0, 51.0)),
+    ("far ledge slope", "EelgrassBed", Vec2::new(2310.0, 42.0)),
     // Further down the far ledge's slope.
     ("far ledge foot", "GritHeap", Vec2::new(2335.0, 33.0)),
     ("far ledge foot", "ShoreGlow", Vec2::new(2355.0, 30.0)),
+    ("far ledge foot", "SandDollarBed", Vec2::new(2385.0, 24.0)),
     // Tier 2: the trench hollow, a level-1 crab's first dive.
     ("trench hollow", "ClamBed", Vec2::new(1415.0, -480.0)),
     ("trench hollow", "ClayBank", Vec2::new(1455.0, -480.0)),
     ("trench hollow", "WormMud", Vec2::new(1495.0, -480.0)),
+    ("trench hollow", "SeaPenField", Vec2::new(1435.0, -480.0)),
+    // Tier 2: the plug shaft's ledge (`silt_galleries::PLUG_LEDGE`), the dim niche halfway up the plug shaft.
+    ("plug shaft ledge", "PitGlowSite", Vec2::new(1120.0, -540.0)),
 ];
 
 /// Small finds, for the systems lead to wire (drifting ones hang in the water

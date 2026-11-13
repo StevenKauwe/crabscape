@@ -17,7 +17,11 @@ pub(crate) fn prepare_owner_save(
     local_arrivals_delivered: u64,
     remotes: &[&RegionKernel],
 ) -> Result<Capture, Error> {
-    let local_terrain = view.level.cells.as_ref().ok_or(Error::Damaged)?;
+    let local_terrain = view
+        .level
+        .cells
+        .as_ref()
+        .ok_or_else(|| super::damaged("view-terrain"))?;
     terrain
         .commit_state(
             local_id,
@@ -25,38 +29,59 @@ pub(crate) fn prepare_owner_save(
             local_terrain,
             local_arrivals_delivered,
         )
-        .map_err(|_| Error::Damaged)?;
-    entities.merge_resources(view).map_err(|_| Error::Damaged)?;
+        .map_err(|_| super::damaged("commit-local"))?;
+    entities
+        .merge_resources(view)
+        .map_err(|_| super::damaged("merge-local"))?;
     let mut tick = view.tick_count().max(entities.sim.tick_count());
     for remote in remotes {
         terrain
             .commit_state(
                 remote.id,
                 remote.epoch,
-                remote.sim.level.cells.as_ref().ok_or(Error::Damaged)?,
+                remote
+                    .sim
+                    .level
+                    .cells
+                    .as_ref()
+                    .ok_or_else(|| super::damaged("remote-terrain"))?,
                 remote.arrivals_delivered(),
             )
-            .map_err(|_| Error::Damaged)?;
+            .map_err(|_| super::damaged("commit-remote"))?;
         entities
             .merge_resources(&remote.sim)
-            .map_err(|_| Error::Damaged)?;
+            .map_err(|_| super::damaged("merge-remote"))?;
         tick = tick.max(remote.sim.tick_count());
     }
-    let host = view.crab(crate::coop::HOST).ok_or(Error::Damaged)?;
-    let mut saved =
-        crate::save::snapshot_metadata(view, crate::coop::HOST).ok_or(Error::Damaged)?;
+    let host = view
+        .crab(crate::coop::HOST)
+        .ok_or_else(|| super::damaged("host-crab"))?;
+    let mut saved = crate::save::snapshot_metadata(view, crate::coop::HOST)
+        .ok_or_else(|| super::damaged("host-metadata"))?;
     // A dug cavity can be narrower than one world unit; keep the exact
     // position from the same simulation frame as this terrain snapshot.
     saved.x = host.mover.pos.x;
     saved.y = host.mover.pos.y;
-    let progress = saved.progress.as_mut().ok_or(Error::Damaged)?;
+    let progress = saved
+        .progress
+        .as_mut()
+        .ok_or_else(|| super::damaged("progress"))?;
     entities.world_progress(progress);
     if !super::player_fits_world(view, &saved) {
-        return Err(Error::Damaged);
+        return Err(super::damaged("fits-world"));
     }
-    terrain
-        .prepare_save_window(&entities.sim.level, host.mover.pos.x, host.mover.pos.y)
-        .map_err(|_| Error::Damaged)?;
+    // Move the archive's active window to the owner before saving. When that
+    // move still needs pages, save the window where it is: the dirty pages
+    // that fill the page cache are only cleaned by a save, and the move can
+    // need more room than they leave, so refusing here would wait forever
+    // (the deep owner save in cells-solo-save). The pages the move asked for
+    // are still read and a later save moves the window; after a load the
+    // simulation's paged follow brings the window to the crab, as after a
+    // long fall.
+    match terrain.prepare_save_window(&entities.sim.level, host.mover.pos.x, host.mover.pos.y) {
+        Ok(()) | Err(crabsim::underwater::region_store::StoreError::NeedsPages) => {}
+        Err(_) => return Err(super::damaged("save-window")),
+    }
     #[cfg(target_arch = "wasm32")]
     let initial = super::browser::needs_initial_baseline();
     #[cfg(not(target_arch = "wasm32"))]
@@ -68,11 +93,11 @@ pub(crate) fn prepare_owner_save(
     let salvage = entities
         .sim
         .combined_salvage_records(&sources)
-        .ok_or(Error::Damaged)?;
+        .ok_or_else(|| super::damaged("salvage"))?;
     let canyon = entities
         .sim
         .combined_canyon_records(&sources)
-        .ok_or(Error::Damaged)?;
+        .ok_or_else(|| super::damaged("canyon"))?;
     Capture::with_initial_baseline(saved, terrain.terrain(), &host.memory, tick, initial)
         .and_then(|capture| capture.with_salvage(salvage))
         .and_then(|capture| capture.with_canyon(canyon))

@@ -257,7 +257,7 @@ jobs:
           cargo run --locked -q -p crabrig --profile art -- export --creature queen-triggerfish
           cargo run --locked -q -p crabrig --profile art -- parts --creature alarm-jelly
           cargo run --locked -q -p crabrig --profile art -- export --creature alarm-jelly
-          for c in loggerhead-turtle humboldt-squid viperfish goliath-grouper american-lobster hermit-crab \
+          for c in loggerhead-turtle humboldt-squid viperfish goliath-grouper american-lobster hermit-crab shore-crab \
             bobbit-worm giant-isopod hagfish amphipod-swarm; do
             cargo run --locked -q -p crabrig --profile art -- parts --creature "$c"
             cargo run --locked -q -p crabrig --profile art -- export --creature "$c"

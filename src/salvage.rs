@@ -306,6 +306,9 @@ fn show_actions(
     } else if site.has_find
         && site.phase == FindPhase::Embedded
         && from.distance(site.position) < 150.0
+        // While the first-hour guide runs, its pill is the one thing to do:
+        // the seam beside home waits until the guide is done or skipped.
+        && crate::wants_ui::guide_text(&sim, **crab).is_none()
     {
         **tip.1 = "Dig beneath the seam; clear its path.".into();
         *tip.0 = Visibility::Inherited;

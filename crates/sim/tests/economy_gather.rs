@@ -52,6 +52,9 @@ fn at_node(level: Level, kind: NodeKind) -> (Sim, usize) {
     } else {
         sim.add_crab(P0, Vec2::new(at.x, sim.level.floor_height(at.x)));
     }
+    // These tests are about gathering, not the first-hour guide: with it on,
+    // a hold takes the guide's kind (kelp) from the next node over.
+    assert!(sim.guide_skip(P0));
     for _ in 0..5 {
         sim.tick();
     }
@@ -143,10 +146,10 @@ fn holding_gather_gives_the_item_the_xp_and_wears_the_tool() {
     }
     let done_at = done_at.expect("it finished");
     assert!((need..=need + 2).contains(&done_at), "{done_at} for {need}");
-    // Tier 1 pays 110% below level 15 (the first hours).
-    assert_eq!(gathered, Some((Item::Mussel, 11)));
+    // Tier 1 pays 130% below level 15 (the first hours).
+    assert_eq!(gathered, Some((Item::Mussel, 13)));
     assert_eq!(count(&sim, P0, Item::Mussel), 1);
-    assert_eq!(xp_of(&sim, Skill::Prying), 11);
+    assert_eq!(xp_of(&sim, Skill::Prying), 13);
     let crab = sim.crab(P0).unwrap();
     assert_eq!(crab.econ.tool(ToolKind::Pry).uses_left, 59);
     assert_eq!(crab.econ.gathers_done, 1);
@@ -440,6 +443,7 @@ fn a_guest_joining_late_learns_which_nodes_are_spent() {
 #[test]
 fn a_recording_replays_a_gather_exactly() {
     let setup = |sim: &mut Sim| {
+        assert!(sim.guide_skip(P0));
         skill_at(sim, P0, Skill::Prying, 20);
         sim.crab_mut(P0).unwrap().econ.tools[0] = Tool::new(ToolKind::Pry, 1);
     };

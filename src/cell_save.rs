@@ -45,6 +45,23 @@ const MAX_PLAYER: usize = crabsim::underwater::frozen_chunks::MAX_PLAYER_BYTES;
 
 pub use crabsim::cell_codec::{Error, ReplayStart, Restored, decode};
 
+thread_local! {
+    static DAMAGE: std::cell::Cell<&'static str> = const { std::cell::Cell::new("") };
+}
+
+/// A capture that could not be made consistent, with the step that refused
+/// it (kept for the profiled page state, `browser.rs`).
+pub(crate) fn damaged(step: &'static str) -> Error {
+    DAMAGE.with(|d| d.set(step));
+    Error::Damaged
+}
+
+/// The step that refused the last damaged capture ("" when none was named).
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+pub(crate) fn last_damage() -> &'static str {
+    DAMAGE.with(|d| d.get())
+}
+
 /// Pack a single point-in-time save. The backend must never replace an older
 /// save unless this succeeds *and* its own atomic write succeeds.
 pub fn encode(player: &SaveData, terrain: &World, sim_tick: u64) -> Result<Vec<u8>, Error> {
