@@ -108,8 +108,11 @@ pub(super) fn run(player: &mut Player, site: &Site) -> Result<Found> {
     player.until(20.0, "Canyon survives a real reload", |p| {
         p.b.attr("data-cell-save").as_deref() == Some("loaded")
     })?;
-    let reloaded = wait_save(player, committed_tick)?;
-    claim_run(&reloaded)?;
+    // Take the F9 diagnostic before waiting for the next save. A portable
+    // solo replay needs the complete starting archive, and the simulation
+    // drops its recording once paging evicts a chunk (`archive_incomplete`);
+    // a post-reload save acknowledges chunks and lets that happen. Asking
+    // after that save raced the eviction (#700): "Replay unavailable".
     player
         .b
         .eval("document.getElementById('crabscape').removeAttribute('data-replay')")?;
@@ -139,6 +142,8 @@ pub(super) fn run(player: &mut Player, site: &Site) -> Result<Found> {
             return Err("browser reload reset a pending Canyon claim in RAM".into());
         }
     }
+    let reloaded = wait_save(player, committed_tick)?;
+    claim_run(&reloaded)?;
     found.push(
         "reload and native diagnostic restore retain both pending generations without slot reuse"
             .into(),
