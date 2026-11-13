@@ -226,6 +226,8 @@ fn exact_bed(name: &str) -> Option<Declared> {
         | "block kelp ledge"
         | "flats kelp ledge"
         | "trench hollow"
+        | "high garden"
+        | "glow ledge"
         // The Drop and the Deep Galleries (`level/deep_galleries.rs`).
         | "drop approach"
         | "drop shaft"
