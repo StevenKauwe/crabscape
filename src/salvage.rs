@@ -1,17 +1,19 @@
-//! Shellwash presentation and contextual actions; game rules live in crabsim.
-use crate::player::{GameSet, LocalPlayer, PlayerId};
+//! Shellwash presentation; game rules live in crabsim.
+//!
+//! Retired from the front door (2026-11-13): the "Take shell / Crush to grit" buttons, their tips, the G / V keys
+//! and the owner's fragment-grant retries are gone from the client; the grit heaps cover what they did. The bodies
+//! are still drawn (the cells world holds them as solids), the sim's rules, saves and co-op records are
+//! untouched, and `acknowledge_save` still settles claims already in a save.
 use bevy::prelude::*;
-use crabsim::{
-    Sim,
-    salvage::{FindPhase, SalvageAction, ValvePhase},
-};
+use crabsim::{Sim, salvage::FindPhase, salvage::SalvageAction};
+
+use crate::player::{GameSet, PlayerId};
 
 pub struct SalvagePlugin;
 impl Plugin for SalvagePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, spawn)
-            .add_systems(Update, act.in_set(GameSet::Input))
-            .add_systems(Update, (show_bodies, show_actions).in_set(GameSet::Present));
+            .add_systems(Update, show_bodies.in_set(GameSet::Present));
     }
 }
 #[derive(Component)]
@@ -22,27 +24,7 @@ struct BankHint(Vec2);
 struct ValvePart(Vec2);
 #[derive(Component)]
 struct Fragment(usize);
-#[derive(Component)]
-struct PlacementOutline;
-#[derive(Component)]
-struct Choice(usize);
-#[derive(Component)]
-struct ChoiceText(usize);
-#[derive(Component)]
-struct BankTip;
-#[derive(Resource, Default)]
-struct Offered([Option<(SalvageAction, &'static str)>; 2]);
-
-/// Leave the portrait inventory tab above the contextual actions. The same
-/// rectangle drives presentation and pointer selection.
-fn action_rect(index: usize, landscape: bool) -> Rect {
-    let x = 10.0 + 150.0 * index as f32;
-    let y = if landscape { 145.0 } else { 190.0 };
-    Rect::new(x, y, x + 140.0, y + 48.0)
-}
-
 fn spawn(mut commands: Commands) {
-    commands.insert_resource(Offered::default());
     // Individually masked chunks let sediment cover the actual shell rather
     // than drawing an opaque silhouette through the cellular material.
     for y in 0..3 {
@@ -98,61 +80,6 @@ fn spawn(mut commands: Commands) {
             Transform::from_xyz(0.0, 0.0, 2.1),
             Visibility::Hidden,
         ));
-    }
-    commands.spawn((
-        PlacementOutline,
-        Sprite::from_color(Color::srgba(0.8, 0.9, 0.7, 0.45), Vec2::new(40.0, 4.0)),
-        Transform::from_xyz(0.0, 0.0, 2.2),
-        Visibility::Hidden,
-    ));
-    commands.spawn((
-        BankTip,
-        Text::new("Dig beneath the seam; clear its path."),
-        TextFont {
-            font_size: FontSize::Px(15.0),
-            ..default()
-        },
-        TextColor(Color::srgb(0.96, 0.89, 0.72)),
-        Node {
-            position_type: PositionType::Absolute,
-            left: px(12.0),
-            top: px(247.0),
-            ..default()
-        },
-        Visibility::Hidden,
-    ));
-    for i in 0..2 {
-        commands
-            .spawn((
-                crate::input::PointerUi,
-                Choice(i),
-                Node {
-                    position_type: PositionType::Absolute,
-                    left: px(10.0 + 150.0 * i as f32),
-                    top: px(190.0),
-                    width: px(140.0),
-                    height: px(48.0),
-                    justify_content: JustifyContent::Center,
-                    align_items: AlignItems::Center,
-                    border: UiRect::all(px(1.0)),
-                    border_radius: BorderRadius::all(px(12.0)),
-                    ..default()
-                },
-                BorderColor::all(Color::srgb(0.72, 0.65, 0.45)),
-                BackgroundColor(Color::srgba(0.03, 0.09, 0.11, 0.9)),
-                Visibility::Hidden,
-            ))
-            .with_children(|p| {
-                p.spawn((
-                    ChoiceText(i),
-                    Text::new(""),
-                    TextFont {
-                        font_size: FontSize::Px(14.0),
-                        ..default()
-                    },
-                    TextColor(Color::WHITE),
-                ));
-            });
     }
 }
 
@@ -245,231 +172,6 @@ fn show_bodies(
     }
 }
 
-#[allow(clippy::type_complexity)] // Disjoint filters keep the outline separate from UI choices.
-#[allow(clippy::too_many_arguments)] // Independent simulation, inventory and layout resources.
-fn show_actions(
-    sim: Res<Sim>,
-    crab: Single<&PlayerId, With<LocalPlayer>>,
-    mut offer: ResMut<Offered>,
-    inventory: Res<crate::shell_inventory::Open>,
-    window: Single<&Window>,
-    mut choices: Query<
-        (&Choice, &mut Visibility, &mut Node),
-        (Without<PlacementOutline>, Without<BankTip>),
-    >,
-    mut tip: Single<
-        (&mut Visibility, &mut Text, &mut Node),
-        (
-            With<BankTip>,
-            Without<Choice>,
-            Without<PlacementOutline>,
-            Without<ChoiceText>,
-        ),
-    >,
-    mut texts: Query<(&ChoiceText, &mut Text), Without<BankTip>>,
-    mut outline: Single<
-        (&mut Transform, &mut Visibility),
-        (With<PlacementOutline>, Without<Choice>),
-    >,
-) {
-    offer.0 = [None, None];
-    let landscape = window.width() > window.height();
-    tip.2.top = px(action_rect(0, landscape).max.y + 9.0);
-    for (choice, _, mut node) in &mut choices {
-        let rect = action_rect(choice.0, landscape);
-        node.left = px(rect.min.x);
-        node.top = px(rect.min.y);
-    }
-    if inventory.0 {
-        *outline.1 = Visibility::Hidden;
-        publish_placement(None);
-        *tip.0 = Visibility::Hidden;
-        for (_, mut visible, _) in &mut choices {
-            *visible = Visibility::Hidden;
-        }
-        return;
-    }
-    let (Some(site), Some(world), Some(c)) = (&sim.salvage, &sim.level.cells, sim.crab(**crab))
-    else {
-        *outline.1 = Visibility::Hidden;
-        publish_placement(None);
-        *tip.0 = Visibility::Hidden;
-        for (_, mut visible, _) in &mut choices {
-            *visible = Visibility::Hidden;
-        }
-        return;
-    };
-    let from = c.mover.pos + Vec2::Y * (c.mover.height(&sim.tuning) * 0.5);
-    if site.has_find && site.phase == FindPhase::Caught {
-        **tip.1 = "Shell caught! Return to the valve".into();
-        *tip.0 = Visibility::Inherited;
-    } else if site.has_find
-        && site.phase == FindPhase::Embedded
-        && from.distance(site.position) < 150.0
-        // While the first-hour guide runs, its pill is the one thing to do:
-        // the seam beside home waits until the guide is done or skipped.
-        && crate::wants_ui::guide_text(&sim, **crab).is_none()
-    {
-        **tip.1 = "Dig beneath the seam; clear its path.".into();
-        *tip.0 = Visibility::Inherited;
-    } else {
-        *tip.0 = Visibility::Hidden;
-    }
-    if site.has_find && site.phase == FindPhase::Carried(**crab) && c.mover.tucked_in() {
-        offer.0[0] = Some((SalvageAction::Display, "Display shell"));
-    } else if site.has_find && site.phase == FindPhase::Displayed && c.mover.tucked_in() {
-        offer.0[0] = Some((SalvageAction::RetrieveDisplay, "Take display"));
-    } else if site.has_find && site.phase == FindPhase::Carried(**crab) {
-        offer.0[0] = Some((SalvageAction::DropShell, "Set shell down"));
-    } else if site.has_valve && site.valve_phase == ValvePhase::Carried(**crab) {
-        offer.0[1] = Some((SalvageAction::DropValve, "Drop valve"));
-        // Use the physical bowl support rule, including its edge contacts.
-        for at in
-            crabsim::salvage::Shellwash::valve_candidates(world, c.mover.pos, c.fighter.facing)
-        {
-            let clear = sim.level.place_at(at).is_none()
-                && sim.crabs().iter().all(|other| {
-                    (other.mover.pos.x - at.x).abs() > other.mover.half_width(&sim.tuning) + 20.0
-                        || (other.mover.pos.y - at.y).abs() > other.mover.height(&sim.tuning)
-                });
-            let mut probe = site.clone();
-            if probe.place_valve(world, **crab, from, at, clear) {
-                offer.0[0] = Some((SalvageAction::PlaceValve(at), "Set valve"));
-                break;
-            }
-        }
-    } else if site.can_take(world, from) {
-        offer.0[0] = Some((SalvageAction::Take, "Take shell"));
-        let mut probe = site.clone();
-        if probe.crush(world, from) {
-            offer.0[1] = Some((SalvageAction::Crush, "Crush to grit"));
-        }
-    } else if site.has_valve
-        && site.valve_phase == ValvePhase::Placed
-        && from.distance(site.valve_position) <= 75.0
-    {
-        offer.0[0] = Some((SalvageAction::LiftValve, "Lift valve"));
-    }
-    if let Some(slot) = offer.0.iter().position(Option::is_none) {
-        for i in 0..2 {
-            let room = c.mover.clinging.len() < c.mover.carries(&sim.tuning)
-                && c.salvage_receipts.len() < 32;
-            let mut probe = site.clone();
-            if probe.request_fragment(world, i, from, **crab, c.salvage_identity, room) {
-                offer.0[slot] = Some((SalvageAction::TakeFragment(i as u8), "Take grit"));
-                break;
-            }
-        }
-    }
-    if let Some((SalvageAction::PlaceValve(at), _)) = offer.0[0] {
-        publish_placement(Some(at));
-        outline.0.translation.x = at.x;
-        outline.0.translation.y = at.y;
-        *outline.1 = Visibility::Inherited;
-    } else {
-        publish_placement(None);
-        *outline.1 = Visibility::Hidden;
-    }
-    for (choice, mut v, _) in &mut choices {
-        *v = if offer.0[choice.0].is_some() {
-            Visibility::Inherited
-        } else {
-            Visibility::Hidden
-        };
-    }
-    for (choice, mut text) in &mut texts {
-        **text = offer.0[choice.0].map_or("", |(_, label)| label).into();
-    }
-}
-
-// Read-only preview coordinates mirror the visible outline for browser tests.
-fn publish_placement(at: Option<Vec2>) {
-    #[cfg(target_arch = "wasm32")]
-    if let Some(canvas) = web_sys::window()
-        .and_then(|w| w.document())
-        .and_then(|d| d.get_element_by_id("crabscape"))
-    {
-        if let Some(at) = at {
-            let value = format!("{:.1} {:.1}", at.x, at.y);
-            if canvas.get_attribute("data-salvage-preview").as_deref() != Some(value.as_str()) {
-                let _ = canvas.set_attribute("data-salvage-preview", &value);
-            }
-        } else if canvas.has_attribute("data-salvage-preview") {
-            let _ = canvas.remove_attribute("data-salvage-preview");
-        }
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    let _ = at;
-}
-
-#[allow(clippy::too_many_arguments)] // Input resources are provided independently by Bevy.
-fn act(
-    keys: Res<ButtonInput<KeyCode>>,
-    mouse: Res<ButtonInput<MouseButton>>,
-    touches: Res<Touches>,
-    window: Single<&Window>,
-    settings: Res<crate::settings::panel::Open>,
-    time: Res<Time>,
-    mut last_grant: Local<f64>,
-    offer: Res<Offered>,
-    inventory: Res<crate::shell_inventory::Open>,
-    crab: Single<&PlayerId, With<LocalPlayer>>,
-    mut sim: ResMut<Sim>,
-) {
-    if settings.is_open() {
-        return;
-    }
-    // A durable owner offer is applied only by its recipient, once. Retry
-    // gently if a session handoff delays the ordered command.
-    if time.elapsed_secs_f64() - *last_grant >= 1.0 {
-        let grant = sim.salvage.as_ref().and_then(|site| {
-            sim.crab(**crab).and_then(|c| {
-                site.claims.iter().enumerate().find_map(|(i, claim)| {
-                    claim
-                        .filter(|claim| {
-                            claim.phase == crabsim::salvage::ClaimPhase::Offered
-                                && claim.recipient_identity == c.salvage_identity
-                                && claim.recipient == **crab
-                                && !c.salvage_receipts.contains(&claim.id)
-                                && c.mover.clinging.len() < c.mover.carries(&sim.tuning)
-                        })
-                        .map(|claim| SalvageAction::GrantFragment(i as u8, claim.id))
-                })
-            })
-        });
-        if let Some(action) = grant {
-            *last_grant = time.elapsed_secs_f64();
-            if !crate::coop::cells_action(crate::coop::CellsAction::Salvage(action)) {
-                sim.salvage_action(**crab, action);
-            }
-        }
-    }
-    if inventory.0 {
-        return;
-    }
-    let point = touches
-        .iter_just_pressed()
-        .next()
-        .map(|t| t.position())
-        .or_else(|| {
-            mouse
-                .just_pressed(MouseButton::Left)
-                .then(|| window.cursor_position())
-                .flatten()
-        });
-    let selected = point
-        .and_then(|p| {
-            (0..2).find(|&i| action_rect(i, window.width() > window.height()).contains(p))
-        })
-        .or_else(|| keys.just_pressed(KeyCode::KeyG).then_some(0))
-        .or_else(|| keys.just_pressed(KeyCode::KeyV).then_some(1));
-    if let Some((action, _)) = selected.and_then(|i| offer.0[i])
-        && !crate::coop::cells_action(crate::coop::CellsAction::Salvage(action))
-    {
-        sim.salvage_action(**crab, action);
-    }
-}
-
 /// Advance only claims proven by the exact saved snapshots, never by the
 /// current in-memory state. The session stream orders the resulting actions.
 pub(crate) fn acknowledge_save(
@@ -525,118 +227,6 @@ pub(crate) fn acknowledge_save(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn inventory_and_salvage_have_separate_visible_pointer_targets() {
-        use bevy::ecs::system::RunSystemOnce;
-        for (width, height, y) in [(430, 742, 214.0), (742, 430, 169.0)] {
-            let mut app = App::new();
-            let mut sim = Sim::with_one_crab(Vec2::new(286.0, 28.0));
-            sim.enable_underwater_cells();
-            // This checks pointer targets, so approach the current authored
-            // valve rather than depending on the old opening coordinates.
-            let valve = sim.salvage.as_ref().unwrap().valve_position;
-            let crab = sim.crab_mut(PlayerId(0)).unwrap();
-            crab.mover.pos = valve + Vec2::new(30.0, 0.0);
-            crab.salvage_identity = 77;
-            app.insert_resource(sim)
-                .init_resource::<Time>()
-                .init_resource::<ButtonInput<KeyCode>>()
-                .init_resource::<ButtonInput<MouseButton>>()
-                .init_resource::<Touches>()
-                .init_resource::<crate::settings::panel::Open>()
-                .init_resource::<crate::shell_inventory::Open>();
-            app.world_mut().spawn((PlayerId(0), LocalPlayer));
-            let window = app
-                .world_mut()
-                .spawn(Window {
-                    resolution: (width, height).into(),
-                    ..default()
-                })
-                .id();
-            app.world_mut().run_system_once(spawn).unwrap();
-            app.world_mut().run_system_once(show_actions).unwrap();
-            assert!(matches!(
-                app.world().resource::<Offered>().0[0],
-                Some((SalvageAction::LiftValve, _))
-            ));
-            let mut actions = app.world_mut().query::<(&Choice, &Node, &Visibility)>();
-            let (_, node, visible) = actions
-                .iter(app.world())
-                .find(|(c, _, _)| c.0 == 0)
-                .unwrap();
-            assert_eq!(node.top, px(y - 24.0));
-            assert_eq!(*visible, Visibility::Inherited);
-
-            app.world_mut()
-                .resource_mut::<ButtonInput<MouseButton>>()
-                .press(MouseButton::Left);
-            if width < height {
-                // The inventory tab is still at y=142. Clicking it must not
-                // pick up the valve that used to be hidden underneath it.
-                app.world_mut()
-                    .get_mut::<Window>(window)
-                    .unwrap()
-                    .set_cursor_position(Some(Vec2::new(80.0, 160.0)));
-                app.world_mut().run_system_once(act).unwrap();
-                assert_eq!(
-                    app.world()
-                        .resource::<Sim>()
-                        .salvage
-                        .as_ref()
-                        .unwrap()
-                        .valve_phase,
-                    ValvePhase::Placed
-                );
-            }
-            app.world_mut()
-                .resource_mut::<crate::shell_inventory::Open>()
-                .0 = true;
-            app.world_mut()
-                .get_mut::<Window>(window)
-                .unwrap()
-                .set_cursor_position(Some(Vec2::new(80.0, y)));
-            // Input must reject even the previous frame's still-offered action.
-            app.world_mut().run_system_once(act).unwrap();
-            assert_eq!(
-                app.world()
-                    .resource::<Sim>()
-                    .salvage
-                    .as_ref()
-                    .unwrap()
-                    .valve_phase,
-                ValvePhase::Placed
-            );
-            app.world_mut().run_system_once(show_actions).unwrap();
-            assert!(
-                app.world()
-                    .resource::<Offered>()
-                    .0
-                    .iter()
-                    .all(Option::is_none)
-            );
-            assert!(
-                actions
-                    .iter(app.world())
-                    .all(|(_, _, v)| *v == Visibility::Hidden)
-            );
-
-            app.world_mut()
-                .resource_mut::<crate::shell_inventory::Open>()
-                .0 = false;
-            app.world_mut().run_system_once(show_actions).unwrap();
-            app.world_mut().run_system_once(act).unwrap();
-            assert_eq!(
-                app.world()
-                    .resource::<Sim>()
-                    .salvage
-                    .as_ref()
-                    .unwrap()
-                    .valve_phase,
-                ValvePhase::Carried(PlayerId(0))
-            );
-        }
-    }
 
     #[test]
     fn claim_acknowledges_only_exact_durable_snapshots() {
@@ -722,16 +312,13 @@ mod tests {
     }
 
     #[test]
-    fn presentation_systems_have_disjoint_mutable_queries() {
+    fn the_bodies_still_draw_with_no_actions_offered() {
         let mut app = App::new();
         let mut sim = Sim::with_one_crab(Vec2::new(300.0, 30.0));
         sim.enable_underwater_cells();
         app.insert_resource(sim)
-            .init_resource::<crate::shell_inventory::Open>()
             .add_systems(Startup, spawn)
-            .add_systems(Update, (show_bodies, show_actions));
-        app.world_mut().spawn((PlayerId(0), LocalPlayer));
-        app.world_mut().spawn(Window::default());
+            .add_systems(Update, show_bodies);
         app.update();
     }
 }

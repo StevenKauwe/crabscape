@@ -1,13 +1,15 @@
-//! The high garden's canopy (`crabsim::level::shallows::CANOPY`), drawn as an overhang that hangs: a thicker, ragged
-//! rock silhouette over and under the slab, with encrusting sponge, sea squirts and short kelp and red-algae fronds
-//! hanging off its underside. Client art only: the slab's own rect, its collision and its route are the sim's and
-//! never change; everything here sits on the slab's own shape and no lower than [`MAX_HANG`] under its underside.
-//! Nothing here is a layer over the screen. The fronds sway on a slow swell of their own.
+//! Rock slabs drawn as outcrops that hang: the high garden's canopy (`crabsim::level::shallows::CANOPY`) and every
+//! floating ledge on the guide route (the lookouts, the kelp ledges, the glow ledge, the garden's ledge). Each is a
+//! thicker, ragged rock silhouette over and under the slab, with encrusting sponge, sea squirts and short kelp and
+//! red-algae fronds hanging off its underside. Client art only: the slab's own rect, its collision and its route are
+//! the sim's and never change; everything here sits on the slab's own shape, no higher than a lip over its top and
+//! no lower than [`MAX_HANG`] under its underside. Nothing here is a layer over the screen. The fronds sway on a
+//! slow swell of their own.
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use crabsim::Sim;
-use crabsim::level::shallows::CANOPY;
+use crabsim::level::shallows::{CANOPY, FAR_LOOKOUT, GARDEN, GLOW_LEDGE, KELP_LEDGES, LOOKOUT};
 
 use crate::level::{CORAL_TIP, FAR_FROM_EDGE, KELP_BLADE, KELP_FLOAT, PIT, PLANT_Z, rock_mesh};
 use crate::memory::MemoryMaterial;
@@ -91,7 +93,15 @@ fn put(
     ));
 }
 
-/// Draw the overhang. Skipped when the level has no shallows (or no canopy).
+/// Every slab drawn as an outcrop: the canopy and the floating ledges (a custom level may lack any of them).
+pub fn slabs(level: &crabsim::Level) -> Vec<Rect> {
+    let mut out = vec![CANOPY, GARDEN, LOOKOUT, FAR_LOOKOUT, GLOW_LEDGE];
+    out.extend(KELP_LEDGES.iter().map(|(_, _, ledge)| *ledge));
+    out.retain(|r| level.rocks.contains(r));
+    out
+}
+
+/// Draw the outcrops. Skipped when the level has no shallows.
 pub fn draw(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
@@ -100,19 +110,42 @@ pub fn draw(
     paint: &mut impl FnMut(Color) -> Handle<MemoryMaterial>,
 ) {
     let level = &sim.level;
-    if !level.has_shallows() || !level.rocks.contains(&CANOPY) {
+    if !level.has_shallows() {
         return;
     }
-    let (x0, x1) = (CANOPY.min.x, CANOPY.max.x);
-    let (under, top) = (CANOPY.min.y, CANOPY.max.y);
+    for (n, slab) in slabs(level).into_iter().enumerate() {
+        draw_outcrop(commands, meshes, slab, n as u32, rock, paint);
+    }
+}
+
+/// One slab's outcrop; `salt` makes each one's lumps and growth its own.
+pub fn draw_outcrop(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    slab: Rect,
+    salt: u32,
+    rock: &Handle<MemoryMaterial>,
+    paint: &mut impl FnMut(Color) -> Handle<MemoryMaterial>,
+) {
+    let seed = salt * 977;
+    let unit = |i: u32, k: u32| unit(i + seed, k);
+    let span = slab.max.x - slab.min.x;
+    let (x0, x1) = (slab.min.x, slab.max.x);
+    let (under, top) = (slab.min.y, slab.max.y);
     // The rock: lumps hanging under the slab (behind it, so its edge never shows through) and a low lip over its
     // top (in front, so the slab's straight rim is broken into bumps).
     let mut x = x0 - 6.0;
     let mut i = 0_u32;
     let mut hangs: Vec<(f32, f32)> = vec![];
     while x < x1 {
-        let width = 55.0 + 60.0 * unit(i, 1);
-        let depth = (4.0 + 8.0 * unit(i, 2)).min(MAX_HANG);
+        let width = (55.0 + 60.0 * unit(i, 1)).min(span + 12.0);
+        // A small ledge hangs deeper than the great slab (it is seen from closer, and has no span to carry): up to 16.
+        let depth = if span < 300.0 {
+            7.0 + 9.0 * unit(i, 2)
+        } else {
+            4.0 + 8.0 * unit(i, 2)
+        }
+        .min(MAX_HANG);
         let cx = (x + width * 0.5).min(x1 + 6.0 - width * 0.5);
         put(
             commands,
@@ -123,14 +156,14 @@ pub fn draw(
         );
         hangs.push((cx, under + 6.0 - (depth + 6.0) * 0.75));
         let lip = LIP * (0.55 + 0.45 * unit(i, 4));
-        let lip_width = 70.0 + 50.0 * unit(i, 5);
+        let lip_width = (70.0 + 50.0 * unit(i, 5)).min(span * 0.9);
         put(
             commands,
             meshes,
             rock_mesh(Vec2::new(lip_width, lip * 2.0 + 4.0)),
             rock,
             Vec3::new(
-                (x + 30.0 + 80.0 * unit(i, 6)).min(x1 - lip_width * 0.4),
+                (x + 30.0 + 80.0 * unit(i, 6)).clamp(x0 + lip_width * 0.5, x1 - lip_width * 0.4),
                 top - 2.0 + lip * 0.5 - lip,
                 1.1,
             ),
@@ -291,71 +324,104 @@ mod tests {
     use super::*;
     use crabsim::{Level, Tuning};
 
-    fn drawn(level: Level) -> World {
-        let sim = Sim::new(Tuning::default(), level);
+    /// Draw `f` into a fresh world and return it with the mesh assets.
+    fn world_of(
+        f: impl FnOnce(&mut Commands, &mut Assets<Mesh>, &Handle<MemoryMaterial>),
+    ) -> (World, Assets<Mesh>) {
         let mut world = World::new();
-        world.insert_resource(Assets::<Mesh>::default());
-        world.insert_resource(Assets::<MemoryMaterial>::default());
-        let mut meshes = world.remove_resource::<Assets<Mesh>>().expect("meshes");
+        let mut meshes = Assets::<Mesh>::default();
         let rock = Handle::<MemoryMaterial>::default();
         let mut queue = bevy::ecs::world::CommandQueue::default();
         {
             let mut commands = Commands::new(&mut queue, &world);
-            draw(&mut commands, &mut meshes, &sim, &rock, &mut |_| {
-                Handle::default()
-            });
+            f(&mut commands, &mut meshes, &rock);
         }
         queue.apply(&mut world);
-        world.insert_resource(meshes);
-        world
+        (world, meshes)
     }
 
-    /// The drawing hangs no lower than `MAX_HANG` under the slab's underside, and nothing reaches far above it:
-    /// the slab's rect is the sim's, and the two-egg route under it must still read honestly.
+    /// The drawing of every slab (the canopy and each floating ledge) hangs no lower than `MAX_HANG` under the
+    /// slab's underside, and nothing reaches above its standing top by more than the lip (under 6 units): the slab's
+    /// rect is the sim's, and the routes over and under it must still read honestly.
     #[test]
-    fn the_overhang_hangs_no_lower_than_its_limit_and_has_a_lip_only_above() {
-        let mut world = drawn(Level::test_level());
-        let meshes = world.remove_resource::<Assets<Mesh>>().expect("meshes");
-        let (mut lowest, mut highest, mut count) = (f32::MAX, f32::MIN, 0);
-        let mut query = world.query_filtered::<(&Mesh2d, &Transform), Without<ChildOf>>();
-        for (mesh, transform) in query.iter(&world) {
-            let mesh = meshes.get(&mesh.0).expect("mesh");
-            let Some(positions) = mesh
-                .attribute(Mesh::ATTRIBUTE_POSITION)
-                .and_then(|a| a.as_float3())
-            else {
-                continue;
-            };
-            for p in positions {
-                lowest = lowest.min(transform.translation.y + p[1]);
-                highest = highest.max(transform.translation.y + p[1]);
+    fn every_outcrop_hangs_no_lower_than_its_limit_and_has_a_lip_only_above() {
+        let level = Level::test_level();
+        let slabs = slabs(&level);
+        assert!(
+            slabs.contains(&CANOPY) && slabs.contains(&LOOKOUT) && slabs.contains(&FAR_LOOKOUT)
+        );
+        assert!(
+            slabs.len() >= 7,
+            "canopy, garden, two lookouts, glow ledge, two kelp ledges: {}",
+            slabs.len()
+        );
+        for (n, slab) in slabs.into_iter().enumerate() {
+            let (mut world, meshes) = world_of(|commands, meshes, rock| {
+                draw_outcrop(commands, meshes, slab, n as u32, rock, &mut |_| {
+                    Handle::default()
+                });
+            });
+            let (mut lowest, mut highest, mut count) = (f32::MAX, f32::MIN, 0);
+            let mut query = world.query_filtered::<(&Mesh2d, &Transform), Without<ChildOf>>();
+            for (mesh, transform) in query.iter(&world) {
+                let mesh = meshes.get(&mesh.0).expect("mesh");
+                let Some(positions) = mesh
+                    .attribute(Mesh::ATTRIBUTE_POSITION)
+                    .and_then(|a| a.as_float3())
+                else {
+                    continue;
+                };
+                for p in positions {
+                    lowest = lowest.min(transform.translation.y + p[1]);
+                    highest = highest.max(transform.translation.y + p[1]);
+                }
+                count += 1;
             }
-            count += 1;
-        }
-        assert!(count > 20, "the rock and its crust are drawn: {count}");
-        assert!(lowest >= CANOPY.min.y - MAX_HANG, "lowest rock {lowest}");
-        assert!(highest <= CANOPY.max.y + LIP + 1.0, "highest {highest}");
-        // Each frond hangs from a joint with `Sway` and no parent; three segments of at most 6.4.
-        let mut roots = world.query_filtered::<&Transform, (With<Sway>, Without<ChildOf>)>();
-        let mut fronds = 0;
-        for transform in roots.iter(&world) {
-            fronds += 1;
             assert!(
-                transform.translation.y - 3.0 * 6.4 * 1.1 >= CANOPY.min.y - MAX_HANG,
-                "a frond reaches {}",
-                transform.translation.y
+                count >= 4,
+                "{slab:?}: the rock and its crust are drawn: {count}"
+            );
+            assert!(
+                lowest >= slab.min.y - MAX_HANG,
+                "{slab:?}: lowest rock {lowest}"
+            );
+            assert!(
+                highest <= slab.max.y + 6.0,
+                "{slab:?}: highest {highest} over the top {}",
+                slab.max.y
+            );
+            // Each frond hangs from a joint with `Sway` and no parent; three segments of at most 6.4.
+            let mut roots = world.query_filtered::<&Transform, (With<Sway>, Without<ChildOf>)>();
+            let mut fronds = 0;
+            for transform in roots.iter(&world) {
+                fronds += 1;
+                assert!(
+                    transform.translation.y - 3.0 * 6.4 * 1.1 >= slab.min.y - MAX_HANG,
+                    "{slab:?}: a frond reaches {}",
+                    transform.translation.y
+                );
+            }
+            assert!(
+                fronds >= 2,
+                "{slab:?}: fronds sway under the slab: {fronds}"
+            );
+            println!(
+                "outcrop {slab:?}: {count} shapes, lowest {:.1} under, highest {:.1} over, {fronds} fronds",
+                slab.min.y - lowest,
+                highest - slab.max.y
             );
         }
-        assert!(fronds >= 10, "fronds sway under the slab: {fronds}");
-        println!("canopy: {count} shapes, lowest rock {lowest:.1}, {fronds} fronds");
     }
 
     /// With no shallows nothing is drawn.
     #[test]
-    fn a_level_without_the_canopy_gets_no_overhang() {
+    fn a_level_without_the_shallows_gets_no_outcrops() {
         let mut level = Level::test_level();
-        level.rocks.retain(|r| *r != CANOPY);
-        let mut world = drawn(level);
+        level.rocks.retain(|r| *r != LOOKOUT);
+        let sim = Sim::new(Tuning::default(), level);
+        let (mut world, _) = world_of(|commands, meshes, rock| {
+            draw(commands, meshes, &sim, rock, &mut |_| Handle::default());
+        });
         assert_eq!(world.query::<&Mesh2d>().iter(&world).count(), 0);
     }
 }

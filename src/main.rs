@@ -72,7 +72,6 @@ mod bone_hall;
 mod brittle;
 mod build;
 mod burrows;
-mod canopy;
 mod canyon;
 mod canyon_drift;
 mod cell_save;
@@ -98,6 +97,7 @@ mod eggs;
 mod ending;
 mod feel;
 mod fight;
+mod flats;
 mod foes;
 mod food;
 mod gather_ui;
@@ -122,6 +122,7 @@ mod names;
 mod nodes;
 mod notes;
 mod octopus;
+mod outcrop;
 mod painted_world;
 #[cfg(not(target_arch = "wasm32"))]
 mod photo;
@@ -140,6 +141,7 @@ mod scribe;
 mod secrets;
 mod settings;
 mod shell_inventory;
+mod signposts;
 #[cfg(test)]
 mod sizes;
 mod skill_juice;
@@ -266,6 +268,8 @@ fn run_app() {
             cling::ClingPlugin,
             shell_inventory::ShellInventoryPlugin,
             nodes::NodesPlugin,
+            signposts::SignpostsPlugin,
+            flats::FlatsPlugin,
             gather_ui::GatherUiPlugin,
             skills_panel::SkillsPanelPlugin,
             skill_juice::SkillJuicePlugin,
