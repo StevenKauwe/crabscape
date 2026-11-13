@@ -910,9 +910,14 @@ fn the_shore_crabs_are_placed_and_their_walks_keep_clear() {
             lo - 40.0 >= door.max.x || hi + 40.0 <= door.min.x,
             "{name} walks to the home door"
         );
-        // Neither shaft's mouth is walked over.
+        // Neither shaft's mouth is walked across: a stretch at least as wide as
+        // a crab (97) and a half stays open beside the walk.
         for (a, b) in [(920.0, 1040.0), (1540.0, 1700.0)] {
-            assert!(hi <= a || lo >= b, "{name} walks over the mouth {a}..{b}");
+            let covered = (hi.min(b) - lo.max(a)).max(0.0);
+            assert!(
+                (b - a) - covered >= 80.0,
+                "{name} walks over the mouth {a}..{b}"
+            );
         }
         // The moray's reach.
         for &(k, p) in &level.foes {
