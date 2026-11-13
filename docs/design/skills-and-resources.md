@@ -634,7 +634,7 @@ The owner's ask: levels 1 to 15 in **all 13 skills** must be a joy for a brand-n
   - tier-1 recipes ×3;
   - Climbing and Swimming ×2.2;
   - Survival ×1.6;
-  - Fighting ×12 at levels 1 to 4, ×9 at 5 to 9, ×7 at 10 to 14. This stands in for creatures the world doesn't have yet near home; see item 7.
+  - Fighting ×9 at levels 1 to 4, ×6.5 at 5 to 9, ×5 at 10 to 14. It was ×12, ×9 and ×7 while only the pockets' two shrimp stood near home. The row shrimp (#680) is the third, and the bot fights it too. Re-measured: Fighting reaches 15 at minute 164.1 of 180 (it was 178.0), every target still holds, and focused Prying is unchanged at 16.9.
 - **Measured after** (bot, 3 h mixed, real ticks):
 
   | Measure | Before | After |
