@@ -337,9 +337,21 @@ fn gather_crab(
         c.gather.reset();
         return None;
     }
-    // The nearest ready node within reach of its feet.
+    // The nearest ready node within reach of its feet. A node the crab can
+    // work beats a nearer one it cannot (a level 8 node beside a level 1
+    // one), so the pockets can hold both without the near one blocking the
+    // hold; and among those, the kind the guide's current step asks for
+    // (the pocket's nodes stand 10 apart, so the nearest would otherwise
+    // decide for a new crab standing at the one the guide marks).
+    let wanted = (!c.econ.guide.skipped)
+        .then(|| c.econ.guide.current())
+        .flatten()
+        .and_then(|step| match step.cond {
+            crate::economy::guide::Cond::Gather(kind, _) => Some(kind),
+            _ => None,
+        });
     let mut best: Option<(usize, f32)> = None;
-    let mut best_workable = false;
+    let mut best_rank = (false, false);
     let mut spent_near = false;
     for (i, p) in placed.iter().enumerate() {
         let d = p.pos.distance(m.pos);
@@ -348,15 +360,14 @@ fn gather_crab(
         }
         match shared.nodes.get(i) {
             Some(n) if n.charges > 0 => {
-                // A node the crab can work beats a nearer one it cannot (a
-                // level 8 node beside a level 1 one): so the pockets can hold
-                // both without the near one blocking the hold.
                 let workable = gather::check(c, p.kind, t).is_ok();
-                if workable && !best_workable {
+                let rank = (workable, workable && wanted == Some(p.kind));
+                if best.is_none()
+                    || rank > best_rank
+                    || (rank == best_rank && best.is_some_and(|b| d < b.1))
+                {
                     best = Some((i, d));
-                    best_workable = true;
-                } else if workable == best_workable && best.is_none_or(|b| d < b.1) {
-                    best = Some((i, d));
+                    best_rank = rank;
                 }
             }
             Some(_) => spent_near = true,

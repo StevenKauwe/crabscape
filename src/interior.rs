@@ -1109,9 +1109,13 @@ fn lay_out_menu(
                     make.min.x - 8.0,
                     row.max.y,
                 );
+                // Clipped to its row: a long name and where-line wrap to
+                // more lines than a row holds, and spilled into the next row
+                // and the footer.
                 p.spawn((Node {
                     flex_direction: FlexDirection::Column,
                     row_gap: px(2.0),
+                    overflow: Overflow::clip(),
                     ..at(words, o)
                 },))
                     .with_children(|w| {
@@ -2214,9 +2218,9 @@ mod tests {
         let rows = rows_for(Tab::Goals, &sim, id, crab);
         assert_eq!(rows[0], Row::Guide, "{rows:?}");
         let v = row_view(&sim, id, crab, Row::Guide);
-        assert_eq!(v.name, "Pry mussels from the home rocks");
-        assert_eq!(v.tag, "0/8");
-        assert!(v.line.contains("mussel"), "{}", v.line);
+        assert_eq!(v.name, "Cut kelp by the door");
+        assert_eq!(v.tag, "0/7");
+        assert!(v.line.contains("kelp"), "{}", v.line);
         assert_eq!(v.button, Some(("Skip guide", true)));
         perform(&mut sim, id, Row::Guide);
         let crab = sim.crab(id).unwrap();

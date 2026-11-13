@@ -809,9 +809,14 @@ fn layout_touch_buttons(
     for (action, mut node, mut visibility, mut background) in &mut buttons {
         // Inside the home shell the claws stay folded: the fighting buttons
         // make way for the crafting menu.
+        // Dig too: its stick sat over the crafting menu on an upright phone.
         let fighting = matches!(
             action,
-            TouchAction::Smash | TouchAction::Jab | TouchAction::Guard | TouchAction::Eat
+            TouchAction::Smash
+                | TouchAction::Jab
+                | TouchAction::Guard
+                | TouchAction::Eat
+                | TouchAction::Dig
         );
         let wanted = if touch_controls.visible
             && !(fighting && inside.on)

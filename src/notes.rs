@@ -156,7 +156,7 @@ fn note_events(
     // then, not every frame.
     if ev.shell_full && now - *last_full > 4.0 {
         *last_full = now;
-        notes.push(("No room on your shell".into(), PALE));
+        notes.push(("Shell full: take it home".into(), PALE));
     }
     if let Some(why) = ev.gather_blocked {
         notes.push((crate::gather_ui::why_not(why), PALE));

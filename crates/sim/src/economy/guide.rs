@@ -103,42 +103,46 @@ use Skill as S;
 /// then the first home piece, then moving and the first dive. It ends by
 /// pointing at the wants board.
 pub const GUIDE: &[Step] = &[
-    Step {
-        skill: S::Prying,
-        title: "Pry mussels from the home rocks",
-        how: "Hold E at the mussel clumps in the rock pocket just outside the door.",
-        cond: Cond::Gather(NodeKind::MusselClump, 8),
-        known: (S::Prying, 2),
-        reward: items(&[(I::Kelp, 2)]),
-    },
+    // The first two steps stay in the home pocket by the door (x 222 to
+    // 242: a kelp stand, snail rocks, shore-glow); the mussels and grit lie
+    // in the second pocket, past the first snapping shrimp, so the guide
+    // sends a new crab there third, with a word about the shrimp.
     Step {
         skill: S::Harvesting,
-        title: "Cut kelp from the stands",
-        how: "Hold E at the kelp stands in the home pockets; the long stalk beside the door is not a stand.",
-        cond: Cond::Gather(NodeKind::KelpStand, 6),
+        title: "Cut kelp by the door",
+        how: "Gather at the short kelp stand just outside the door (the tall stalk is for climbing).",
+        cond: Cond::Gather(NodeKind::KelpStand, 7),
         known: (S::Harvesting, 2),
         reward: items(&[(I::Grit, 2)]),
     },
     Step {
-        skill: S::Excavating,
-        title: "Scoop grit from the heaps",
-        how: "Hold E at the grit heaps in the home pockets, and carry the grit home.",
-        cond: Cond::Gather(NodeKind::GritHeap, 8),
-        known: (S::Excavating, 2),
-        reward: items(&[(I::Valve, 2)]),
-    },
-    Step {
         skill: S::Foraging,
-        title: "Forage snails from the rocks",
-        how: "Hold E at the snail rocks in the far home pocket.",
+        title: "Forage snails by the door",
+        how: "Gather at the snail rocks beside the kelp stand, in the pocket by the door.",
         cond: Cond::Gather(NodeKind::SnailRocks, 8),
         known: (S::Foraging, 2),
         reward: items(&[(I::Mussel, 2)]),
     },
     Step {
+        skill: S::Prying,
+        title: "Pry mussels past the shrimp",
+        how: "Walk east past the snapping shrimp (jump its floor shock) to the second pocket, and gather at the mussel clumps.",
+        cond: Cond::Gather(NodeKind::MusselClump, 8),
+        known: (S::Prying, 2),
+        reward: items(&[(I::Kelp, 2)]),
+    },
+    Step {
+        skill: S::Excavating,
+        title: "Scoop grit from the heaps",
+        how: "Gather at the grit heaps in the second pocket, and carry the grit home.",
+        cond: Cond::Gather(NodeKind::GritHeap, 8),
+        known: (S::Excavating, 2),
+        reward: items(&[(I::Valve, 2)]),
+    },
+    Step {
         skill: S::Culturing,
         title: "Gather shore-glow",
-        how: "Hold E at the shore-glow patches on the pocket rocks, and bring a culture home.",
+        how: "Gather at the glowing shore-glow patches in either pocket, and bring a culture home.",
         cond: Cond::Gather(NodeKind::ShoreGlow, 12),
         known: (S::Culturing, 2),
         reward: items(&[(I::Kelp, 4)]),
@@ -347,6 +351,32 @@ impl Sim {
             progress,
             skipped: g.skipped,
         })
+    }
+
+    /// Where the guide's current gather step can be done: the nearest node
+    /// of its kind with charges left that crab `id` has seen
+    /// ([`crate::memory::Memory::nodes`], so it never points at a place the
+    /// crab has not found), within `reach` of it. `None` for any other kind
+    /// of step, a skipped or finished guide, or nothing seen near enough.
+    pub fn guide_target(&self, id: PlayerId, reach: f32) -> Option<bevy_math::Vec2> {
+        let status = self.guide_status(id).filter(|s| !s.skipped)?;
+        let Cond::Gather(kind, _) = status.step?.cond else {
+            return None;
+        };
+        let crab = self.crab(id)?;
+        let at = crab.mover.pos;
+        let placed = self.placed_nodes();
+        crab.memory
+            .nodes
+            .iter()
+            .filter(|seen| seen.kind == kind)
+            .filter_map(|seen| {
+                let i = seen.index as usize;
+                let charged = self.shared.nodes.get(i).is_some_and(|n| n.charges > 0);
+                charged.then(|| placed.get(i).map(|n| n.pos)).flatten()
+            })
+            .filter(|p| p.distance(at) <= reach)
+            .min_by(|a, b| a.distance(at).total_cmp(&b.distance(at)))
     }
 
     /// Crab `id` ends the guide (`guide-skip`). Only a local crab.
