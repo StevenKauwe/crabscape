@@ -2870,11 +2870,14 @@ impl Sim {
                     // Stage 3: the home grown deep and snug, a meal there
                     // lasts longer (Valheim's comfort, which makes resting
                     // last longer).
-                    m.well_fed = if stage >= 3 {
-                        (food.well_fed_ticks as f32 * build.meal_longer).round() as u32
-                    } else {
-                        food.well_fed_ticks
-                    };
+                    let snug = if stage >= 3 { build.meal_longer } else { 1.0 };
+                    // Survival 5 and 10: a meal lasts longer (`ladder.rs`).
+                    let survival = crate::economy::xp::level_for(
+                        crab.econ.skills.get(crate::skills::Skill::Survival),
+                    );
+                    let longer =
+                        1.0 + crate::economy::ladder::fed_longer_percent(survival) as f32 / 100.0;
+                    m.well_fed = (food.well_fed_ticks as f32 * snug * longer).round() as u32;
                     m.reserve = 1.0;
                     v.health = m.max_shell(&self.tuning);
                     crab.events.ate_clam = true;

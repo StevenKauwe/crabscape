@@ -30,6 +30,9 @@ pub enum Food {
     BrittleStarStew,
     EelgrassSalad,
     PurpleFilmPaste,
+    // Near-home dishes in place of the jelly salad and the inked kelp.
+    MusselSnailHash,
+    BarnacleKelpRoll,
 }
 
 /// A timed buff from eating (one at a time; a new one replaces it).
@@ -93,7 +96,7 @@ impl Buff {
 }
 
 impl Food {
-    pub const ALL: [Food; 22] = [
+    pub const ALL: [Food; 24] = [
         Food::ShellFood,
         Food::ReserveFood,
         Food::ShuckedMussels,
@@ -116,6 +119,8 @@ impl Food {
         Food::BrittleStarStew,
         Food::EelgrassSalad,
         Food::PurpleFilmPaste,
+        Food::MusselSnailHash,
+        Food::BarnacleKelpRoll,
     ];
 
     pub fn name(self) -> &'static str {
@@ -142,6 +147,8 @@ impl Food {
             Food::BrittleStarStew => "Brittle-star stew",
             Food::EelgrassSalad => "Eelgrass salad",
             Food::PurpleFilmPaste => "Purple-film paste",
+            Food::MusselSnailHash => "Mussel and snail hash",
+            Food::BarnacleKelpRoll => "Barnacle and kelp roll",
         }
     }
 
@@ -170,7 +177,7 @@ impl Food {
             Food::VentPoachedSeepMussels => 40,
             Food::VentClamFeast => 40,
             Food::Broth => 25,
-            Food::JellySalad => 10,
+            Food::JellySalad | Food::MusselSnailHash => 10,
             Food::ShrimpPasteFeast => 35,
             Food::KelpWrappedMussel => 20,
             Food::ShrimpStrips => 25,
@@ -186,8 +193,8 @@ impl Food {
     pub fn reserve_strokes(self) -> u8 {
         match self {
             Food::ReserveFood => 3,
-            Food::SnailWrap | Food::AmphipodBroth | Food::JellySalad => 1,
-            Food::InkedKelp | Food::SnailHalfShell => 2,
+            Food::SnailWrap | Food::AmphipodBroth | Food::JellySalad | Food::MusselSnailHash => 1,
+            Food::InkedKelp | Food::SnailHalfShell | Food::BarnacleKelpRoll => 2,
             Food::EelgrassSalad => 1,
             Food::VentPoachedSeepMussels | Food::VentClamFeast => u8::MAX,
             _ => 0,

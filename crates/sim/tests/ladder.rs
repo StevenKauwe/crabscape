@@ -120,6 +120,8 @@ fn the_physical_lines_state_the_real_numbers() {
             Perk::Claws => assert_eq!(n, (100.0 * claw * up as f32).round() as u32),
             Perk::Quicker => assert_eq!(n, ladder::quicker_percent(r.level)),
             Perk::Pressure => assert_eq!(n, r.level),
+            Perk::FedLonger => assert_eq!(n, ladder::fed_longer_percent(r.level)),
+            Perk::Headroom => assert_eq!(n as f32, ladder::headroom(r.level)),
             _ => {}
         }
     }

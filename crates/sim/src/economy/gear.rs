@@ -327,9 +327,9 @@ impl Station {
     pub fn building_level(self) -> u32 {
         match self {
             Station::CultureBed => 5,
-            Station::Loom => 12,
+            Station::Loom => 10,
             Station::BrinePot => 10,
-            Station::Grindstone => 18,
+            Station::Grindstone => 14,
             Station::Crock => 30,
         }
     }

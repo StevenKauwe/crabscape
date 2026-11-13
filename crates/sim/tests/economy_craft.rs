@@ -114,20 +114,19 @@ fn gear_is_fitted_in_its_slot() {
 #[test]
 fn stations_are_built_and_beds_in_order() {
     let mut sim = at_home_with(&[
-        (Item::Quill, 4),
         (Item::KelpCord, 4),
         (Item::Grit, 6),
-        (Item::Valve, 2),
+        (Item::Valve, 4),
         (Item::Clay, 3),
     ]);
-    set_level(&mut sim, Skill::Building, 12);
+    set_level(&mut sim, Skill::Building, 10);
     assert_eq!(sim.make_econ(P0, "loom"), Ok(()));
     assert!(econ(&sim).has_station(Station::Loom));
     assert_eq!(sim.make_econ(P0, "loom"), Err(CantMakeEcon::Made));
-    // Early stations pay a level and a fifth of Building (from level 12 to 13).
+    // Early stations pay a level and a fifth of Building (from level 10 to 11).
     assert_eq!(
         econ(&sim).skills.get(Skill::Building),
-        xp::TABLE[12] + xp::level_step(12) * 6 / 5
+        xp::TABLE[10] + xp::level_step(10) * 6 / 5
     );
     // The second bed needs the first.
     set_level(&mut sim, Skill::Building, 20);
