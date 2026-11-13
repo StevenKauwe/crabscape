@@ -78,6 +78,26 @@ pub const FIGHTS: &[(&str, Foe, Vec2)] = &[
     ("block shrimp", Foe::Snapper, Vec2::new(2074.0, 110.0)),
 ];
 
+/// Shore crabs on the way out from home: (place, home x). Each is a passive
+/// roamer that walks within `shore_crab::LEASH` (120) of its home and never
+/// starts a fight, so it keeps no danger distance from a node. Each whole walk
+/// plus 40 stays off the co-op dig spots (x 100 to 240, 2,400 to 2,540), every
+/// rest point and the home door; its walk leaves 80 of the plug shaft's mouth (x
+/// 920 to 1,040) and the silt mouth (x 1,540 to 1,700), and the moray's
+/// reach (150) off the den at x 1,760.
+///
+/// - the slope: between the boulder (x 640 to 720) and the plug shaft's mouth;
+/// - the shelf's east end: x 1,000 to 1,240, clear of the trench's rim;
+/// - the far ledge's slope, short of the flats' dig spot.
+///
+/// The trench floor has none: its rest crevice (x 1,446) and both morays
+/// leave no stretch 240 wide.
+pub const SHORE_CRABS: &[(&str, f32)] = &[
+    ("slope shore crab", 800.0),
+    ("shelf shore crab", 1120.0),
+    ("ledge shore crab", 2230.0),
+];
+
 /// A short kelp climb to a small rock ledge: (name, the stalk, the ledge). The
 /// stalk is gripped from the ledge's side and stands 40 over the ledge's top;
 /// its foot is on the floor.

@@ -55,6 +55,9 @@ pub enum Kind {
     Lobster,
     /// The hermit crab: a small crab in a borrowed shell.
     HermitCrab,
+    /// The common shore crab, a juvenile: a weak passive roamer
+    /// (`crate::creatures::shore_crab`).
+    ShoreCrab,
     /// The bobbit worm: an ambusher buried in the sand.
     BobbitWorm,
     /// The giant isopod: a slow deep scavenger.
@@ -69,7 +72,7 @@ pub enum Kind {
 }
 
 /// Every kind, for parsing and lists.
-pub const KINDS: [Kind; 19] = [
+pub const KINDS: [Kind; 20] = [
     Kind::Fixture,
     Kind::Mantis,
     Kind::Snapper,
@@ -84,6 +87,7 @@ pub const KINDS: [Kind; 19] = [
     Kind::GoliathGrouper,
     Kind::Lobster,
     Kind::HermitCrab,
+    Kind::ShoreCrab,
     Kind::BobbitWorm,
     Kind::GiantIsopod,
     Kind::Hagfish,
@@ -123,6 +127,7 @@ impl Kind {
             Kind::GoliathGrouper => "goliath-grouper",
             Kind::Lobster => "american-lobster",
             Kind::HermitCrab => "hermit-crab",
+            Kind::ShoreCrab => "shore-crab",
             Kind::BobbitWorm => "bobbit-worm",
             Kind::GiantIsopod => "giant-isopod",
             Kind::Hagfish => "hagfish",

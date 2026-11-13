@@ -475,12 +475,13 @@ pub fn claws_beyond_percent(level: u32) -> u32 {
 /// snapping shrimps stand on the home side (the pockets' two and the row
 /// shrimp) and each returns every three minutes, so the early levels are
 /// paid richly; the table above 15 is untouched. Was 1,200 / 900 / 700 with
-/// two shrimps.
+/// two shrimps, then 900 / 650 / 500 while the bot's far-ledge fights were
+/// broken.
 pub fn fight_xp_percent(level: u32) -> u32 {
     match level {
-        0..=4 => 900,
-        5..=9 => 650,
-        10..=14 => 500,
+        0..=4 => 600,
+        5..=9 => 450,
+        10..=14 => 350,
         _ => 100,
     }
 }

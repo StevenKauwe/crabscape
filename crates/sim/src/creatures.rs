@@ -20,6 +20,7 @@ pub mod hagfish;
 pub mod hermit;
 pub mod isopod;
 pub mod lobster;
+pub mod shore_crab;
 pub mod squid;
 pub mod turtle;
 pub mod viperfish;
@@ -35,6 +36,7 @@ pub enum Extra {
     Grouper(grouper::State),
     Lobster(lobster::State),
     Hermit(hermit::State),
+    ShoreCrab(shore_crab::State),
     Bobbit(bobbit::State),
     Isopod(isopod::State),
     Hagfish(hagfish::State),
@@ -51,6 +53,7 @@ pub fn extra(kind: Kind) -> Extra {
         Kind::GoliathGrouper => Extra::Grouper(grouper::State::default()),
         Kind::Lobster => Extra::Lobster(lobster::State::default()),
         Kind::HermitCrab => Extra::Hermit(hermit::State::default()),
+        Kind::ShoreCrab => Extra::ShoreCrab(shore_crab::State::default()),
         Kind::BobbitWorm => Extra::Bobbit(bobbit::State::default()),
         Kind::GiantIsopod => Extra::Isopod(isopod::State::default()),
         Kind::Hagfish => Extra::Hagfish(hagfish::State::default()),
@@ -69,6 +72,7 @@ pub fn tuning(kind: Kind) -> Option<&'static EnemyTuning> {
         Kind::GoliathGrouper => Some(grouper::tuning()),
         Kind::Lobster => Some(lobster::tuning()),
         Kind::HermitCrab => Some(hermit::tuning()),
+        Kind::ShoreCrab => Some(shore_crab::tuning()),
         Kind::BobbitWorm => Some(bobbit::tuning()),
         Kind::GiantIsopod => Some(isopod::tuning()),
         Kind::Hagfish => Some(hagfish::tuning()),
@@ -95,6 +99,7 @@ pub(crate) fn step(
         Kind::GoliathGrouper => grouper::step(e, crabs, t, level, rng, animals, bounded_region),
         Kind::Lobster => lobster::step(e, crabs, t, level, rng, animals, bounded_region),
         Kind::HermitCrab => hermit::step(e, crabs, t, level, rng, animals, bounded_region),
+        Kind::ShoreCrab => shore_crab::step(e, crabs, t, level, rng, animals, bounded_region),
         Kind::BobbitWorm => bobbit::step(e, crabs, t, level, rng, animals, bounded_region),
         Kind::GiantIsopod => isopod::step(e, crabs, t, level, rng, animals, bounded_region),
         Kind::Hagfish => hagfish::step(e, crabs, t, level, rng, animals, bounded_region),
@@ -141,6 +146,7 @@ pub(crate) fn takes(e: &mut Enemy, hit: &Hit, from_x: f32, t: &Tuning) -> Option
     match e.kind {
         Kind::Lobster => lobster::takes(e, hit, from_x, t),
         Kind::HermitCrab => hermit::takes(e, hit, from_x, t),
+        Kind::ShoreCrab => shore_crab::takes(e, hit, from_x, t),
         Kind::GiantIsopod => isopod::takes(e, hit, from_x, t),
         _ => None,
     }
@@ -155,6 +161,7 @@ pub(crate) fn feels(e: &mut Enemy, crab: PlayerId, outcome: Outcome, t: &Tuning)
         Kind::GoliathGrouper => grouper::feels(e, crab, outcome, t),
         Kind::Lobster => lobster::feels(e, crab, outcome, t),
         Kind::HermitCrab => hermit::feels(e, crab, outcome, t),
+        Kind::ShoreCrab => shore_crab::feels(e, crab, outcome, t),
         Kind::BobbitWorm => bobbit::feels(e, crab, outcome, t),
         Kind::GiantIsopod => isopod::feels(e, crab, outcome, t),
         Kind::Hagfish => hagfish::feels(e, crab, outcome, t),
@@ -189,6 +196,7 @@ pub fn phase(e: &Enemy, _t: &Tuning) -> Option<&'static str> {
         Kind::GoliathGrouper => grouper::phase(e),
         Kind::Lobster => lobster::phase(e),
         Kind::HermitCrab => hermit::phase(e),
+        Kind::ShoreCrab => shore_crab::phase(e),
         Kind::BobbitWorm => bobbit::phase(e),
         Kind::GiantIsopod => isopod::phase(e),
         Kind::Hagfish => hagfish::phase(e),
@@ -231,6 +239,11 @@ pub fn spots(level: &Level) -> Vec<(Kind, Vec2)> {
             .map(|p| (Kind::HermitCrab, p)),
     );
     all.extend(
+        shore_crab::spots(level)
+            .into_iter()
+            .map(|p| (Kind::ShoreCrab, p)),
+    );
+    all.extend(
         bobbit::spots(level)
             .into_iter()
             .map(|p| (Kind::BobbitWorm, p)),
@@ -262,6 +275,7 @@ pub fn midwater(kind: Kind) -> bool {
         Kind::GoliathGrouper => grouper::MIDWATER,
         Kind::Lobster => lobster::MIDWATER,
         Kind::HermitCrab => hermit::MIDWATER,
+        Kind::ShoreCrab => shore_crab::MIDWATER,
         Kind::BobbitWorm => bobbit::MIDWATER,
         Kind::GiantIsopod => isopod::MIDWATER,
         Kind::Hagfish => hagfish::MIDWATER,
@@ -279,6 +293,7 @@ pub fn drops(kind: Kind) -> &'static [&'static str] {
         Kind::GoliathGrouper => grouper::DROPS,
         Kind::Lobster => lobster::DROPS,
         Kind::HermitCrab => hermit::DROPS,
+        Kind::ShoreCrab => shore_crab::DROPS,
         Kind::BobbitWorm => bobbit::DROPS,
         Kind::GiantIsopod => isopod::DROPS,
         Kind::Hagfish => hagfish::DROPS,

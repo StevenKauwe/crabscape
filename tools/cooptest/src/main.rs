@@ -408,9 +408,52 @@ impl Player {
 /// Co-op players draw at half density: the same 1200 x 800 CSS layout, clicks and checks, a quarter of the pixels.
 /// CI draws WebGL in software (SwiftShader) for three browsers on one 4-core machine; at full density each page
 /// made 4 to 5 frames a second under 6x CPU throttling and 8 to 11 at half, so the page that just loaded gets the
-/// CPU it needs to answer its friends. These checks are about playing together, not how the world looks; the
-/// HUD-density and terrain checks keep their own sizes.
+/// CPU it needs to answer its friends (two-waiting's main-host step took 9.8 s of its 10 s at full density in
+/// 43383641349, 2.7 to 3.0 s at half). The HUD-density and terrain checks keep their own sizes.
 const PLAYER_DENSITY: f64 = 0.5;
+
+/// The game's autosave clock, as `data-cell-page-state` reports it (`elapsed=`, seconds since the last reserved
+/// save on the game's capped clock, reset to 0 when the next save is reserved).
+#[derive(Default)]
+struct AutosaveClock {
+    /// Game seconds observed since the wait began.
+    game_seconds: f64,
+    last: Option<f64>,
+    progressed: Option<Instant>,
+}
+
+/// Three autosave intervals (5 s each) on the game's clock.
+const AUTOSAVE_BUDGET: f64 = 15.0;
+/// A game whose autosave clock does not advance at all for this long has stopped.
+const AUTOSAVE_STALL: Duration = Duration::from_secs(60);
+
+impl AutosaveClock {
+    /// Add the game time between two published states; true once the budget is spent or the clock stalled.
+    fn observe(&mut self, state: Option<&str>, now: Instant) -> bool {
+        let elapsed = state.and_then(|s| {
+            s.split_whitespace()
+                .find_map(|part| part.strip_prefix("elapsed=")?.parse::<f64>().ok())
+        });
+        let progressed = *self.progressed.get_or_insert(now);
+        if let Some(elapsed) = elapsed {
+            if let Some(last) = self.last {
+                let step = if elapsed >= last {
+                    elapsed - last
+                } else {
+                    // A save was reserved at 5 s and the clock restarted.
+                    (5.0 - last).max(0.0) + elapsed
+                };
+                if step > 0.0 {
+                    self.game_seconds += step;
+                    self.progressed = Some(now);
+                }
+            }
+            self.last = Some(elapsed);
+        }
+        self.game_seconds > AUTOSAVE_BUDGET
+            || now.duration_since(self.progressed.unwrap_or(progressed)) > AUTOSAVE_STALL
+    }
+}
 
 /// How long a stalled game freezes: past the 5 s after which a friend that sent nothing counts as gone, so the
 /// stall really cuts them apart.
@@ -1230,12 +1273,17 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 "({}).then(r=>r&&r.head)",
                 save_fixture::CAPTURE_SCRIPT
             ))?;
-            let started = Instant::now();
-            // Publish the autosave state (data-cell-page-state) so a miss says
-            // whether a save was due, running or never reserved.
+            // The game autosaves every 5 s of its own clock, which Bevy caps
+            // at 250 ms a frame: on a CI page drawing a frame a second that is
+            // about 20 s of wall time. So the budget is three autosave
+            // intervals on the game's clock (and never less than the original
+            // 30 s), read from the autosave state the game publishes. A game whose autosave clock
+            // stops advancing still fails after `AUTOSAVE_STALL`.
             guest.b.eval(
                 "document.getElementById('crabscape').setAttribute('data-cell-work-profile','1')",
             )?;
+            let started = Instant::now();
+            let mut clock = AutosaveClock::default();
             loop {
                 let head = guest.b.eval(&format!(
                     "({}).then(r=>r&&r.head)",
@@ -1244,10 +1292,13 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 if !head.is_null() && head != previous_head {
                     break;
                 }
-                if started.elapsed().as_secs() > 30 {
-                    let state = guest.b.attr("data-cell-page-state");
+                let state = guest.b.attr("data-cell-page-state");
+                if clock.observe(state.as_deref(), Instant::now())
+                    && started.elapsed().as_secs() > 30
+                {
                     return Err(guest.failed(format!(
-                        "guest did not save while the transfer was held; autosave {state:?}"
+                        "guest did not save while the transfer was held: {:.1} s of the game's autosave clock; autosave {state:?}",
+                        clock.game_seconds
                     )));
                 }
                 sleep(0.5);
@@ -1530,14 +1581,39 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                 .ok_or("missing deep baseline")?
                 .sim_tick;
             let started = Instant::now();
+            // As for the visiting guest: the owner saves on the game's capped
+            // clock, so the wait is three autosave intervals of it (and never
+            // less than the original 45 s), not 45 s of a slow page's wall time.
+            host.b.eval(
+                "document.getElementById('crabscape').setAttribute('data-cell-work-profile','1')",
+            )?;
+            let mut clock = AutosaveClock::default();
+            // Each change in whether autosave would accept the owner's spot
+            // (the page state's `spot=`), for a failure to show what held it.
+            let mut spots: Vec<String> = Vec::new();
             let connected_save = loop {
                 if let Some(saved) = saved_cells(&mut host)?
                     && saved.sim_tick > previous
                 {
                     break saved;
                 }
-                if started.elapsed().as_secs() > 45 {
-                    return Err(host.failed("deep co-op owner save did not advance".into()));
+                let state = host.b.attr("data-cell-page-state");
+                if let Some(spot) = state.as_deref().and_then(|s| s.split(" spot=").nth(1)) {
+                    let valid = spot.split(' ').next().unwrap_or_default();
+                    if spots
+                        .last()
+                        .is_none_or(|last| !last.contains(&format!(" {valid} ")))
+                    {
+                        spots.push(format!("{:.0}s {spot}", started.elapsed().as_secs_f32()));
+                    }
+                }
+                if clock.observe(state.as_deref(), Instant::now())
+                    && started.elapsed().as_secs() > 45
+                {
+                    return Err(host.failed(format!(
+                        "deep co-op owner save did not advance: {:.1} s of the game's autosave clock; autosave {state:?}; spot changes {spots:?}",
+                        clock.game_seconds
+                    )));
                 }
                 host.healthy()?;
                 sleep(1.0);
@@ -1550,7 +1626,7 @@ fn scenario(name: &str, site: &mut Site, voice: bool) -> Result<Found> {
                     host.failed("connected save did not contain the owner's newer position".into())
                 );
             }
-            eprintln!("deep-world autosave advanced while connected");
+            eprintln!("deep-world autosave advanced while connected; spot changes {spots:?}");
             guest.b.go("about:blank")?;
             host.until(30.0, "deep-world guest departure", |p| {
                 p.b.attr("data-cell-session").as_deref() == Some("solo")
@@ -3391,6 +3467,38 @@ fn now_ms() -> u64 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn autosave_wait_counts_the_games_clock_across_a_reset_and_catches_a_stall() {
+        let t0 = Instant::now();
+        let at = |s: u64| t0 + Duration::from_secs(s);
+        let mut clock = AutosaveClock::default();
+        // One CI frame a second advances the capped clock 0.25 s.
+        assert!(!clock.observe(Some("revision=3 saving=false elapsed=4.50"), at(0)));
+        assert!(!clock.observe(Some("revision=3 saving=true elapsed=0.25"), at(4)));
+        assert!((clock.game_seconds - 0.75).abs() < 1e-9);
+        // 40 wall seconds is only 10 game seconds: still within budget.
+        let mut e = 0.25;
+        for s in 5..45 {
+            e += 0.25;
+            if e >= 5.0 {
+                e -= 5.0;
+            }
+            assert!(
+                !clock.observe(Some(&format!("elapsed={e:.2}")), at(s)),
+                "{s}"
+            );
+        }
+        // A frozen clock fails after the stall bound, without spending game time.
+        let mut frozen = AutosaveClock::default();
+        assert!(!frozen.observe(Some("elapsed=1.00"), at(0)));
+        assert!(!frozen.observe(Some("elapsed=1.00"), at(60)));
+        assert!(frozen.observe(Some("elapsed=1.00"), at(61)));
+        // So does a page that never publishes its autosave state.
+        let mut silent = AutosaveClock::default();
+        assert!(!silent.observe(None, at(0)));
+        assert!(silent.observe(None, at(61)));
+    }
+
     use super::*;
 
     fn seconds(names: &[&str]) -> u32 {

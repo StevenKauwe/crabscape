@@ -106,6 +106,13 @@ const CORAL_HALL: &str = "black coral hall";
 const NODULE_FIELD: &str = "nodule field";
 const WHALE_HALL: &str = "whale-fall hall";
 
+/// The sights near home (`level::shallows::SIGHT_SITES`): ledges a new crab
+/// sees but reaches only with an upgrade, so their nodes' tier is set by
+/// that upgrade, not by the depth band (the band rule's one exception):
+/// `(landmark, the highest tier its nodes may be)`. The high garden takes two
+/// eggs' strokes; the glow ledge, glass grips.
+pub const SIGHTS: &[(&str, u8)] = &[("high garden", 3), ("glow ledge", 3)];
+
 /// Every spot, by tier. Nodes of one kind are spread over the tier's places,
 /// at least 30 units apart (the hub's and the pockets' are closer).
 pub const SPOTS: &[NodeSpot] = &[
@@ -323,6 +330,17 @@ pub const SPOTS: &[NodeSpot] = &[
     on(K::ClamBed, 1415.0, -480.0),
     on(K::ClayBank, 1455.0, -480.0),
     on(K::WormMud, 1495.0, -480.0),
+    // The sights near home (`level::shallows::SIGHT_SITES`; their tier by
+    // the upgrade that reaches them, `SIGHTS`). The high garden holds a
+    // twilight glow and a scallop bed (tier 3), not the glass the world lane
+    // suggested: glass stays the Silt Galleries' want (a glass garden here,
+    // nearest home, would change the lamp's named place and its loop). The
+    // glow ledge, reached with glass grips, holds a twilight glow and a
+    // shore glow. Appended, so earlier indices hold.
+    on(K::TwilightGlow, 810.0, 1300.0),
+    on(K::ScallopBed, 880.0, 1300.0),
+    on(K::TwilightGlow, 1515.0, 1100.0),
+    on(K::ShoreGlow, 1550.0, 1100.0),
 ];
 /// Where a spot lies on this level, or `None` when its named place is not
 /// in the level.

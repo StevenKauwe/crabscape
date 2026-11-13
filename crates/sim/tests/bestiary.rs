@@ -20,8 +20,8 @@ fn bestiary() -> Vec<Kind> {
 }
 
 #[test]
-fn ten_new_kinds_are_listed() {
-    assert_eq!(bestiary().len(), 10);
+fn eleven_new_kinds_are_listed() {
+    assert_eq!(bestiary().len(), 11);
 }
 
 #[test]
@@ -44,6 +44,7 @@ fn module_consts_agree_with_the_dispatch() {
     assert_eq!(drops(Kind::GoliathGrouper), grouper::DROPS);
     assert_eq!(drops(Kind::Lobster), lobster::DROPS);
     assert_eq!(drops(Kind::HermitCrab), hermit::DROPS);
+    assert_eq!(drops(Kind::ShoreCrab), shore_crab::DROPS);
     assert_eq!(drops(Kind::BobbitWorm), bobbit::DROPS);
     assert_eq!(drops(Kind::GiantIsopod), isopod::DROPS);
     assert_eq!(drops(Kind::Hagfish), hagfish::DROPS);
@@ -54,6 +55,7 @@ fn module_consts_agree_with_the_dispatch() {
     assert_eq!(midwater(Kind::GoliathGrouper), grouper::MIDWATER);
     assert_eq!(midwater(Kind::Lobster), lobster::MIDWATER);
     assert_eq!(midwater(Kind::HermitCrab), hermit::MIDWATER);
+    assert_eq!(midwater(Kind::ShoreCrab), shore_crab::MIDWATER);
     assert_eq!(midwater(Kind::BobbitWorm), bobbit::MIDWATER);
     assert_eq!(midwater(Kind::GiantIsopod), isopod::MIDWATER);
     assert_eq!(midwater(Kind::Hagfish), hagfish::MIDWATER);

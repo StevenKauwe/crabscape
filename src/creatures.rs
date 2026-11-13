@@ -6,6 +6,7 @@ pub mod hagfish;
 pub mod hermit;
 pub mod isopod;
 pub mod lobster;
+pub mod shore_crab;
 pub mod squid;
 pub mod turtle;
 pub mod viperfish;

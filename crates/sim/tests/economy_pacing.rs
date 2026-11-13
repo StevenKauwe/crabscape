@@ -486,8 +486,17 @@ fn every_node_lies_in_a_band_no_shallower_than_its_tier_and_trips_lengthen_with_
         if def.skill == Skill::Cooking {
             continue;
         }
+        // A sight near home takes the tier of the upgrade that reaches it
+        // (`place::SIGHTS`), not the band's.
+        let sight = crabsim::economy::place::SIGHTS.iter().any(|(name, tier)| {
+            def.tier <= *tier
+                && level
+                    .landmarks()
+                    .iter()
+                    .any(|m| m.name == *name && m.rect.contains(n.pos))
+        });
         assert!(
-            band_index(&level, n.pos) >= usize::from(def.tier) - 1,
+            sight || band_index(&level, n.pos) >= usize::from(def.tier) - 1,
             "{:?} (tier {}) at {:?} lies in band {}",
             n.kind,
             def.tier,
