@@ -297,8 +297,7 @@ One claw gear at a time (the claw slot); tips replace each other. Zones are desi
 ## Every way to play pays (owner's three rules; data tests in `economy_every_way_pays.rs`, pacing in `economy_pacing.rs`)
 **1. Two hours of low-attention gathering near home pays.**
 - *Safe.* The tier 1 nodes on the home side lie in two pockets, 10 units apart: x 222 to 242 (after the home burrow's
-  first silt shaft, whose mouth reaches x 220, and before the first snapping-shrimp burrow at 340, which notices within
-  120 and strikes within 72) and x 432 to 492 (between the burrows at 340 and 590). Ten nodes, two of each skill (the
+  first silt shaft, whose mouth reaches x 220, and clear of the snapping shrimp, none of which stands by the door since the calm first gather) and x 432 to 492 (short of the burrow at 590, which notices within 120 and strikes within 72). Ten nodes, two of each skill (the
   first pocket holds Culturing, Harvesting and Foraging, the second all five and a second Prying and Excavating); a crab
   standing in a pocket reaches the whole of it (reach 70). Test: no foe of the level or the bestiary lies nearer a home
   node than its danger distance (a turret: strike range + 20; a roaming hunter: 600); no node lies in a door's mouth;

@@ -19,7 +19,7 @@ use crate::player::GameSet;
 const Z: f32 = 9.0;
 /// The parts file (baked in) and picture; one art unit is a world unit's half (the file draws at twice size).
 const PARTS: &str = include_str!("../assets/creatures/space-monkey-parts.json");
-const ATLAS: &str = "creatures/space-monkey-atlas.png";
+const ATLAS: &str = "creatures/space-monkey-atlas-oil.png";
 const SCALE: f32 = 0.5;
 /// How high above the floor a monkey starts its fall.
 const FALL_FROM: f32 = 520.0;

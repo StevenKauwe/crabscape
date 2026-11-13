@@ -34,7 +34,7 @@ const HIT: Vec2 = Vec2::new(87.0, 11.0);
 
 /// The mantis's puppet: its parts file (baked in) and picture.
 const MANTIS_PARTS: &str = include_str!("../assets/creatures/mantis-shrimp-parts.json");
-const MANTIS_ATLAS: &str = "creatures/mantis-shrimp-atlas.png";
+const MANTIS_ATLAS: &str = "creatures/mantis-shrimp-atlas-oil.png";
 
 // The club's flash and the cavitation bubble.
 const CLUB: Color = Color::srgb(0.95, 0.45, 0.50);

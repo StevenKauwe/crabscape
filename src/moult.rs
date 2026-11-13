@@ -15,7 +15,6 @@ use bevy::prelude::*;
 
 use crate::interior::{self, Inside};
 use crate::player::{FrameEvents, GameSet, LocalPlayer};
-use crate::style::ArtStyle;
 
 /// How long the moult takes (seconds): the husk shows, the crab backs out,
 /// the husk goes to the shelf.
@@ -81,7 +80,6 @@ fn smooth(x: f32) -> f32 {
 fn start(
     mut commands: Commands,
     assets: Res<AssetServer>,
-    style: Res<ArtStyle>,
     crabs: Query<(
         Entity,
         &FrameEvents,
@@ -98,7 +96,7 @@ fn start(
             let from = at.translation + crate::puppet::carapace_middle().extend(1.0);
             // The keepsake this husk becomes: one per moult, this one last.
             let slot = (mover.moults as usize + usize::from(mover.growing.is_some())).max(1) - 1;
-            let mut sprite = crate::home::carapace_sprite(&assets, *style, 1.0, HUSK);
+            let mut sprite = crate::home::carapace_sprite(&assets, 1.0, HUSK);
             sprite.color.set_alpha(0.0);
             commands.spawn((
                 Husk { t: 0.0, from, slot },

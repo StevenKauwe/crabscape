@@ -114,8 +114,8 @@ printf '%s' "${CRABSCAPE_VERSION:-dev}" > web/pkg/commit.txt
 #    .wasm, which keeps it small).
 rm -rf web/assets
 mkdir -p web/assets/crab web/assets/creatures
-cp assets/crab/crab-atlas.png assets/crab/crab-atlas-oil.png web/assets/crab/
-cp assets/creatures/*-atlas.png assets/creatures/*-atlas-oil.png web/assets/creatures/
+cp assets/crab/crab-atlas-oil.png web/assets/crab/
+cp assets/creatures/*-atlas-oil.png web/assets/creatures/
 cp -R assets/king-ddd web/assets/
 
 raw=$(wc -c < "$wasm")

@@ -41,7 +41,7 @@ pub(crate) const ART_SCALE: f32 = 0.5;
 fn load(mut commands: Commands, assets: Res<AssetServer>) {
     commands.insert_resource(Art(CreatureArt::load_scaled(
         include_str!("../../assets/creatures/bobbit-worm-parts.json"),
-        "creatures/bobbit-worm-atlas.png",
+        "creatures/bobbit-worm-atlas-oil.png",
         ART_SCALE,
         &assets,
     )));

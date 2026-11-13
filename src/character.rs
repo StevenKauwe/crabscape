@@ -17,7 +17,7 @@
 //!   URL-safe base64 without padding (letters, digits, `-` and `_`, which
 //!   messages and notes leave alone): the build that made it, the whole save
 //!   (`save::SaveData`: where the crab is, what it remembers, what it grew and
-//!   took, its own world), the settings, the art style and the name the
+//!   took, its own world), the settings and the name the
 //!   player goes by (`names.rs`; codes from before names have none).
 //! - `checksum`: CRC-32 of everything before it, as 8 hex digits, so a code
 //!   damaged or cut short on the way is refused instead of loaded half.
@@ -28,7 +28,7 @@
 //! build and the live game both ways.
 //!
 //! What travels: the crab and its own world (the whole save), and the
-//! player's settings: volumes, music, art style, how friends' voices carry,
+//! player's settings: volumes, music, how friends' voices carry,
 //! and the name over the crab.
 //! What stays with the device: the co-op lobby (its invite link: lobbies are
 //! per device), the battery saver (it's about this device's battery), the
@@ -42,7 +42,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::save::{SAVE_VERSION, SaveData};
 use crate::settings::Settings;
-use crate::style::ArtStyle;
 
 /// The code layout's version: bump it when the layout changes, and keep
 /// reading the old ones.
@@ -66,7 +65,6 @@ pub struct Character {
     pub copy: Option<String>,
     pub save: SaveData,
     pub settings: Settings,
-    pub style: ArtStyle,
     /// The name the player goes by (`names.rs`), if the code carries one:
     /// codes from before names don't, and importing one keeps the name here.
     pub name: Option<String>,
@@ -78,7 +76,6 @@ impl Character {
         sim: &Sim,
         id: PlayerId,
         settings: Settings,
-        style: ArtStyle,
         name: &str,
         build: &str,
         copy: Option<String>,
@@ -88,7 +85,6 @@ impl Character {
             copy,
             save: crate::save::snapshot(sim, id)?,
             settings,
-            style,
             name: clean_name(name),
         })
     }
@@ -105,8 +101,7 @@ struct Body<S> {
     /// As `Settings::to_text` keeps them.
     #[serde(default)]
     settings: String,
-    #[serde(default)]
-    style: String,
+    // Codes from before the ink style was removed also say `"style"`: ignored.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     name: Option<String>,
 }
@@ -151,7 +146,6 @@ pub fn encode(c: &Character) -> String {
         copy: c.copy.clone(),
         save: &c.save,
         settings: c.settings.to_text(),
-        style: c.style.name().to_string(),
         name: c.name.clone(),
     };
     let json = serde_json::to_vec(&body).expect("a character always serialises");
@@ -217,14 +211,13 @@ pub fn decode(text: &str) -> Result<Character, Refusal> {
         copy: body.copy,
         save,
         settings: Settings::from_text(&body.settings),
-        style: ArtStyle::from_name(&body.style).unwrap_or_default(),
         name: body.name.as_deref().and_then(clean_name),
     })
 }
 
 /// What importing `c` writes, as `save::replace` takes it: the save, the
 /// settings with this device's battery saver (`device_settings`: the
-/// settings kept here now), and the art style. Nothing else is touched, the
+/// settings kept here now). Nothing else is touched, the
 /// co-op lobby among it.
 pub fn writes(c: &Character, device_settings: Option<&str>) -> Vec<(&'static str, String)> {
     let saver = device_settings
@@ -241,7 +234,6 @@ pub fn writes(c: &Character, device_settings: Option<&str>) -> Vec<(&'static str
             serde_json::to_string(&c.save).expect("save data always serialises"),
         ),
         ("-settings", settings.to_text()),
-        ("-style", c.style.name().to_string()),
     ];
     if let Some(name) = &c.name {
         keys.push((crate::names::KEPT, name.clone()));
@@ -393,7 +385,6 @@ mod web {
     use super::{Character, MAX_TEXT, Refusal, decode, encode, file_name, summary, writes};
     use crate::coop::LocalId;
     use crate::settings::Settings;
-    use crate::style::ArtStyle;
 
     /// Said once the code is copied.
     const COPIED: &str = "Copied. Paste it into a message or a note, or save it as a file.";
@@ -515,7 +506,6 @@ mod web {
         sim: Res<Sim>,
         me: Res<LocalId>,
         settings: Res<Settings>,
-        style: Res<ArtStyle>,
         names: Res<crate::names::Names>,
     ) {
         if !with(|d| std::mem::take(&mut d.export_asked)) {
@@ -524,8 +514,7 @@ mod web {
         let build = option_env!("CRABSCAPE_BUILD").unwrap_or("dev");
         let copy = crate::save::build_slug();
         let name = names.mine();
-        let Some(mut c) = Character::of(&sim, me.0, *settings, *style, name, build, copy.clone())
-        else {
+        let Some(mut c) = Character::of(&sim, me.0, *settings, name, build, copy.clone()) else {
             return;
         };
         let description = summary(&c, &sim);
@@ -863,7 +852,6 @@ mod tests {
             &sim,
             PlayerId(0),
             settings,
-            ArtStyle::Ink,
             "  Big   Claw ",
             "5d3eb47, Oct 29",
             Some("pr-183".into()),
@@ -905,7 +893,6 @@ mod tests {
             &Sim::with_one_crab(SPAWN),
             PlayerId(0),
             Settings::default(),
-            ArtStyle::Oil,
             "Crab 10",
             "dev",
             None,
@@ -915,7 +902,7 @@ mod tests {
     }
 
     #[test]
-    fn importing_writes_the_save_settings_and_style_but_keeps_the_lobby_and_the_battery_saver() {
+    fn importing_writes_the_save_and_settings_but_keeps_the_lobby_and_the_battery_saver() {
         let c = travelled();
         let mut device: std::collections::HashMap<&str, String> = [
             (".save", r#"{"version":3,"x":160.0,"y":0.0}"#.to_string()),
@@ -947,7 +934,8 @@ mod tests {
             }
         );
         assert!(c.settings.saver);
-        assert_eq!(device["-style"], "ink");
+        // A style kept from before Oil was the only one stays as it was: nothing reads it.
+        assert_eq!(device["-style"], "oil");
         // The name the player went by comes along, cleaned.
         assert_eq!(device[crate::names::KEPT], "Big Claw");
         // The lobby, and the rest of what's this device's, untouched.
@@ -960,7 +948,7 @@ mod tests {
         assert!(!Settings::from_text(&fresh[1].1).saver);
         assert_eq!(
             fresh.iter().map(|(k, _)| *k).collect::<Vec<_>>(),
-            [".save", "-settings", "-style", "-name"]
+            [".save", "-settings", "-name"]
         );
         // And no lobby inside the code either.
         let json = unpack(encode(&c).split(':').nth(2).unwrap());
@@ -1118,7 +1106,6 @@ mod tests {
         assert_eq!((p.swim_xp, p.moults, p.larder), (0.0, 0, 0));
         assert!(p.feats.is_empty() && p.scissor_claw);
         assert_eq!(c.settings.effects, 0.65);
-        assert_eq!(c.style, ArtStyle::default());
         // From before names: none, and importing it leaves the name here be.
         assert_eq!(c.name, None);
         assert!(

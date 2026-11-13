@@ -2,7 +2,11 @@
 //!
 //!     crabrig parts  [--creature C] [out.svg]                     the rig parts file (default art/crab/crab-parts.svg)
 //!     crabrig export [--creature C] [--scale S] [--out DIR] [parts.svg]
-//!                                                                 atlas + <name>-parts.json (default into assets/crab/)
+//!                                                                 <name>-parts.json into assets/crab/; with --out DIR,
+//!                                                                 it and the drawn atlas <name>-atlas.png into DIR
+//!
+//! The game shows only the oil-painted atlas (`tools/paint-oil.sh` paints it from the drawn one, which it exports
+//! into a scratch folder), so the drawn atlas is not kept in `assets/`.
 //!
 //! `--creature snapping-shrimp`, `mantis-shrimp`, `snowflake-moray` or `common-octopus`: the creature's parts file is art/creatures/<C>/<C>-parts.svg, its export goes into
 //! assets/creatures/.
@@ -87,7 +91,9 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
                 .map(|v| v.parse::<f64>().map_err(|_| format!("--scale: {v}")))
                 .transpose()?
                 .unwrap_or(1.0);
-            let dir = option(&mut args, "--out").unwrap_or(default_out);
+            let out = option(&mut args, "--out");
+            let atlas = out.is_some();
+            let dir = out.unwrap_or(default_out);
             let source = args.first().cloned().unwrap_or(default_svg);
             let text = std::fs::read_to_string(&source).map_err(|e| format!("{source}: {e}"))?;
             let e = crabrig::export::export(
@@ -99,8 +105,10 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
                 },
             )?;
             std::fs::create_dir_all(&dir).map_err(|e| format!("{dir}: {e}"))?;
-            std::fs::write(format!("{dir}/{name}-atlas.png"), &e.atlas_png)
-                .map_err(|e| e.to_string())?;
+            if atlas {
+                std::fs::write(format!("{dir}/{name}-atlas.png"), &e.atlas_png)
+                    .map_err(|e| e.to_string())?;
+            }
             std::fs::write(format!("{dir}/{name}-parts.json"), &e.json)
                 .map_err(|e| e.to_string())?;
             println!(

@@ -57,11 +57,10 @@
 //! - [`octopus`]: the common octopus, the boss in its den: its puppet, its tells and its ink
 //! - [`reset`]: starting over: forget this device's saved data, start fresh
 //! - [`save`]: remembering the crab's position between visits
-//! - [`settings`]: the settings panel: battery saver, art style, how voices carry, start over
+//! - [`settings`]: the settings panel: battery saver, how voices carry, start over
 //! - [`secrets`]: places hidden in darkness until a bright lantern comes near
 //! - [`sound`]: impact sounds, synthesised in code, played with Web Audio
 //! - [`stamina`]: the rings over the crab that show its swimming stamina
-//! - [`style`]: the ink or oil-paint art style (P switches)
 //! - [`view`]: the camera and the HUD text
 //! - [`voice`]: voice chat with friends in a co-op room
 
@@ -148,7 +147,6 @@ mod skill_juice;
 mod skills_panel;
 mod sound;
 mod stamina;
-mod style;
 mod triggerfish;
 mod tuning;
 mod ui_theme;
@@ -242,7 +240,6 @@ fn run_app() {
         lantern::LanternPlugin,
         effects::EffectsPlugin,
         save::SavePlugin,
-        style::StylePlugin,
         view::ViewPlugin,
     ))
     .add_plugins(monkeys::MonkeysPlugin)

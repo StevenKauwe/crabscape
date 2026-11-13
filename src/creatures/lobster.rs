@@ -37,7 +37,7 @@ pub(crate) const ART_SCALE: f32 = 0.382_7;
 fn load(mut commands: Commands, assets: Res<AssetServer>) {
     commands.insert_resource(Art(CreatureArt::load_scaled(
         include_str!("../../assets/creatures/american-lobster-parts.json"),
-        "creatures/american-lobster-atlas.png",
+        "creatures/american-lobster-atlas-oil.png",
         ART_SCALE,
         &assets,
     )));

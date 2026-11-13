@@ -24,7 +24,6 @@ use crabsim::{Carry, CastOff, Mover, Sim};
 use crate::effects::SoftTextures;
 use crate::memory::Known;
 use crate::player::{GameSet, LocalPlayer, PlayerId};
-use crate::style::ArtStyle;
 
 /// How far the crab has backed into its home shell ([`Mover::tucked`]) when
 /// it's out of sight.
@@ -340,14 +339,11 @@ const ATLAS_PX_PER_UNIT: f32 = 0.6;
 /// Dull and see-through, like a moult: an empty husk, not a crab.
 const CAST_OFF: Color = Color::srgba(0.62, 0.60, 0.58, 0.5);
 
-/// The crab's carapace on its own, from the crab atlas in `style`, `scale`
+/// The crab's carapace on its own, from the crab's atlas, `scale`
 /// times its size on the crab, coloured `colour`: a cast-off shell, a
 /// moult's husk, a keepsake.
-pub fn carapace_sprite(assets: &AssetServer, style: ArtStyle, scale: f32, colour: Color) -> Sprite {
-    let atlas = assets.load(match style {
-        ArtStyle::Ink => "crab/crab-atlas.png",
-        ArtStyle::Oil => "crab/crab-atlas-oil.png",
-    });
+pub fn carapace_sprite(assets: &AssetServer, scale: f32, colour: Color) -> Sprite {
+    let atlas = assets.load(crate::puppet::ATLAS);
     let size = CARAPACE_RECT.size() / ATLAS_PX_PER_UNIT * crate::puppet::ART_SCALE;
     Sprite {
         image: atlas,
@@ -363,33 +359,29 @@ pub fn carapace_sprite(assets: &AssetServer, style: ArtStyle, scale: f32, colour
 fn show_cast_offs(
     mut commands: Commands,
     sim: Res<Sim>,
-    style: Res<ArtStyle>,
     assets: Res<AssetServer>,
     soft: Res<SoftTextures>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     me: Query<&PlayerId, With<LocalPlayer>>,
     drawn: Query<Entity, With<CastOffShell>>,
-    mut shown: Local<Option<(Vec<CastOff>, ArtStyle)>>,
+    mut shown: Local<Option<Vec<CastOff>>>,
 ) {
     let Some(crab) = me.single().ok().and_then(|id| sim.crab(*id)) else {
         return;
     };
-    let now = (crab.cast_offs.clone(), *style);
+    let now = crab.cast_offs.clone();
     if shown.as_ref() == Some(&now) {
         return;
     }
     for e in &drawn {
         commands.entity(e).despawn();
     }
-    let atlas = assets.load(match *style {
-        ArtStyle::Ink => "crab/crab-atlas.png",
-        ArtStyle::Oil => "crab/crab-atlas-oil.png",
-    });
+    let atlas = assets.load(crate::puppet::ATLAS);
     let size = CARAPACE_RECT.size() / ATLAS_PX_PER_UNIT * crate::puppet::ART_SCALE;
     // One shell where it fell, holding all it carried there.
     let mut shells: Vec<(Vec2, Vec<Carry>)> = Vec::new();
-    for off in &now.0 {
+    for off in &now {
         match shells.iter_mut().find(|(pos, _)| *pos == off.pos) {
             Some((_, load)) => load.push(off.carrying),
             None => shells.push((off.pos, vec![off.carrying])),

@@ -96,6 +96,10 @@ pub const SHORE_CRABS: &[(&str, f32)] = &[
     ("slope shore crab", 800.0),
     ("shelf shore crab", 1120.0),
     ("ledge shore crab", 2230.0),
+    // Where the home pocket's snapping shrimp stood (x 340): a passive
+    // fight a new crab can choose, never an ambush at its first gather
+    // (walks 280 to 520, 40 clear of the co-op dig spots at x 100 to 240).
+    ("pocket shore crab", 400.0),
 ];
 
 /// A short kelp climb to a small rock ledge: (name, the stalk, the ledge). The
@@ -243,8 +247,7 @@ pub const SIGHT_SITES: &[(&str, &str, Vec2)] = &[
 ];
 
 pub const SITES: &[(&str, &str, Vec2)] = &[
-    // Home's pocket, between the home burrow's first shaft and the first
-    // snapping shrimp (x 340).
+    // Home's pocket, past the home burrow's first shaft (no shrimp stands by the door: the first gather is calm).
     ("home pocket", "ShoreGlow", Vec2::new(224.0, 0.0)),
     ("home pocket", "KelpStand", Vec2::new(234.0, 0.0)),
     ("home pocket", "SnailRocks", Vec2::new(244.0, 0.0)),
@@ -255,7 +258,7 @@ pub const SITES: &[(&str, &str, Vec2)] = &[
     ("far lookout", "ShoreGlow", Vec2::new(815.0, 704.0)),
     ("far lookout", "SnailRocks", Vec2::new(850.0, 704.0)),
     ("far lookout", "BarnacleRock", Vec2::new(868.0, 704.0)),
-    // The shrimp row's pocket, between the two shrimp (x 340 and 590).
+    // The shrimp row's pocket, short of the shrimp at x 590.
     ("shrimp row", "MusselClump", Vec2::new(440.0, 0.0)),
     ("shrimp row", "GritHeap", Vec2::new(458.0, 0.0)),
     ("shrimp row", "SnailRocks", Vec2::new(476.0, 0.0)),

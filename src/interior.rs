@@ -495,7 +495,6 @@ struct Shown {
     keepsakes: usize,
     /// The nodule hearth is built into the home.
     hearth: bool,
-    style: crate::style::ArtStyle,
 }
 
 /// Redraw the larder, the workbench's things and the home's stages when
@@ -506,7 +505,6 @@ fn fill_scene(
     sim: Res<Sim>,
     soft: Res<SoftTextures>,
     assets: Res<AssetServer>,
-    style: Res<crate::style::ArtStyle>,
     on_its_way: Res<crate::moult::HuskOnItsWay>,
     me: Query<&PlayerId, With<LocalPlayer>>,
     scene: Query<Entity, With<Scene>>,
@@ -537,7 +535,6 @@ fn fill_scene(
         keepsakes: (crab.mover.moults as usize + usize::from(crab.mover.growing.is_some()))
             .saturating_sub(usize::from(on_its_way.0)),
         hearth: sim.home_pieces().contains(&Piece::NoduleHearth),
-        style: *style,
     };
     if *shown == Some(now) {
         return;
@@ -688,7 +685,7 @@ fn fill_scene(
                 let at = keepsake_at(i) - ORIGIN;
                 let tilt = keepsake_tilt(i);
                 p.spawn((
-                    crate::home::carapace_sprite(&assets, now.style, KEEPSAKE_SCALE, KEEPSAKE),
+                    crate::home::carapace_sprite(&assets, KEEPSAKE_SCALE, KEEPSAKE),
                     Transform::from_translation(at.extend(0.45))
                         .with_rotation(Quat::from_rotation_z(tilt)),
                 ));

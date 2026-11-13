@@ -9,8 +9,7 @@
 //!   before it wipes anything. Under it, a
 //!   quiet line says which build this is ("Build 5d3eb47, Oct 29", and
 //!   "preview pr-183" or "branch <name>" for a copy that isn't the live game).
-//! - **Graphics**: the art style (Ink or Oil, see `style.rs`) and how smooth
-//!   the drawing is (the battery saver, see `power.rs`).
+//! - **Graphics**: how smooth the drawing is (the battery saver, see `power.rs`).
 //! - **Audio**: a volume slider for each kind of sound (see `sound.rs`):
 //!   "Master" (everything, 0 to 100%), "Ambience" (the world), "Music" (`music.rs`), "Effects" (blows,
 //!   parries and other game sounds) and "Voices" (friends', 0 to 300%: past
@@ -285,7 +284,6 @@ pub(crate) mod panel {
     use crate::effects::radial_image;
     use crate::player::{GameSet, LocalPlayer};
     use crate::sound::{PlaySfx, Sfx};
-    use crate::style::ArtStyle;
     use crate::view::{VIEW_MIN_HEIGHT, Zoom};
 
     /// The panel's width, its rows' heights (a fingertip's worth: 36 px)
@@ -360,8 +358,6 @@ pub(crate) mod panel {
     enum Choice {
         Smooth,
         Saver,
-        Ink,
-        Oil,
         Everyone,
         Nearby,
         /// The music tracks (`music.rs`).
@@ -392,8 +388,6 @@ pub(crate) mod panel {
             match self {
                 Choice::Smooth => "Smooth",
                 Choice::Saver => "Battery saver",
-                Choice::Ink => "Ink",
-                Choice::Oil => "Oil",
                 Choice::Everyone => "Everyone",
                 Choice::Nearby => "Nearby",
                 Choice::Calm => "Calm",
@@ -418,7 +412,7 @@ pub(crate) mod panel {
         /// The tab it's on.
         fn tab(self) -> Tab {
             match self {
-                Choice::Smooth | Choice::Saver | Choice::Ink | Choice::Oil => Tab::Graphics,
+                Choice::Smooth | Choice::Saver => Tab::Graphics,
                 Choice::Everyone
                 | Choice::Nearby
                 | Choice::WriteOn
@@ -762,10 +756,14 @@ pub(crate) mod panel {
         for &t in tabs {
             let end = match t {
                 Tab::Game => game(&mut l, left, start, web, build_lines),
-                Tab::Graphics => {
-                    let y = pair(&mut l, left, start, "Art style", Choice::Ink, Choice::Oil);
-                    pair(&mut l, left, y, "Drawing", Choice::Smooth, Choice::Saver)
-                }
+                Tab::Graphics => pair(
+                    &mut l,
+                    left,
+                    start,
+                    "Drawing",
+                    Choice::Smooth,
+                    Choice::Saver,
+                ),
                 Tab::Audio => volumes(&mut l, left, start),
                 Tab::Coop => {
                     let y = row(
@@ -1091,7 +1089,6 @@ pub(crate) mod panel {
         mut open: ResMut<Open>,
         mut settings: ResMut<Settings>,
         mut ambience: ResMut<Ambience>,
-        mut style: ResMut<ArtStyle>,
         mut sim: ResMut<crabsim::Sim>,
         mut codes: MessageWriter<crate::codes::Typed>,
         mut sfx: MessageWriter<PlaySfx>,
@@ -1135,8 +1132,6 @@ pub(crate) mod panel {
             match hit.map(|(c, _)| *c) {
                 Some(Choice::Smooth) => settings.saver = false,
                 Some(Choice::Saver) => settings.saver = true,
-                Some(Choice::Ink) => crate::style::choose(&mut style, ArtStyle::Ink),
-                Some(Choice::Oil) => crate::style::choose(&mut style, ArtStyle::Oil),
                 Some(Choice::Everyone) => settings.hear = Hear::Everyone,
                 Some(Choice::Nearby) => settings.hear = Hear::Nearby,
                 Some(Choice::WriteOn) => settings.write = true,
@@ -1267,7 +1262,6 @@ pub(crate) mod panel {
         open: Res<Open>,
         settings: Res<Settings>,
         ambience: Res<Ambience>,
-        style: Res<ArtStyle>,
         sim: Res<crabsim::Sim>,
         mut panel: Query<&mut Visibility, (With<Panel>, Without<SliderRow>)>,
         mut rows: Query<(&SliderRow, &mut Visibility), Without<Panel>>,
@@ -1288,8 +1282,6 @@ pub(crate) mod panel {
             let picked = match choice {
                 Choice::Smooth => !settings.saver,
                 Choice::Saver => settings.saver,
-                Choice::Ink => *style == ArtStyle::Ink,
-                Choice::Oil => *style == ArtStyle::Oil,
                 Choice::Everyone => settings.hear == Hear::Everyone,
                 Choice::Nearby => settings.hear == Hear::Nearby,
                 Choice::WriteOn => settings.write,
@@ -1500,7 +1492,7 @@ pub(crate) mod panel {
                 let l = layout_for(window, web, lines);
                 let tabs = tabs_for(web);
                 assert_eq!(l.sliders.len(), if web { 6 } else { 0 }, "{at}");
-                assert_eq!(l.choices.len(), if web { 17 } else { 5 }, "{at}");
+                assert_eq!(l.choices.len(), if web { 15 } else { 3 }, "{at}");
                 // On screen without scrolling, under the button.
                 assert!(
                     l.panel.min.x >= 0.0 && l.panel.max.y <= window.y - 10.0,
@@ -1642,7 +1634,6 @@ pub(crate) mod panel {
         #[test]
         fn each_setting_is_on_the_tab_named_for_it() {
             let on = |c: Choice| c.tab();
-            assert_eq!(on(Choice::Ink), Tab::Graphics);
             assert_eq!(on(Choice::Saver), Tab::Graphics);
             assert_eq!(on(Choice::Nearby), Tab::Coop);
             assert_eq!(on(Choice::WriteOn), Tab::Coop);

@@ -42,7 +42,7 @@ const Z: f32 = 9.0;
 const INK_Z: f32 = 12.0;
 
 const PARTS: &str = include_str!("../assets/creatures/common-octopus-parts.json");
-const ATLAS: &str = "creatures/common-octopus-atlas.png";
+const ATLAS: &str = "creatures/common-octopus-atlas-oil.png";
 /// crabrig draws it 2 units to the world unit, and its parts file at twice
 /// that.
 pub(crate) const ART_SCALE: f32 = 1.0 / 4.0;

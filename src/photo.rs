@@ -10,7 +10,7 @@
 //! `-3.png` (a little apart, so they catch the animal idle, noticing and in its tell or blow), then quits.
 //! `--place <name>` (a landmark's name, or part of it) or `--at x,y` starts the crab in a place instead, and `--zoom <x>`
 //! starts the view zoomed out x times (1 = closest); `--cells` plays with the cell field, as the game does.
-//! `--style ink` shows the ink drawing instead of the oil paint. The recipe that uses them:
+//! The recipe that uses them:
 //! `docs/design/painted-creatures.md`.
 
 use bevy::camera::RenderTarget;
@@ -41,7 +41,6 @@ pub struct Photo {
     /// How far before the animal the crab starts (`--beside`, world units).
     pub beside: f32,
     pub prefix: Option<String>,
-    pub ink: bool,
     /// `--at x,y`: start the crab here (world units) instead of beside an animal.
     pub at: Option<Vec2>,
     /// `--place <name>`: start on the floor in the first landmark whose name contains this text.
@@ -62,7 +61,6 @@ impl Photo {
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(BESIDE),
             prefix: after("--photo"),
-            ink: after("--style").as_deref() == Some("ink"),
             at: after("--at").and_then(|v| {
                 let (x, y) = v.split_once(',')?;
                 Some(Vec2::new(x.trim().parse().ok()?, y.trim().parse().ok()?))
@@ -73,11 +71,7 @@ impl Photo {
 
     /// Nothing asked: the plugin does nothing.
     fn idle(&self) -> bool {
-        self.visit.is_none()
-            && self.prefix.is_none()
-            && !self.ink
-            && self.at.is_none()
-            && self.place.is_none()
+        self.visit.is_none() && self.prefix.is_none() && self.at.is_none() && self.place.is_none()
     }
 
     /// A place asked for with `--at` or `--place`: no save is read or written there either.
@@ -123,9 +117,6 @@ impl Plugin for PhotoPlugin {
         }
         if photo.visit.is_some() || photo.visits_a_place() {
             crate::save::freeze();
-        }
-        if photo.ink {
-            app.insert_resource(crate::style::ArtStyle::Ink);
         }
         if photo.prefix.is_some() {
             app.add_systems(PostStartup, load_film);
