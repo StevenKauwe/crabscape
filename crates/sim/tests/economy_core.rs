@@ -61,15 +61,15 @@ fn every_node_is_in_its_depth_band_and_out_of_the_rock() {
 
 /// How many of the shallows' sites (`level::shallows::SITES`) add a node of
 /// `kind`: every site but the ones a home-side or far-ledge spot already
-/// covers (same kind, within 25 units, on the same floor) and the crest's.
+/// covers (same kind, within 25 units, on the same floor).
 fn shallows_sites(kind: NodeKind) -> usize {
     use NodeKind as K;
     match kind {
         K::KelpStand => 2,
         K::MusselClump => 4,
-        K::SnailRocks => 4,
+        K::SnailRocks => 5,
         K::GritHeap => 3,
-        K::ShoreGlow => 2,
+        K::ShoreGlow => 3,
         K::ClamBed | K::ClayBank | K::WormMud => 1,
         _ => 0,
     }
@@ -80,8 +80,7 @@ fn the_shallows_sites_hold_their_nodes_on_the_ground() {
     use crabsim::level::shallows::SITES;
     let level = Level::test_level();
     let placed = nodes(&level);
-    // The crest holds no node: the loggerhead turtle reaches it.
-    for (place, kind, at) in SITES.iter().filter(|s| s.0 != "the crest") {
+    for (place, kind, at) in SITES {
         let near = placed
             .iter()
             .filter(|n| format!("{:?}", n.kind) == *kind)
@@ -544,12 +543,12 @@ fn a_level_without_a_pocket_drops_its_nodes_and_keeps_the_rest() {
     // The Silt and Deep Galleries and region 5's shelves go with the rocks
     // too (their roofs and tops are rocks), and with them the three glass
     // gardens, the halls' twelve and the shelves' eight; region 6's caves and
-    // reef (rocks too) take their seven, and the shallows' lookout, boulder
+    // reef (rocks too) take their seven, and the shallows' lookouts, boulder
     // and trench hollow (rocks) theirs.
     assert_eq!(
         left.len(),
-        all - 49,
-        "the pockets' 12, the galleries' 3, the deep halls' 12, the shelves' 8, region 6's 7 and the shallows' 7 are gone"
+        all - 51,
+        "the pockets' 12, the galleries' 3, the deep halls' 12, the shelves' 8, region 6's 7 and the shallows' 9 are gone"
     );
     assert!(left.iter().all(|n| home_of(n.kind) != Some("bone hall")));
 }

@@ -298,15 +298,17 @@ pub const SPOTS: &[NodeSpot] = &[
     at("reef east bay", K::BlackCoral, 14550.0),
     // The shallows' sites (`level::shallows::SITES`, the world lane's), the
     // ones no spot above already covers: the lookout up the kelp stand, the
-    // boulder, the shelf and its east end, the trench rim, the far ledge's
+    // far lookout across the paddle gap,
+    // the boulder, the shelf and its east end, the trench rim, the far ledge's
     // start, slope and foot; and the trench hollow's tier 2, a level-1
-    // crab's first dive. The crest's two (x 2,745 and 2,775 at 860) hold no
-    // node: the loggerhead turtle's bite reaches a crab working there. Each lies on the ground at its site's
+    // crab's first dive. Each lies on the ground at its site's
     // height. Appended, so earlier indices hold.
     on(K::KelpStand, 390.0, 704.0),
     on(K::MusselClump, 430.0, 704.0),
-    on(K::MusselClump, 662.0, 100.0),
-    on(K::SnailRocks, 700.0, 100.0),
+    on(K::ShoreGlow, 785.0, 704.0),
+    on(K::SnailRocks, 820.0, 704.0),
+    on(K::MusselClump, 695.0, 100.0),
+    on(K::SnailRocks, 710.0, 100.0),
     on(K::KelpStand, 776.0, 94.0),
     on(K::MusselClump, 806.0, 105.0),
     on(K::SnailRocks, 836.0, 110.0),
