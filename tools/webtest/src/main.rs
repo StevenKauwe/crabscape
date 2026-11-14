@@ -29,6 +29,8 @@
 //! - the settings panel's Export (on its Game tab) puts the crab's code in the character box; Import refuses junk in
 //!   plain words, and takes the code back: the page reloads with the crab where it was;
 //! - the settings panel's "Start over" (on its Game tab) wipes nothing on one tap and the saved game on a second;
+//! - a level-up card (`?hud-demo`) sits in the band at the top edge, on screen and clear of the middle where the crab
+//!   is (`data-card`, #750);
 //! - nothing went wrong along the way (no error on the page or in the browser console).
 //!
 //! `--feel-shots PREFIX` instead plays a smash on the mantis in slow motion (`?slow=10`) in a few feel presets and
@@ -1038,6 +1040,29 @@ impl Test<'_> {
         self.open("index.html?feel")?;
         let ok = self.wait_for(&feel_is("brawler off"), 5.0)?;
         self.check(ok, "the preset and juice are kept over a reload");
+
+        // --- a level-up card (#750) -------------------------------------------------------------------------------
+        // `?hud-demo` shows Prying 15's card 3 s after the crab is there (src/hud.rs). On a phone it is a short band at
+        // the top edge: on screen, and its bottom above 30% of the height, well clear of the crab in the middle.
+        self.open("index.html?hud-demo")?;
+        let up = self.wait_for(&format!(r#"{CANVAS}.hasAttribute("data-card")"#), 15.0)?;
+        pump(0.5); // past its pop
+        let card = self.attr("data-card")?.unwrap_or_default();
+        let r: Vec<f64> = card.split(' ').filter_map(|v| v.parse().ok()).collect();
+        let placed = r.len() == 4
+            && r[0] >= -1.0
+            && r[1] >= -1.0
+            && r[0] + r[2] <= w + 1.0
+            && r[1] + r[3] <= h * if w < 600.0 || h < 520.0 { 0.3 } else { 0.4 };
+        self.check(
+            up && placed,
+            format!(
+                "a level-up card shows at the top edge, clear of the crab (box {card:?} in {w}x{h})"
+            ),
+        );
+        if let Some(prefix) = &self.o.shots {
+            self.shot(PathBuf::from(format!("{prefix}-levelup.png")), true)?;
+        }
 
         // --- export and import a character -----------------------------------------------------------------------
         // On the Game tab, "Your character": Export puts the crab's code in the character box (`src/character.rs`),
