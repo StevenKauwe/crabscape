@@ -115,6 +115,7 @@ mod level;
 #[cfg(target_arch = "wasm32")]
 mod listener;
 mod memory;
+mod mesh_merge;
 mod monkeys;
 mod moult;
 mod music;
@@ -226,6 +227,10 @@ fn run_app() {
         corner::CornerPlugin,
         // Animated sprites reuse their GPU materials (an iPhone's page memory).
         sprite_steps::SpriteStepsPlugin,
+        (
+            mesh_merge::MeshMergePlugin::<memory::MemoryMaterial>::default(),
+            mesh_merge::MeshMergePlugin::<ColorMaterial>::default(),
+        ),
     ))
     .init_resource::<tuning::ViewTuning>()
     // The game's core, then the world's things and the HUD. (Bevy takes

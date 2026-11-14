@@ -29,6 +29,7 @@ const FLOOR_DEPTH: f32 = 10000.0;
 
 /// The air, water edge and glints share a moving boundary.
 #[derive(Component, Clone, Copy)]
+#[require(crate::mesh_merge::NoMerge)]
 struct WaterSurface {
     part: SurfacePart,
     left: f32,
@@ -55,6 +56,7 @@ struct LevelShape;
 
 /// A floor band is redrawn only when the detailed material window moves.
 #[derive(Component)]
+#[require(crate::mesh_merge::NoMerge)]
 struct FloorBand {
     top_offset: f32,
     depth: f32,

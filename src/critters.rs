@@ -95,6 +95,7 @@ impl Plugin for CrittersPlugin {
 /// A dark opening cut visually into existing hard rock. Collision remains
 /// the underlying rock; the eel's head rests at the exposed mouth.
 #[derive(Component)]
+#[require(crate::mesh_merge::NoMerge)]
 struct MorayCave {
     enemy: u32,
     offset: Vec2,
