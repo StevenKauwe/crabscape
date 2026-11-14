@@ -76,12 +76,15 @@ pub struct NodeDef {
 /// Level required, gather XP, base seconds, charges and respawn seconds by
 /// tier 1 to 5.
 const LEVEL: [u32; 5] = [1, 15, 30, 45, 60];
-const XP: [u32; 5] = [10, 110, 160, 260, 750];
+/// Tiers 3 and 4 pay 240 and 360 (were 160 and 260): with the route
+/// solver's trips to each tier's median node, a dive one tier deeper must
+/// pay more a minute than the tier above (`economy_pacing`).
+const XP: [u32; 5] = [10, 110, 240, 360, 750];
 const SECS: [f32; 5] = [2.5, 3.0, 3.5, 4.0, 4.5];
 const CHARGES: [u8; 5] = [5, 5, 4, 4, 4];
 const RESPAWN: [f32; 5] = [45.0, 60.0, 90.0, 150.0, 240.0];
 /// Culturing wild sites pay less than gathering.
-const CULTURE_XP: [u32; 5] = [8, 88, 160, 208, 600];
+const CULTURE_XP: [u32; 5] = [8, 88, 240, 288, 600];
 
 const fn gather(
     kind: NodeKind,

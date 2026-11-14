@@ -32,32 +32,32 @@ const FOCUS_SECS: f64 = 90.0 * 60.0;
 /// Cooking, Shellcraft, Weaving, Building, Survival) in the mixed three hours;
 /// -1 is "not by 3 h".
 const MIXED: [[f64; 3]; 13] = [
-    [11.3, 12.3, 104.9],
-    [2.9, 81.7, 133.5],
-    [14.1, 83.7, 149.4],
-    [37.9, 86.7, 147.6],
-    [37.4, 85.9, 140.4],
-    [36.9, 76.4, 148.6],
-    [38.4, 86.7, 148.4],
-    [28.1, 44.7, 60.1],
-    [14.8, 26.5, 60.2],
-    [30.5, 75.3, 138.9],
-    [36.6, 66.6, 138.1],
-    [37.1, 71.5, 136.4],
-    [32.3, 79.9, 144.6],
+    [11.3, 12.3, 109.1],
+    [2.9, 85.8, 142.5],
+    [36.0, 91.2, 150.2],
+    [37.9, 92.3, 139.5],
+    [37.3, 83.7, 151.5],
+    [38.3, 91.6, 144.3],
+    [30.7, 91.4, 139.6],
+    [30.5, 47.3, 65.7],
+    [14.4, 27.0, 55.3],
+    [36.6, 85.1, 150.6],
+    [31.1, 72.0, 134.8],
+    [36.7, 78.9, 141.9],
+    [32.6, 82.2, 147.6],
 ];
 
 /// Level-ups across all thirteen skills in each 5-minute window of the mixed run.
 const LEVELUPS_PER_5MIN: [u32; 36] = [
-    12, 8, 17, 8, 6, 9, 4, 11, 6, 10, 6, 6, 3, 7, 8, 6, 5, 8, 4, 6, 8, 7, 1, 6, 7, 2, 5, 3, 2, 5,
-    2, 1, 1, 1, 4, 0,
+    12, 7, 15, 8, 7, 8, 5, 10, 8, 7, 6, 5, 7, 3, 8, 6, 5, 8, 6, 5, 6, 8, 6, 5, 5, 2, 6, 4, 4, 1, 4,
+    0, 1, 2, 4, 3,
 ];
 
 /// Distinct kinds of work (node kinds, recipes, fights, climbs...) in each
 /// 5-minute window of the mixed run.
 const DISTINCT_PER_5MIN: [u32; 36] = [
-    14, 7, 11, 14, 14, 14, 7, 16, 16, 16, 16, 9, 17, 17, 17, 12, 10, 17, 13, 12, 15, 17, 5, 17, 18,
-    7, 9, 19, 8, 14, 14, 12, 6, 11, 8, 9,
+    14, 7, 9, 15, 15, 13, 6, 12, 14, 14, 16, 7, 16, 16, 17, 17, 10, 14, 17, 11, 17, 17, 16, 13, 15,
+    12, 14, 14, 12, 6, 13, 11, 7, 7, 12, 9,
 ];
 
 /// Every stretch of over 3 minutes on one node kind or recipe while something
@@ -68,14 +68,14 @@ const LONG_STRETCHES: &[(f64, &str, f64)] = &[];
 const PRYING_FOCUS: [f64; 3] = [4.9, 9.9, 15.6];
 
 /// Next goals met in the mixed three hours.
-const GOALS_DONE: u32 = 43;
+const GOALS_DONE: u32 = 40;
 
 /// The run that follows the board: (goals met, swapped, longest open in
 /// minutes).
-const FOLLOW_GOALS: (u32, u32, f64) = (99, 47, 6.7);
+const FOLLOW_GOALS: (u32, u32, f64) = (100, 40, 6.8);
 
 /// The longest any next goal stayed open in the mixed run (minutes).
-const GOAL_LONGEST_OPEN: f64 = 12.6;
+const GOAL_LONGEST_OPEN: f64 = 9.8;
 
 // ---- The measurement ----
 

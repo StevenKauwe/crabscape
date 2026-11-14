@@ -44,13 +44,13 @@ not offered again while four newer goals have been swapped). A goal open ten min
 
 | Run | Met | Swapped | Longest open |
 |---|---|---|---|
-| The bot plays its usual way and ignores the board | 43 | 68 | 12.6 min |
-| The bot follows the board: work for an open goal comes before the lowest skill, at home and out | 99 | 47 | 6.7 min |
+| The bot plays its usual way and ignores the board | 40 | 59 | 9.8 min |
+| The bot follows the board: work for an open goal comes before the lowest skill, at home and out | 100 | 40 | 6.8 min |
 
 `first_hours_targets` holds the follower to about 10 minutes open (10.5), and the bot that ignores the board to 13 (a goal nine tenths done is left to finish). The run that ignores the board must meet at
 least 25 goals. The run that follows it must meet more goals than it swaps.
 
-Both runs bring every skill to 15 within three hours (since the row and second shelf shore crabs, the last at 151.3 minutes ignoring the board and 163.8 following it).
+Both runs bring every skill to 15 within three hours (since the row shore crab and Fighting's 500% at levels 10 to 14): the last at 151.5 minutes ignoring the board and 163.4 following it (Fighting 161.1).
 
 ## Co-op
 

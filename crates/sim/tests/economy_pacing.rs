@@ -229,13 +229,14 @@ const FULL_KIT: Kit = Kit {
 /// dam) is beyond the solver: it is extrapolated at the pace the solver
 /// measured for tier 4 over the extra distance. Re-measure with
 /// `cargo test --release -p crabsim --test economy_pacing -- --ignored --nocapture measure_routes`
-/// (about 15 minutes) and paste the printed `TRIPS` line.
+/// (about 20 minutes) and paste the printed `TRIPS` line. Sight nodes
+/// (`place::SIGHTS`, reached with an upgrade) are left out.
 const TRIPS: [(f64, f64, f64); 5] = [
-    (0.0, 0.0, 9.49),
-    (22.97, 56.69, 26.04),
-    (31.50, 63.77, 34.88),
-    (46.39, 75.93, 46.66),
-    (167.45, 139.04, 168.22),
+    (0.20, 0.20, 4.58),
+    (10.37, 3.87, 26.99),
+    (16.85, 9.23, 57.63),
+    (46.08, 46.49, 80.89),
+    (124.48, 77.48, 124.78),
 ];
 
 /// Solve the routes: one full kit survey from home, the seconds out to every
@@ -260,11 +261,26 @@ fn measure_routes() {
     );
     let kit = FULL_KIT;
     let s = route::survey(kit);
+    // The survey keeps one resting place per 80-unit cell, so a node can lie
+    // over 70 from every one of them on open floor: the nearest within 160,
+    // plus the walk from there (`walk_speed`).
+    let walk = Tuning::default().walk_speed as f64;
     let out_time = |p: Vec2| {
         (0..s.nodes.len())
-            .filter(|&j| s.nodes[j].mover().pos.distance(p) <= 70.0)
-            .map(|j| (s.nodes[j].time, j))
+            .map(|j| (s.nodes[j].mover().pos.distance(p), j))
+            .filter(|&(d, _)| d <= 160.0)
+            .map(|(d, j)| (s.nodes[j].time + f64::from(d) / walk, j))
             .min_by(|a, b| a.0.total_cmp(&b.0))
+    };
+    // A sight near home is reached with an upgrade, not by its tier's route
+    // (`place::SIGHTS`): left out of the tiers' trips.
+    let sight = |p: Vec2| {
+        crabsim::economy::place::SIGHTS.iter().any(|(name, _)| {
+            level
+                .landmarks()
+                .iter()
+                .any(|m| m.name == *name && m.rect.contains(p))
+        })
     };
     let mut trips = [(0.0f64, 0.0f64, 0.0f64); 5];
     let mut nearest = Vec::new();
@@ -273,7 +289,7 @@ fn measure_routes() {
         let mut reached = Vec::new();
         for n in &placed {
             let d = n.kind.def();
-            if d.tier != tier || d.skill == Skill::Cooking {
+            if d.tier != tier || d.skill == Skill::Cooking || sight(n.pos) {
                 continue;
             }
             match out_time(n.pos) {
@@ -354,8 +370,12 @@ fn trip_secs(tier: u8) -> f64 {
         let way = xs[xs.len() / 2] - Level::test_level().home_den.x;
         return 2.0 * f64::from(way / t.walk_speed) + tuck;
     }
-    let (out, back, _) = TRIPS[tier as usize - 1];
-    out + back + tuck
+    // Out and back to the tier's median node: where a crab farms the tier.
+    // Each tier's nearest node is an early taste a few seconds from home
+    // (the trench hollow's clam bed, the glass garden on the Silt Galleries'
+    // way in), one or two nodes, not a place to fill a shell over and over.
+    let (_, _, median) = TRIPS[tier as usize - 1];
+    2.0 * median + tuck
 }
 
 /// Seconds of one gather at the tier's node for a crab of `level` with a tool
