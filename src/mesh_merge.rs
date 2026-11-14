@@ -70,8 +70,15 @@ struct Piece {
 struct PatchState {
     pieces: HashSet<Entity>,
     entity: Option<Entity>,
+    /// Shapes joined: rebuilt at the next [`REBUILD_EVERY`] beat (they keep their own mesh until then).
     dirty: bool,
+    /// Shapes left: rebuilt this frame, so a shape that moved or went is never drawn twice.
+    urgent: bool,
 }
+
+/// Patches gaining shapes are rebuilt at most this often (frames): each rebuild is a new GPU buffer, and shapes
+/// settle one after another after a load.
+pub const REBUILD_EVERY: u32 = 30;
 
 #[derive(Resource)]
 struct Folds<M: Material2d> {
@@ -295,7 +302,7 @@ fn unfold<M: Material2d>(
             && let Some(patch) = folds.patches.get_mut(&piece.key)
         {
             patch.pieces.remove(&entity);
-            patch.dirty = true;
+            patch.urgent = true;
         }
     }
     for entity in &changed {
@@ -304,7 +311,7 @@ fn unfold<M: Material2d>(
         };
         if let Some(patch) = folds.patches.get_mut(&piece.key) {
             patch.pieces.remove(&entity);
-            patch.dirty = true;
+            patch.urgent = true;
         }
         let mut e = commands.entity(entity);
         e.remove::<Folded>().insert(Restless);
@@ -412,7 +419,7 @@ fn fold<M: Material2d>(
                 placed,
             },
         );
-        e.remove::<Mesh2d>().insert(Folded);
+        e.insert(Folded);
     }
 }
 
@@ -429,13 +436,20 @@ fn rebuild<M: Material2d>(
     mut folds: ResMut<Folds<M>>,
     mut meshes: ResMut<Assets<Mesh>>,
     materials: Query<&MeshMaterial2d<M>>,
+    frames: Res<bevy::diagnostic::FrameCount>,
 ) {
+    let beat = frames.0.is_multiple_of(REBUILD_EVERY);
     let folds = &mut *folds;
     for (key, patch) in folds.patches.iter_mut() {
-        if !patch.dirty {
+        if !(patch.urgent || (patch.dirty && beat)) {
             continue;
         }
         patch.dirty = false;
+        patch.urgent = false;
+        // From now on the patch draws its shapes: they drop their own meshes.
+        for entity in &patch.pieces {
+            commands.entity(*entity).try_remove::<Mesh2d>();
+        }
         let mut merged: Option<Mesh> = None;
         let mut material = None;
         for entity in &patch.pieces {
