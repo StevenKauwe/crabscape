@@ -2,8 +2,16 @@
 # request publishes it as its playable preview, and on main it is deployed to GitHub Pages.
 # A pull request runs only the checks its files can affect (the `changes` job, tools/changes.sh): words alone pass in
 # seconds. A check skipped that way counts as passed for branch protection. Main pushes classify their exact before/after range; unavailable ranges run everything.
-# Independent work runs in parallel on its own machine (CLAUDE.md, "CI hygiene"): a code change's required checks
-# take about 7 minutes. Coverage runs on main only (coverage.yml).
+# Independent work runs in parallel on its own machine (CLAUDE.md, "CI hygiene"). Two depths:
+# - A pull request runs one fast check per area (fmt/clippy/tests, the web build, WebKit portrait, a co-op smoke, the
+#   large-save phone memory budget, the ground drawn, native = wasm scripts), and its preview publishes as soon as
+#   the web build is done, without waiting for any test.
+# - Main (and runs by hand) also run the slow, rarely-failing rest: every co-op scenario and Dragon, WebKit
+#   landscape and its Web Locks proof, King, HUD scale, the fresh-save memory budget, frame strips and the sim's
+#   tests as WebAssembly. Those report to the "main is broken" issue (main-health) but never hold up the deploy, and
+#   neither do the co-op smoke or the memory budget: main deploys after the web build, the fast checks, WebKit
+#   portrait and the ground drawn.
+# Coverage runs on main only (coverage.yml).
 # Actions are pinned to commit SHAs; the comment says which release that is.
 name: CI
 
@@ -66,7 +74,7 @@ jobs:
   game-check:
     name: game fmt, clippy (native + wasm32), tests
     needs: changes
-    if: ${{ !inputs.preview_only && (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.introducer == 'true')) }}
+    if: ${{ !inputs.preview_only && !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.introducer == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -82,10 +90,11 @@ jobs:
         run: sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends libudev-dev libwayland-dev libxkbcommon-dev pkg-config
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           key: check
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
-          tool: cargo-deny@0.20.2
+          tool: cargo-deny@0.20.2,cargo-nextest@0.9.151
       # Lints: clippy's defaults plus the shared [workspace.lints] in Cargo.toml (no unsafe code, no dbg!/todo!/
       # unimplemented!, no unwrap() in crates/sim outside tests).
       - name: cargo fmt
@@ -95,9 +104,14 @@ jobs:
       # The game only: the art tools never run in a browser.
       - name: clippy (wasm32)
         run: cargo clippy --all-targets --locked --target wasm32-unknown-unknown -- -D warnings
-      # Includes the simulation's property tests (crates/sim/tests/properties.rs).
+      # Includes the simulation's property tests (crates/sim/tests/properties.rs). nextest runs every test binary at
+      # once (cargo test ran ~80 of them one after another), and the sim is optimised: its region walks and "boss is
+      # beatable" runs took 20 of cargo test's 24 minutes at the dev profile's opt-level 1. Doc tests separately
+      # (nextest skips them).
       - name: tests
-        run: cargo test --workspace --locked
+        run: |
+          cargo nextest run --workspace --locked --config 'profile.dev.package.crabsim.opt-level=3' --no-fail-fast --final-status-level slow
+          cargo test --workspace --locked --doc --config 'profile.dev.package.crabsim.opt-level=3'
       - name: cellular worker (fmt, clippy, tests)
         run: |
           cargo fmt --manifest-path tools/cellworker/Cargo.toml --check
@@ -131,7 +145,7 @@ jobs:
   bridge-check:
     name: CrabBridge authentication, transport and browser tests
     needs: changes
-    if: ${{ !inputs.preview_only && (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.bridge == 'true')) }}
+    if: ${{ !inputs.preview_only && !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.bridge == 'true') }}
     runs-on: ubuntu-24.04 # Pinned Playwright 1.60 supports this image; latest moved to unsupported 26.04.
     timeout-minutes: 30
     steps:
@@ -142,6 +156,7 @@ jobs:
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           workspaces: |
             tools/crabbridge
             tools/crabbridge/transport
@@ -189,7 +204,7 @@ jobs:
     # Preserve the branch-protected name and gate BOTH independent products.
     name: fmt, clippy (native + wasm32), tests
     needs: [changes, game-check, bridge-check]
-    if: ${{ !inputs.preview_only && (always()) }}
+    if: ${{ !inputs.preview_only && always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -207,24 +222,48 @@ jobs:
 
   determinism:
     name: native and wasm sims agree
-    # The game rules must play out bit for bit the same natively and as WebAssembly (co-op and replays rely on it).
+    # The game rules must play out bit for bit the same natively and as WebAssembly (co-op and replays rely on it):
+    # scripted runs, tick by tick, native against wasmtime (tools/determinism.sh, ~3 minutes). The sim's whole test
+    # suite as WebAssembly is `determinism-wasm-tests` below, on main.
     needs: changes
-    if: ${{ !inputs.preview_only && (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true')) }}
+    if: ${{ !inputs.preview_only && !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Rust (the version, targets and components in rust-toolchain.toml)
         run: rustup toolchain install && rustc --version
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           key: determinism
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
           tool: wasmtime
-      - name: The simulation's tests (property tests too), as WebAssembly in wasmtime
-        run: cargo test -p crabsim --locked --target wasm32-wasip1
       - name: Native and wasm runs match tick for tick, same state hash
         run: tools/determinism.sh
+
+  determinism-wasm-tests:
+    name: the sim's tests as WebAssembly (main)
+    # The simulation's tests (property tests too) in wasmtime. 35-45 minutes at the dev profile's opt-level 1, so main
+    # only, with the sim optimised; it never holds up the deploy and a failure opens the "main is broken" issue.
+    needs: changes
+    if: ${{ !inputs.preview_only && !cancelled() && github.event_name != 'pull_request' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Rust (the version, targets and components in rust-toolchain.toml)
+        run: rustup toolchain install && rustc --version
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          key: determinism-wasm-tests
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: wasmtime
+      - name: The simulation's tests (property tests too), as WebAssembly in wasmtime
+        run: cargo test -p crabsim --locked --target wasm32-wasip1 --config 'profile.dev.package.crabsim.opt-level=3'
 
   art:
     name: committed art matches the rig
@@ -233,7 +272,7 @@ jobs:
     # The oil atlases come out a few bits different on a Mac, so these Linux runs are the reference: on a
     # difference, the files as CI made them are uploaded (`art-as-ci-made-it`) to download and commit.
     needs: changes
-    if: ${{ !inputs.preview_only && (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.art == 'true')) }}
+    if: ${{ !inputs.preview_only && !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.art == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -241,6 +280,7 @@ jobs:
         run: rustup toolchain install && rustc --version
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           key: art
       - name: Re-draw the rigs and re-paint the oil atlases
         run: |
@@ -283,6 +323,7 @@ jobs:
         run: rustup toolchain install && rustc --version
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           key: web
       - name: wasm-bindgen version from Cargo.lock
         id: wb
@@ -299,8 +340,17 @@ jobs:
           tar -xzf binaryen.tgz -C "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/binaryen-version_${BINARYEN_VERSION}/bin" >> "$GITHUB_PATH"
           rm binaryen.tgz binaryen.tgz.sha256
+      # Off main, a faster link: thin LTO and the game crate in 16 parts. The full size-tuned build (fat LTO, one
+      # part) spent ~6 of this job's 9 minutes optimising the game crate. Previews download a little more; main and
+      # the live site keep the small build. The dependencies' cached builds are the same for both.
       - name: Build the web game
-        run: tools/build-web.sh
+        run: |
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            # Cargo reads profile package overrides from config files, not environment variables.
+            printf '[profile.release]\nlto = "thin"\n[profile.release.package.crabscape]\ncodegen-units = 16\n' >> "${CARGO_HOME:-$HOME/.cargo}/config.toml"
+            echo "Fast preview build: thin LTO, 16 codegen units for the game crate (main ships fat LTO, 1 unit)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          tools/build-web.sh
       - name: No relaxed SIMD (iPhone/WebKit rejects it)
         run: |
           wasm-tools validate --features=-relaxed-simd web/pkg/crabscape_bg.wasm
@@ -334,7 +384,7 @@ jobs:
     # webtest, cooptest and the introducer, built once while the web build runs, for the browser jobs below (which
     # then need no Rust at all). They find web/ and target/ at the same checkout path on every runner.
     needs: changes
-    if: ${{ !inputs.preview_only && (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.introducer == 'true')) }}
+    if: ${{ !inputs.preview_only && !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.introducer == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -343,6 +393,7 @@ jobs:
         run: rustup toolchain install && rustc --version
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           key: webtest
           workspaces: |
             . -> target
@@ -366,28 +417,23 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  # The browser tests, fanned out after the web build, each on its own machine, from one build of the test tools.
+  # Pull requests: one fast check per area (WebKit portrait, a co-op smoke, the large-save memory budget, the ground
+  # drawn); the `browser` gate over them carries the required check's name. Main adds the slow, rarely-failing rest
+  # (marked "(main)"). On main only WebKit portrait and the ground hold up the deploy; the rest feeds main-health.
   webkit:
-    name: WebKit (${{ matrix.phone }} phone)
+    name: WebKit (portrait phone)
     # Plays the web build in WebKitGTK (the iPhone's engine) through WebDriver: tools/webtest.
     needs: [web, browser-tools]
-    if: ${{ !inputs.preview_only && (!cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success') }}
+    if: ${{ !inputs.preview_only && !cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success' }}
     runs-on: ubuntu-latest
-    # Software-rendered phone runs can finish gameplay/save assertions near
-    # 15 minutes; allow the isolated reset/lock proof and artifact cleanup too.
+    # Software-rendered phone runs can finish gameplay/save assertions near 15 minutes.
     timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - phone: portrait
-            args: --shots target/webtest/portrait
-          - phone: landscape
-            args: --landscape --shots target/webtest/landscape
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: WebKitGTK, its WebDriver and a virtual display
         timeout-minutes: 5
         run: bash tools/install-webkit-deps.sh
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: crabscape-web-${{ github.sha }}
@@ -395,40 +441,97 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: browser-tools-${{ github.sha }}
-      - name: Play it in WebKit (${{ matrix.phone }} phone)
+      - name: Play it in WebKit (portrait phone)
         run: |
           chmod +x target/art/webtest
-          ulimit -c 0 && xvfb-run -a -s "-screen 0 1280x1024x24" dbus-run-session -- target/art/webtest ${{ matrix.args }}
+          ulimit -c 0 && xvfb-run -a -s "-screen 0 1280x1024x24" dbus-run-session -- target/art/webtest --shots target/webtest/portrait
+      - name: Keep the screenshots and browser log
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: webtest-portrait-${{ github.sha }}
+          path: target/webtest/
+          retention-days: 7
+
+  webkit-landscape:
+    name: WebKit (landscape phone) and Web Locks (main)
+    needs: [web, browser-tools]
+    if: ${{ !inputs.preview_only && !cancelled() && github.event_name != 'pull_request' && needs.web.result == 'success' && needs.browser-tools.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: WebKitGTK, its WebDriver and a virtual display
+        timeout-minutes: 5
+        run: bash tools/install-webkit-deps.sh
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: crabscape-web-${{ github.sha }}
+          path: web
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: browser-tools-${{ github.sha }}
+      - name: Play it in WebKit (landscape phone)
+        run: |
+          chmod +x target/art/webtest
+          ulimit -c 0 && xvfb-run -a -s "-screen 0 1280x1024x24" dbus-run-session -- target/art/webtest --landscape --shots target/webtest/landscape
       - name: Rust and wasm target for isolated coordination proof
-        if: ${{ matrix.phone == 'portrait' }}
         run: rustup toolchain install && rustup target add wasm32-unknown-unknown
       - name: Coordination proof wasm-bindgen version
-        if: ${{ matrix.phone == 'portrait' }}
         id: coordination-wb
         run: echo "version=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/[^0-9.]/, ""); print; exit }' tools/cellstore-proof/Cargo.lock)" >> "$GITHUB_OUTPUT"
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
-        if: ${{ matrix.phone == 'portrait' }}
         with:
           tool: wasm-bindgen@${{ steps.coordination-wb.outputs.version }}
       - name: Test isolated Web Locks and reset notifications in WebKit
-        if: ${{ matrix.phone == 'portrait' }}
         run: |
           ulimit -c 0 && xvfb-run -a -s "-screen 0 1280x1024x24" dbus-run-session -- env CRAB_PROOF_WEBKIT=1 cargo run --manifest-path tools/cellstore-proof/Cargo.toml --features webkit-runner --bin browser-proof --locked
       - name: Keep the screenshots and browser log
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: webtest-${{ matrix.phone }}-${{ github.sha }}
+          name: webtest-landscape-${{ github.sha }}
+          path: target/webtest/
+          retention-days: 7
+
+  coop-smoke:
+    name: co-op promises, smoke
+    # Co-op in headless Chrome with a local introducer: a friend joins, a guest reloads, a cellular session
+    # (docs/design/coop-promises.md; tools/cooptest). Every scenario runs on main (`coop` below) and nightly in depth
+    # (coop.yml).
+    needs: [web, browser-tools]
+    if: ${{ !inputs.preview_only && !cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: crabscape-web-${{ github.sha }}
+          path: web
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: browser-tools-${{ github.sha }}
+      - name: A few of co-op's promises in Chrome
+        env:
+          COOPTEST_TIMELINE: "1"
+        run: |
+          chmod +x target/art/cooptest tools/introducer/target/release/introducer
+          target/art/cooptest --repeat 1 --only join,guest-reload,cells-session --logs target/webtest
+      - name: Keep a failure's browser logs and screenshots
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cooptest-smoke-${{ github.sha }}
           path: target/webtest/
           retention-days: 7
 
   coop:
-    name: co-op promises, part ${{ matrix.part }} of ${{ strategy.job-total }}
-    # Co-op in headless Chrome with a local introducer, each scenario once (docs/design/coop-promises.md;
-    # tools/cooptest; coop.yml goes deeper on main). `--shard` splits the scenarios into parts of about equal time
-    # and puts every scenario, a new one too, in exactly one part. Another part is one more number below.
+    name: co-op promises, part ${{ matrix.part }} of ${{ strategy.job-total }} (main)
+    # Every scenario once. `--shard` splits the scenarios into parts of about equal time and puts every scenario, a
+    # new one too, in exactly one part. Another part is one more number below.
     needs: [web, browser-tools]
-    if: ${{ !inputs.preview_only && (!cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success') }}
+    if: ${{ !inputs.preview_only && !cancelled() && github.event_name != 'pull_request' && needs.web.result == 'success' && needs.browser-tools.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -465,13 +568,11 @@ jobs:
           retention-days: 7
 
   king:
-    name: King's castle, ledger and safe return
-    # Run once on its own runner, not after the three-player and Dragon voice
-    # suites. Retain the exact acceptance and include it in the required gate.
-    # Budget the full multi-floor tour, distinct settling frames and two
-    # committed autosaves on a software renderer, including reload and return.
+    name: King's castle, ledger and safe return (main)
+    # The full multi-floor tour, distinct settling frames and two committed autosaves on a software renderer,
+    # including reload and return.
     needs: [web, browser-tools]
-    if: ${{ !inputs.preview_only && (!cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success') }}
+    if: ${{ !inputs.preview_only && !cancelled() && github.event_name != 'pull_request' && needs.web.result == 'success' && needs.browser-tools.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -496,11 +597,11 @@ jobs:
           retention-days: 7
 
   hud-scale:
-    name: HUD size at 1x, 2x and 3x pixel density
+    name: HUD size at 1x, 2x and 3x pixel density (main)
     # A phone at each density (every recent iPhone is 3x), upright and turned: the game lays its HUD out in the
-    # page's CSS pixels and a click on Settings lands on it (src/screen_fit.rs). On its own runner: no co-op timing.
+    # page's CSS pixels and a click on Settings lands on it (src/screen_fit.rs).
     needs: [web, browser-tools]
-    if: ${{ !inputs.preview_only && (!cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success') }}
+    if: ${{ !inputs.preview_only && !cancelled() && github.event_name != 'pull_request' && needs.web.result == 'success' && needs.browser-tools.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -530,7 +631,7 @@ jobs:
     # compile). This loads the game at home at desktop and phone size, fails on any shader that does not compile,
     # and samples the bottom band under the crab: it must be painted ground, not water.
     needs: [web, browser-tools]
-    if: ${{ !inputs.preview_only && (!cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success') }}
+    if: ${{ !inputs.preview_only && !cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -555,20 +656,17 @@ jobs:
           retention-days: 7
 
   memory-budget:
-    name: Phone memory budget (${{ matrix.save }} save)
+    name: Phone memory budget (large save)
     # A real iPhone kills the browser's page when it grows past about 1.5 GB (the white flash and reload); desktop
     # browsers and the iOS Simulator don't, so nothing else here would notice. This plays the game as an iPhone
     # (390 x 844 at 3x, its browser's name) from home to the first snapping shrimp and back three times, then past
     # the first terrain window shift, and fails if the game's WebAssembly memory or its WebGL pictures and buffers
-    # pass their budgets (tools/cooptest/src/bin/memory_budget.rs). Fresh and a large explored save, side by side.
+    # pass their budgets (tools/cooptest/src/bin/memory_budget.rs). Pull requests play the large explored save (the
+    # harder budget); `memory-budget-fresh` adds a fresh save on main.
     needs: [web, browser-tools]
-    if: ${{ !inputs.preview_only && (!cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success') }}
+    if: ${{ !inputs.preview_only && !cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        save: [fresh, large]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -581,29 +679,56 @@ jobs:
       - name: Peak memory as an iPhone
         run: |
           chmod +x target/art/memory_budget
-          target/art/memory_budget web --out target/webtest/memory ${{ matrix.save == 'large' && '--large-save' || '' }}
+          target/art/memory_budget web --out target/webtest/memory --large-save
       - name: Keep the samples
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: memory-budget-${{ matrix.save }}-${{ github.sha }}
+          name: memory-budget-large-${{ github.sha }}
+          path: target/webtest/memory/
+          retention-days: 7
+
+  memory-budget-fresh:
+    name: Phone memory budget (fresh save) (main)
+    needs: [web, browser-tools]
+    if: ${{ !inputs.preview_only && !cancelled() && github.event_name != 'pull_request' && needs.web.result == 'success' && needs.browser-tools.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: crabscape-web-${{ github.sha }}
+          path: web
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: browser-tools-${{ github.sha }}
+      - name: Peak memory as an iPhone
+        run: |
+          chmod +x target/art/memory_budget
+          target/art/memory_budget web --out target/webtest/memory
+      - name: Keep the samples
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: memory-budget-fresh-${{ github.sha }}
           path: target/webtest/memory/
           retention-days: 7
 
   feel-strips:
-    name: frame strips of a smash (to look at; never fails)
+    name: frame strips of a smash (to look at; never fails) (main)
     # A smash in a few feel presets, as frame strips in the `webtest-feel` download. Information only: never fails
-    # the run, and the `browser` gate doesn't wait for it.
+    # the run. Want them for a pull request? `gh workflow run ci.yml --ref <branch>` runs main's full set.
     needs: [web, browser-tools]
-    if: ${{ !inputs.preview_only && (!cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success') }}
+    if: ${{ !inputs.preview_only && !cancelled() && github.event_name != 'pull_request' && needs.web.result == 'success' && needs.browser-tools.result == 'success' }}
     continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: WebKitGTK, its WebDriver and a virtual display
         timeout-minutes: 5
         run: bash tools/install-webkit-deps.sh
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: crabscape-web-${{ github.sha }}
@@ -625,17 +750,18 @@ jobs:
 
   browser:
     name: browser test (WebKit, iPhone size)
-    # The required check's name (branch protection asks for exactly this one), as a gate over the fanned-out browser
-    # jobs: it passes only when the web build, the tools, both WebKit phones, King and every co-op part passed, or were
-    # skipped (a change that can't affect the game). A failed or cancelled one fails it.
-    needs: [web, browser-tools, webkit, coop, king, hud-scale, terrain-drawn, memory-budget]
-    if: ${{ !inputs.preview_only && (always()) }}
+    # The required check's name (branch protection asks for exactly this one), as a gate over the pull request's
+    # browser jobs: it passes only when the web build, the tools, WebKit portrait, the co-op smoke, the memory budget
+    # and the ground check passed, or were skipped (a change that can't affect the game). A failed or cancelled one
+    # fails it. Main's extra browser jobs report to main-health instead.
+    needs: [web, browser-tools, webkit, coop-smoke, terrain-drawn, memory-budget]
+    if: ${{ !inputs.preview_only && always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Every browser job passed or was skipped
         env:
-          RESULTS: web=${{ needs.web.result }} tools=${{ needs.browser-tools.result }} webkit=${{ needs.webkit.result }} coop=${{ needs.coop.result }} king=${{ needs.king.result }} hud=${{ needs.hud-scale.result }} terrain=${{ needs.terrain-drawn.result }} memory=${{ needs.memory-budget.result }}
+          RESULTS: web=${{ needs.web.result }} tools=${{ needs.browser-tools.result }} webkit=${{ needs.webkit.result }} coop=${{ needs.coop-smoke.result }} terrain=${{ needs.terrain-drawn.result }} memory=${{ needs.memory-budget.result }}
         run: |
           echo "$RESULTS"
           case " $RESULTS " in
@@ -647,9 +773,10 @@ jobs:
     # Publishes this run's web build (no second build) to its own folder on the Pages site: /pr-<n>/ for a pull
     # request, /branches/<name>/ for a run started by hand on another branch (gh workflow run ci.yml --ref <name>).
     # The link is commented on the PR. Removed when the PR closes (previews.yml). See tools/previews.sh.
-    # A run started by hand with preview_only publishes the web build without waiting for any check.
-    if: ${{ !cancelled() && ((needs.check.result == 'success' && needs.browser.result == 'success' && (needs.web.result == 'success' || (vars.CRABBRIDGE_PUBLISH_ENABLED == 'true' && needs.bridge-check.result == 'success'))) || (inputs.preview_only && needs.web.result == 'success')) && (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')) && !github.event.repository.private }}
-    needs: [check, browser, web, bridge-check]
+    # It publishes as soon as the web build is done: the checks and browser tests run beside it and say whether
+    # the change may merge; a preview is for trying it, not a promise.
+    if: ${{ !cancelled() && (needs.web.result == 'success' || (vars.CRABBRIDGE_PUBLISH_ENABLED == 'true' && needs.bridge-check.result == 'success')) && (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')) && !github.event.repository.private }}
+    needs: [web, bridge-check]
     runs-on: ubuntu-latest
     # Lock the entire store update -> snapshot -> deploy transaction, across all three writers.
     concurrency:
@@ -723,8 +850,11 @@ jobs:
     # Pages for private repositories needs a paid plan, so only deploy when public.
     # (The private flag is read from the event, so a run started while private skips;
     # rerun with workflow_dispatch on main.)
-    if: ${{ !inputs.preview_only && (!cancelled() && needs.check.result == 'success' && needs.browser.result == 'success' && (needs.determinism.result == 'success' || needs.determinism.result == 'skipped') && (needs.art.result == 'success' || needs.art.result == 'skipped') && (needs.web.result == 'success' || (vars.CRABBRIDGE_PUBLISH_ENABLED == 'true' && needs.bridge-check.result == 'success')) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && !github.event.repository.private) }}
-    needs: [check, determinism, art, web, browser, bridge-check]
+    # Waits only for the web build and the fast checks (owner's call: a fix verified on a phone sat behind the memory
+    # budget and flaky co-op jobs): fmt/clippy/tests, native = wasm scripts, art, WebKit portrait and the ground drawn.
+    # Everything else on main (co-op, memory budgets, King...) reports to main-health but never holds up the deploy.
+    if: ${{ !inputs.preview_only && !cancelled() && needs.check.result == 'success' && (needs.determinism.result == 'success' || needs.determinism.result == 'skipped') && (needs.art.result == 'success' || needs.art.result == 'skipped') && (needs.webkit.result == 'success' || needs.webkit.result == 'skipped') && (needs.terrain-drawn.result == 'success' || needs.terrain-drawn.result == 'skipped') && (needs.web.result == 'success' || (vars.CRABBRIDGE_PUBLISH_ENABLED == 'true' && needs.bridge-check.result == 'success')) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && !github.event.repository.private }}
+    needs: [check, determinism, art, web, webkit, terrain-drawn, bridge-check]
     runs-on: ubuntu-latest
     permissions:
       contents: write # push the main build to the gh-pages store
@@ -791,7 +921,7 @@ jobs:
     # Loads the deployed site in WebKit and checks the game starts with no errors (cargo webtest --smoke). A failure
     # here feeds the "main is broken" issue like any other.
     needs: [deploy, browser-tools]
-    if: ${{ !inputs.preview_only && (needs.deploy.result == 'success' && needs.browser-tools.result == 'success') }}
+    if: ${{ !inputs.preview_only && needs.deploy.result == 'success' && needs.browser-tools.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -816,8 +946,8 @@ jobs:
   main-health:
     name: report main's health
     # On main only: a failure opens (or adds to) one "main is broken" issue for the next Claude; a green run closes it.
-    if: ${{ !inputs.preview_only && (always() && github.event_name == 'push' && github.ref == 'refs/heads/main') }}
-    needs: [changes, check, determinism, art, web, browser, deploy, smoke]
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [changes, check, determinism, determinism-wasm-tests, art, web, browser, webkit-landscape, coop, king, hud-scale, memory-budget-fresh, deploy, smoke]
     runs-on: ubuntu-latest
     permissions:
       issues: write
