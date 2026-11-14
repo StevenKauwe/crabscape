@@ -92,7 +92,9 @@ pub const FIGHTS: &[(&str, Foe, Vec2)] = &[
 ///
 /// The trench floor has none: its rest crevice (x 1,446) and both morays
 /// leave no stretch 240 wide. Every home that keeps these rules lies in x 400
-/// to 840, 1,120 to 1,180 or 2,030 to 2,240 (scanned in 10s).
+/// to 840, 1,120 to 1,180 or 2,030 to 2,240 (scanned in 10s); a second shelf
+/// crab at 1,180 fails `silt_galleries`' calm envelope (its chase reaches the
+/// trench floor beside the plug shaft).
 pub const SHORE_CRABS: &[(&str, f32)] = &[
     ("slope shore crab", 800.0),
     ("shelf shore crab", 1120.0),
@@ -101,11 +103,10 @@ pub const SHORE_CRABS: &[(&str, f32)] = &[
     // fight a new crab can choose, never an ambush at its first gather
     // (walks 280 to 520, 40 clear of the co-op dig spots at x 100 to 240).
     ("pocket shore crab", 400.0),
-    // Two more on the way out so a crab that follows the goals board meets
-    // enough fights for Fighting 15 in its first hours: a second on the
-    // shelf by the ledge nodes (its walk shares the first's), and one on the
-    // slope between the pocket's crab and the slope's, among the row shrimp.
-    ("shelf shore crab 2", 1180.0),
+    // One more on the way out, so a crab that follows the goals board meets
+    // enough fights for Fighting 15: on the slope between the pocket's crab
+    // and the slope's, among the row shrimp. (A second on the shelf at 1,180
+    // would lunge over the trench rim, into the plug shaft's calm envelope.)
     ("row shore crab", 640.0),
 ];
 
