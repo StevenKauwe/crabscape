@@ -27,7 +27,7 @@ once. Nothing costs anything or slows anything.
 A goal the crab has not moved on for four minutes is quietly swapped for one nearer what it is doing: it went off
 to do something else, and a quest log full of stale lines is a chore. A goal moves on when the skill earns
 experience, or when the crab holds more of what the recipe needs than it has before. The swapped goal rests (it is
-not offered again while four newer goals have been swapped). A pinned want is never swapped: the player chose it.
+not offered again while four newer goals have been swapped). A goal open ten minutes is swapped too, unless it is nine tenths done: these are near-term wants, not long hauls. A pinned want is never swapped: the player chose it.
 
 ## Where it shows
 
@@ -44,16 +44,13 @@ not offered again while four newer goals have been swapped). A pinned want is ne
 
 | Run | Met | Swapped | Longest open |
 |---|---|---|---|
-| The bot plays its usual way and ignores the board | 39 | 59 | 9.4 min |
-| The bot follows the board: work for an open goal comes before the lowest skill, at home and out | 86 | 47 | 9.8 min |
+| The bot plays its usual way and ignores the board | 43 | 68 | 12.6 min |
+| The bot follows the board: work for an open goal comes before the lowest skill, at home and out | 99 | 47 | 6.7 min |
 
-`first_hours_targets` holds both runs to about 10 minutes open (10.5). The run that ignores the board must meet at
+`first_hours_targets` holds the follower to about 10 minutes open (10.5), and the bot that ignores the board to 13 (a goal nine tenths done is left to finish). The run that ignores the board must meet at
 least 25 goals. The run that follows it must meet more goals than it swaps.
 
-Following the board, every skill but Fighting reaches 15 within three hours. Fighting ends at 14: it only moves
-when a foe is up, so its goals are swapped more than the others'. Fighting is the skill short of supply near home
-(two snapping shrimps and the passive shore crabs since the x-340 shrimp left), so that is the world lane's to
-widen.
+Both runs bring every skill to 15 within three hours (since the row and second shelf shore crabs, the last at 151.3 minutes ignoring the board and 163.8 following it).
 
 ## Co-op
 
