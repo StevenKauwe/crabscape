@@ -91,6 +91,7 @@ fn say_at(commands: &mut Commands, text: &str, at: Vec3, colour: Color) {
 }
 
 /// The notes this frame's events earn.
+#[allow(clippy::too_many_arguments)]
 fn note_events(
     mut commands: Commands,
     time: Res<Time>,
@@ -98,9 +99,10 @@ fn note_events(
     mut last_tangle: Local<f32>,
     mut last_full: Local<f32>,
     mut last_soft: Local<f32>,
+    touch: Res<crate::input::TouchControls>,
     crab: Query<(&FrameEvents, &Mover, &Transform, &PlayerId), With<LocalPlayer>>,
 ) {
-    let Ok((events, _, at, id)) = crab.single() else {
+    let Ok((events, mover, at, id)) = crab.single() else {
         return;
     };
     let ev = events.0;
@@ -179,8 +181,15 @@ fn note_events(
     // Pressing on a net says so now and then, not every frame.
     if ev.tangled && now - *last_tangle > 4.0 {
         *last_tangle = now;
-        notes.push(("A ghost net. Something sharp".into(), PALE));
-        notes.push(("could cut through it.".into(), PALE));
+        // The Silt Galleries' plug is dug open from below, not cut: name the
+        // dig control the player has (#750: a player under it didn't find it).
+        if under_plug(mover.pos) {
+            notes.push(("The plug: dig up to open it".into(), GOLD));
+            notes.push((plug_dig_words(touch.visible).into(), GOLD));
+        } else {
+            notes.push(("A ghost net. Something sharp".into(), PALE));
+            notes.push(("could cut through it.".into(), PALE));
+        }
     }
     if ev.recovered {
         notes.push(("Got it back!".into(), GOLD));
@@ -321,5 +330,41 @@ fn float_notes(
             1.0 - note.age / note.life
         };
         text.0 = note.colour.with_alpha(fade);
+    }
+}
+
+/// Is a crab at `pos` under the Silt Galleries' plug (in its shaft, below it)?
+fn under_plug(pos: Vec2) -> bool {
+    let plug = crabsim::level::silt_galleries::PLUG;
+    pos.x >= plug.min.x - 40.0
+        && pos.x <= plug.max.x + 40.0
+        && pos.y < plug.min.y
+        && pos.y > plug.min.y - 160.0
+}
+
+/// How to dig up, in the controls on screen: the DIG stick on a touch screen, Space and W on a keyboard.
+fn plug_dig_words(touch: bool) -> &'static str {
+    if touch {
+        "Push the DIG stick up"
+    } else {
+        "Hold Space + W"
+    }
+}
+
+#[cfg(test)]
+mod plug_hint_tests {
+    use super::*;
+
+    #[test]
+    fn the_plug_hint_names_the_dig_control_and_only_under_the_plug() {
+        let plug = crabsim::level::silt_galleries::PLUG;
+        assert!(under_plug(Vec2::new(1003.6, -58.2)), "issue #750's crab");
+        assert!(
+            !under_plug(Vec2::new(plug.center().x, 30.0)),
+            "on the shelf"
+        );
+        assert!(!under_plug(Vec2::new(600.0, -58.0)), "elsewhere");
+        assert!(plug_dig_words(true).contains("DIG"));
+        assert!(plug_dig_words(false).contains("Space"));
     }
 }
