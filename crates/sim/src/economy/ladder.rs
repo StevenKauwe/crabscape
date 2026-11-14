@@ -500,12 +500,13 @@ pub fn claws_beyond_percent(level: u32) -> u32 {
 /// / 900 / 700 with two shrimps, then 900 / 650 / 500 while the bot's
 /// far-ledge fights were broken; 10 to 14 went from 350 to 420 when the x-340
 /// shrimp left (Fighting was the last skill to 15, and short of it in some
-/// runs).
+/// runs), then to 500 when the second shelf crab could not stay (a player
+/// who follows the goals board still ended at Fighting 14).
 pub fn fight_xp_percent(level: u32) -> u32 {
     match level {
         0..=4 => 600,
         5..=9 => 450,
-        10..=14 => 420,
+        10..=14 => 500,
         _ => 100,
     }
 }
