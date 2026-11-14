@@ -363,6 +363,7 @@ fn show_cast_offs(
     soft: Res<SoftTextures>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    mut colours: ResMut<crate::cling::Colours>,
     me: Query<&PlayerId, With<LocalPlayer>>,
     drawn: Query<Entity, With<CastOffShell>>,
     mut shown: Local<Option<Vec<CastOff>>>,
@@ -408,7 +409,10 @@ fn show_cast_offs(
                 for (slot, &kind) in small.enumerate() {
                     let (meshes, materials) = (&mut *meshes, &mut *materials);
                     let shown = Visibility::Inherited;
-                    crate::cling::spawn_small(shell, meshes, materials, kind, slot, 0.1, shown);
+                    let colours = &mut *colours;
+                    crate::cling::spawn_small(
+                        shell, meshes, materials, colours, kind, slot, 0.1, shown,
+                    );
                 }
                 for big in load.iter().filter(|c| !c.small()) {
                     big_on_cast_off(shell, *big, &soft, &mut meshes, &mut materials);

@@ -39,7 +39,8 @@ pub struct ClingPlugin;
 
 impl Plugin for ClingPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (attach, show).chain().in_set(GameSet::Present));
+        app.init_resource::<Colours>()
+            .add_systems(Update, (attach, show).chain().in_set(GameSet::Present));
     }
 }
 
@@ -58,6 +59,7 @@ pub fn spawn_small(
     parent: &mut ChildSpawnerCommands,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<ColorMaterial>,
+    colours: &mut Colours,
     kind: Carry,
     slot: usize,
     z: f32,
@@ -115,11 +117,31 @@ pub fn spawn_small(
             for (mesh, colour, at, turn) in parts {
                 thing.spawn((
                     Mesh2d(meshes.add(mesh)),
-                    MeshMaterial2d(materials.add(colour)),
+                    MeshMaterial2d(colours.get(materials, colour)),
                     Transform::from_translation(at).with_rotation(Quat::from_rotation_z(turn)),
                 ));
             }
         });
+}
+
+/// One material per colour for the small things on a shell, which are never recoloured in place: every slot's
+/// placeholder of a kind shares it (on WebGL2 each material is its own GPU buffer, and a crab carries thousands
+/// of hidden placeholders).
+#[derive(Resource, Default)]
+pub struct Colours(std::collections::HashMap<[u32; 4], Handle<ColorMaterial>>);
+
+impl Colours {
+    pub fn get(
+        &mut self,
+        materials: &mut Assets<ColorMaterial>,
+        colour: Color,
+    ) -> Handle<ColorMaterial> {
+        let key = colour.to_srgba().to_f32_array().map(f32::to_bits);
+        self.0
+            .entry(key)
+            .or_insert_with(|| materials.add(colour))
+            .clone()
+    }
 }
 
 /// One item of each tier (0 for by-products and processed things): the
@@ -167,7 +189,9 @@ fn attach(
     shells: Query<(Entity, &ShellOf), Added<ShellOf>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    mut colours: ResMut<Colours>,
 ) {
+    let colours = &mut *colours;
     for (shell, of) in &shells {
         commands.entity(shell).with_children(|parent| {
             for slot in 0..most_carried(&sim.tuning) {
@@ -185,7 +209,7 @@ fn attach(
                     };
                     let (meshes, materials) = (&mut *meshes, &mut *materials);
                     let extra = (thing, Visibility::Hidden);
-                    spawn_small(parent, meshes, materials, kind, slot, DEPTH, extra);
+                    spawn_small(parent, meshes, materials, colours, kind, slot, DEPTH, extra);
                 }
                 // The economy's items: one placeholder per tier.
                 for item in TIER_ITEMS {
@@ -198,7 +222,7 @@ fn attach(
                     };
                     let (meshes, materials) = (&mut *meshes, &mut *materials);
                     let extra = (thing, Visibility::Hidden);
-                    spawn_small(parent, meshes, materials, kind, slot, DEPTH, extra);
+                    spawn_small(parent, meshes, materials, colours, kind, slot, DEPTH, extra);
                 }
                 for (kind, colour) in [
                     (
@@ -218,7 +242,7 @@ fn attach(
                             kind,
                         },
                         Mesh2d(meshes.add(Ellipse::new(7.0, 4.0))),
-                        MeshMaterial2d(materials.add(colour)),
+                        MeshMaterial2d(colours.get(&mut materials, colour)),
                         Transform::from_translation(at.extend(DEPTH + slot as f32 * 0.002))
                             .with_rotation(Quat::from_rotation_z(turn)),
                         Visibility::Hidden,

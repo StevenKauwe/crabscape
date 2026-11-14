@@ -138,6 +138,7 @@ fn attach_gear(
     shells: Query<(Entity, &ShellOf), Added<ShellOf>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    mut colours: ResMut<crate::cling::Colours>,
 ) {
     for (shell, of) in &shells {
         commands.entity(shell).with_children(|parent| {
@@ -186,7 +187,7 @@ fn attach_gear(
                                 for (mesh, colour, at, turn) in parts {
                                     sack.spawn((
                                         Mesh2d(meshes.add(mesh)),
-                                        MeshMaterial2d(materials.add(colour)),
+                                        MeshMaterial2d(colours.get(&mut materials, colour)),
                                         Transform::from_translation(at)
                                             .with_rotation(Quat::from_rotation_z(turn)),
                                     ));
@@ -206,14 +207,18 @@ fn attach_gear(
                                 // overlapping along its arc.
                                 plates.spawn((
                                     Mesh2d(meshes.add(Ellipse::new(42.0, 22.0))),
-                                    MeshMaterial2d(materials.add(tint.with_alpha(0.28))),
+                                    MeshMaterial2d(
+                                        colours.get(&mut materials, tint.with_alpha(0.28)),
+                                    ),
                                     Transform::default(),
                                 ));
                                 for k in -2..=2 {
                                     let x = k as f32 * 14.0;
                                     plates.spawn((
                                         Mesh2d(meshes.add(Ellipse::new(9.5, 6.0))),
-                                        MeshMaterial2d(materials.add(tint.with_alpha(0.62))),
+                                        MeshMaterial2d(
+                                            colours.get(&mut materials, tint.with_alpha(0.62)),
+                                        ),
                                         Transform::from_xyz(
                                             x,
                                             9.0 - 0.012 * x * x,
