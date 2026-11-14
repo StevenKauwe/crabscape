@@ -747,3 +747,63 @@ fn the_drop_ledge_is_in_sight_and_out_of_reach_without_the_strokes() {
     );
     assert!(on_the_ledge(climbs(4)), "the strokes do");
 }
+
+/// #750: a crab that climbs the plug shaft and presses up into the closed plug is told to dig (the client's note,
+/// `notes.rs`); holding dig there opens it and the crab climbs out onto the shelf, never back down the shaft.
+#[test]
+fn digging_the_plug_open_from_below_lifts_the_crab_out_onto_the_shelf() {
+    let mut level = Level::test_level();
+    level.foes.clear();
+    let mut sim = Sim::new(Tuning::default(), level);
+    sim.add_crab(P0, Vec2::new(sg::PLUG.center().x, sg::UPPER_FLOOR));
+    sim.enable_underwater_cells();
+    let plug = sim
+        .level
+        .nets
+        .iter()
+        .position(|n| n.rect == sg::PLUG)
+        .expect("the plug");
+    // Up the coral to the plug.
+    let mut pressed = false;
+    for i in 0..120 * 30 {
+        sim.set_controls(
+            P0,
+            Controls {
+                jump_held: true,
+                jump_pressed: i % 60 == 0,
+                ..Default::default()
+            },
+        );
+        sim.tick();
+        if sim.crab(P0).expect("crab").events.tangled {
+            pressed = true;
+            break;
+        }
+    }
+    assert!(
+        pressed,
+        "the climb reaches the plug: {:?}",
+        sim.crab(P0).map(|c| c.mover.pos)
+    );
+    assert!(!sim.level.nets[plug].cut, "climbing alone leaves it shut");
+    // Hold dig, no direction: the plug opens and the crab is out.
+    let mut lowest = f32::INFINITY;
+    for _ in 0..120 * 3 {
+        sim.set_controls(
+            P0,
+            Controls {
+                dig_held: true,
+                ..Default::default()
+            },
+        );
+        sim.tick();
+        lowest = lowest.min(sim.crab(P0).expect("crab").mover.pos.y);
+    }
+    let at = sim.crab(P0).expect("crab").mover.pos;
+    assert!(sim.level.nets[plug].cut, "dug open");
+    assert!(at.y >= sg::PLUG.max.y, "out on the shelf: {at}");
+    assert!(
+        lowest > sg::PLUG.min.y - 120.0,
+        "never thrown back down the shaft: lowest {lowest}"
+    );
+}

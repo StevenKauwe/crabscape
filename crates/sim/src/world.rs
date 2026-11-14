@@ -284,6 +284,27 @@ pub struct Sim {
 /// The seed every world starts with (a replay therefore needs no seed).
 pub const SEED: u64 = 0x00c0_ffee_c4ab_5eed;
 
+/// A crab that has just dug the Silt Galleries' plug open from below climbs
+/// out through it: it stands on the shelf at the hole's nearer rim, just
+/// clear of the opening (#750: holding dig there used to drop it back down
+/// the shaft).
+pub(crate) fn haul_out_of_plug(m: &mut Mover, level: &Level, t: &Tuning) {
+    let plug = crate::level::silt_galleries::PLUG;
+    let half = m.half_width(t);
+    let x = if m.pos.x < plug.center().x {
+        plug.min.x - half - 24.0
+    } else {
+        plug.max.x + half + 24.0
+    };
+    let Some(ground) = level.ground_below(Vec2::new(x, plug.max.y + 200.0)) else {
+        return;
+    };
+    m.pos = Vec2::new(x, ground);
+    m.vel = Vec2::ZERO;
+    m.grounded = true;
+    m.climbing = false;
+}
+
 #[cfg(test)]
 thread_local! {
     static STATE_HASH_CALLS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
@@ -2732,6 +2753,7 @@ impl Sim {
             }
             // A ghost net it presses against: cut, with scissor claws (gone
             // for everyone); without them, it's in the way.
+            let mut hauled = false;
             for (i, net) in self
                 .level
                 .nets
@@ -2752,6 +2774,10 @@ impl Sim {
                     if tool && net.cuttable_at(crab.mover.pos) {
                         net.cut = true;
                         crab.events.cut_net = true;
+                        // Dug open from below, the crab hauls itself out onto
+                        // the shelf beside the hole, not back down the
+                        // thousand-unit shaft (#750).
+                        hauled |= net.rect == crate::level::silt_galleries::PLUG;
                         if let Some(n) = &mut self.net {
                             n.send(To::Everyone, Msg::NetCut(i));
                         }
@@ -2759,6 +2785,9 @@ impl Sim {
                         crab.events.tangled = true;
                     }
                 }
+            }
+            if hauled {
+                haul_out_of_plug(&mut crab.mover, &self.level, &self.tuning);
             }
             // A clue it touches: found.
             for (i, (clue, found)) in self
