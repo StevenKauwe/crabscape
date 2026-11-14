@@ -268,6 +268,8 @@ pub struct Sim {
     /// Every enemy, stepped in this order after the crabs.
     enemies: Vec<Enemy>,
     next_enemy: u32,
+    /// Disposable stage snapshots, cleared after each tick; never hashed or saved.
+    ownership_scratch: Vec<bool>,
     /// The only randomness allowed: seeded, part of the state hash.
     rng: Rng,
     /// Independent NPC streams retained when a regional session returns to solo.
@@ -412,6 +414,7 @@ impl Sim {
             recorder: None,
             enemies: Vec::new(),
             next_enemy: 0,
+            ownership_scratch: Vec::new(),
             rng: Rng::new(SEED),
             owned_rng: None,
             net: None,
@@ -2922,7 +2925,7 @@ impl Sim {
         // Ownership is snapshotted separately at each stage: a hit or enemy
         // step can change authority before the next stage. Reuse its storage
         // without carrying the earlier decisions forward.
-        let mut runs = Vec::new();
+        let mut runs = std::mem::take(&mut self.ownership_scratch);
         self.claws_meet_enemies(&mut runs);
         crate::alarm_jelly::attract(&mut self.enemies, &self.tuning, &self.level);
         let animals: Vec<enemy::AnimalPrey> = if self.level.cells.is_some() {
@@ -3216,6 +3219,12 @@ impl Sim {
         self.watchers.step(self.tick, &self.crabs, &self.tuning);
         self.tick += 1;
         self.send_updates(&mut runs);
+        runs.clear();
+        // Keep ordinary enemy lists warm, but do not retain an exceptional
+        // roster forever. Snapshot values must never survive as authority.
+        if runs.capacity() <= 4096 {
+            self.ownership_scratch = runs;
+        }
         true
     }
 
@@ -4084,6 +4093,38 @@ pub fn fit_glass_grips(m: &mut Mover) {
 mod tests {
     use super::*;
     use crate::level::SPAWN;
+
+    #[test]
+    fn ownership_scratch_reuses_storage_without_changing_replay() {
+        let mut warm = Sim::with_one_crab(SPAWN);
+        warm.populate();
+        warm.tick();
+        let mut cold = warm.clone();
+        let pointer = warm.ownership_scratch.as_ptr();
+        let capacity = warm.ownership_scratch.capacity();
+        assert!(capacity > 0 && capacity <= 4096);
+        for tick in 0..120 {
+            if tick == 40 || tick == 80 {
+                warm.go_online(tick == 40);
+                cold.go_online(tick == 40);
+            }
+            // The old path started with a fresh vector on every tick.
+            cold.ownership_scratch = Vec::new();
+            warm.tick();
+            cold.tick();
+            assert_eq!(warm.state_hash(), cold.state_hash());
+            assert_eq!(warm.take_outbox(), cold.take_outbox());
+            assert_eq!(warm.ownership_scratch.as_ptr(), pointer);
+            assert_eq!(warm.ownership_scratch.capacity(), capacity);
+            assert!(warm.ownership_scratch.is_empty());
+        }
+        // Exceptional capacity is dropped, and normal ticks recover reuse.
+        warm.ownership_scratch = Vec::with_capacity(8192);
+        warm.tick();
+        assert_eq!(warm.ownership_scratch.capacity(), 0);
+        warm.tick();
+        assert!(warm.ownership_scratch.capacity() > 0);
+    }
 
     #[test]
     fn ownership_scratch_refreshes_at_each_stage() {
