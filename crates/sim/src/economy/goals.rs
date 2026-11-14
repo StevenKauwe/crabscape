@@ -40,6 +40,9 @@ pub const BONUS_DIVISOR: u32 = 10;
 pub const REFILL_TICKS: u64 = 30;
 /// A goal with no progress for this long is swapped (4 minutes).
 pub const SWAP_TICKS: u32 = 4 * 60 * crate::TICKS_PER_SECOND;
+/// A goal open this long is swapped too, unless it is nine tenths done
+/// (10 minutes): a near-term want, not a long haul.
+pub const STALE_TICKS: u32 = 10 * 60 * crate::TICKS_PER_SECOND;
 /// A level goal is for a skill at most this many levels above the lowest.
 pub const LEAD: u32 = 3;
 /// How many swapped goals are rested (not offered again) at once.
@@ -72,6 +75,9 @@ pub struct Goal {
     pub mark: u32,
     #[serde(default)]
     pub still: u32,
+    /// How many looks it has been open.
+    #[serde(default)]
+    pub age: u32,
 }
 
 /// A crab's goals. Saved with its economy.
@@ -412,6 +418,17 @@ impl Sim {
             .iter()
             .map(|g| self.gauge(id, crab, &g.aim))
             .collect();
+        // Nine tenths done: a long-open goal that close is left to finish.
+        let nearly: Vec<bool> = crab
+            .econ
+            .goals
+            .open
+            .iter()
+            .map(|g| match &g.aim {
+                Aim::Level { skill, .. } => crab.progress(*skill, &self.tuning) >= 0.9,
+                Aim::Make { .. } => false,
+            })
+            .collect();
         let Some(crab) = self.crab_mut(id) else {
             return;
         };
@@ -427,8 +444,10 @@ impl Sim {
         }
         goals.xp_at = xp_now;
         let limit = SWAP_TICKS / REFILL_TICKS as u32;
+        let stale = STALE_TICKS / REFILL_TICKS as u32;
         let mut swapped = Vec::new();
-        for (g, gauge) in goals.open.iter_mut().zip(gauges) {
+        for ((g, gauge), nearly) in goals.open.iter_mut().zip(gauges).zip(nearly) {
+            g.age += 1;
             // Only a new high counts: things in hand go up and down as
             // other recipes use them.
             if gauge > g.mark {
@@ -437,7 +456,7 @@ impl Sim {
             } else {
                 g.still += 1;
             }
-            if !g.pinned && g.still >= limit {
+            if !g.pinned && (g.still >= limit || (g.age >= stale && !nearly)) {
                 swapped.push(g.serial);
             }
         }
@@ -563,6 +582,7 @@ impl Sim {
                     made: false,
                     mark,
                     still: 0,
+                    age: 0,
                 });
             }
         }

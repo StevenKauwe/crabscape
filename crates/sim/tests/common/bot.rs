@@ -97,6 +97,8 @@ const FAR_FIGHT_X: f32 = 2170.0;
 const SHORE_HOME: f32 = 800.0;
 /// The pocket shore crab (`level::shallows`), where the door's shrimp stood.
 const SHORE_POCKET: f32 = 400.0;
+/// The row shore crab on the slope among the row shrimp (walks 520 to 760).
+const SHORE_ROW: f32 = 640.0;
 /// How near a shrimp's home is to the burrow it is named by (the row shrimp
 /// stands 32 from the second pocket's, the block shrimp 14 from the far
 /// ledge's).
@@ -488,11 +490,14 @@ impl Bot {
             self.fight(SNAPPER_B);
             return true;
         }
-        // The pocket shore crab is passive, so a crab walking past it stops for a scrap, as a player would.
-        let past_pocket = (from < SHORE_POCKET) != (to_x < SHORE_POCKET);
-        if past_pocket && self.shore_crab_up(SHORE_POCKET) {
-            self.fight(SHORE_POCKET);
-            return true;
+        // The pocket and row shore crabs are passive, so a crab walking past
+        // one stops for a scrap, as a player would.
+        for home in [SHORE_POCKET, SHORE_ROW] {
+            let past = (from < home) != (to_x < home);
+            if past && self.shore_crab_up(home) {
+                self.fight(home);
+                return true;
+            }
         }
         false
     }
@@ -1205,7 +1210,7 @@ impl Bot {
             .into_iter()
             .find(|&at| self.snapper_up(at));
         let far = self.snapper_up(SNAPPER_FAR) || self.snapper_up(SNAPPER_BLOCK);
-        let shore = [SHORE_POCKET, SHORE_HOME]
+        let shore = [SHORE_POCKET, SHORE_ROW, SHORE_HOME]
             .into_iter()
             .find(|&at| self.shore_crab_up(at));
         if let Some(at) = shore {
