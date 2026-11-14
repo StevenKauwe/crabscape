@@ -115,7 +115,9 @@ See [the performance workflow and measured examples](docs/engineering/rust-perfo
   replace these screenshots.
 - CI (`.github/workflows/ci.yml`, Rust pinned in `rust-toolchain.toml`) has two depths (owner's call: PR CI was "way
   too slow, way bloated"). **A pull request** runs one fast check per area: fmt, clippy (native + wasm32), tests
-  (cargo-nextest, the sim optimised), cargo-deny, the tidy tool's checks, the web build (thin LTO off main), the
+  (cargo-nextest, the sim optimised; the sim's minutes-long route walks run beside them in `slow sim routes`, red
+  but not blocking on a PR), cargo-deny, the tidy tool's checks, the web build (game crate in 16 codegen units off
+  main), the
   relaxed-SIMD check, a size report, native = wasm scripts (`tools/determinism.sh`), the art check when art changed
   (on a Mac, take the oil atlases from its `art-as-ci-made-it` download), and after the web build, at once: WebKit
   portrait (`cargo webtest`), a co-op smoke (`cooptest --only join,guest-reload,cells-session`), the large-save

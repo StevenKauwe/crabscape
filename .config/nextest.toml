@@ -1,0 +1,11 @@
+# cargo-nextest profiles for CI (.github/workflows/ci.yml). `fast` is the required tests job: everything but the
+# sim's route walks, which take minutes each. `slow` is only those, in their own job beside it. A new test binary that
+# takes over ~30 s on CI goes in both lists below.
+[profile.fast]
+default-filter = "not (package(crabsim) & (binary(=boss_is_beatable) | binary(=shallows) | binary(=slope_caves) | binary(=open_canyon) | binary(=economy_every_way_pays) | binary(=economy_pacing) | binary(=dive_budget)))"
+final-status-level = "slow"
+
+[profile.slow]
+default-filter = "package(crabsim) & (binary(=boss_is_beatable) | binary(=shallows) | binary(=slope_caves) | binary(=open_canyon) | binary(=economy_every_way_pays) | binary(=economy_pacing) | binary(=dive_budget))"
+final-status-level = "slow"
+slow-timeout = { period = "120s", terminate-after = 5 }
