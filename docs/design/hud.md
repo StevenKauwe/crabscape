@@ -64,7 +64,7 @@ reserve segments, gold experience); arrows are the walks.
 | Cargo ("Cargo 3", B) | Under them; opens into the shell's list | Always |
 | The pinned goal (diamond, "Goal: kelp cord, 1/2 kelp") | Under the cargo; gold when all in hand | Away from home, when pinned |
 | The guide's step, then the next goal nearest done ("Next: Prying 10, 80%") | The same pill | Out or on the doorstep, when nothing pinned shows; all next goals are on the workbench's Goals tab (`next-goals.md`) |
-| Experience drops and the skill being trained | The reward line, top centre (a portrait phone: under the corner buttons) | A few seconds after earning |
+| Experience drops and the skill being trained | The reward line: top centre on a computer; on a phone a short band at the top edge (upright: under the corner row and goal pill; on its side: between the vitals and the corner row), never over the crab (#750) | A few seconds after earning |
 | A level gained, a goal in hand | The same line, as a card that pops in, holds and fades | When it happens; one at a time |
 | Corner buttons (Mic, Invite, Skills, Home, Settings) | One row of icons, top-right (`src/corner.rs`) | Always (Home fades when it can't go; Mic in a room) |
 | Every skill, its level, its unlocks | The Skills panel (K) | On demand |

@@ -52,22 +52,69 @@ impl Plugin for HudPlugin {
             .add_systems(Startup, spawn)
             .add_systems(
                 Update,
-                (place, demo, queue_cards, show_card, track_xp, float_drops)
+                (
+                    place,
+                    demo,
+                    queue_cards,
+                    show_card,
+                    track_xp,
+                    float_drops,
+                    publish_card,
+                )
                     .chain()
                     .in_set(GameSet::Present),
             );
     }
 }
 
-/// Where the reward line's top sits for a window: high on a wide screen; on a
-/// narrow (portrait) one under the corner buttons, clear of the touch buttons.
-pub fn line_top(window: Vec2) -> f32 {
+/// A phone's screen (upright, or turned on its side): the reward line keeps to
+/// the top edge, as a short band, never over the middle where the crab is
+/// (#750: a big card mid-screen made levelling up "annoying instead of fun").
+pub fn phone(window: Vec2) -> bool {
+    crate::settings::narrow(window) || window.y < 520.0
+}
+
+/// The reward line's box for a window (left, top, width), in logical pixels.
+/// Upright phone: the band under the corner row and the goal pill, across the
+/// screen. Phone on
+/// its side: the top edge, between the vitals and the corner row. Wider
+/// screens: high and centred, as before.
+pub fn line_box(window: Vec2) -> (f32, f32, f32) {
     if crate::settings::narrow(window) {
-        196.0
+        let row = crate::corner::rect(window, crate::corner::Slot::Settings)
+            .max
+            .y;
+        let top = (row + 6.0).max(theme::GOAL_TOP + 32.0);
+        (0.0, top, window.x)
+    } else if phone(window) {
+        let left = theme::EDGE + theme::VITALS_W + 8.0;
+        let right = crate::corner::row(window).min.x - 8.0;
+        (left, 10.0, (right - left).max(0.0))
     } else if window.x < 900.0 {
-        56.0
+        (0.0, 56.0, window.x)
     } else {
-        14.0
+        (0.0, 14.0, window.x)
+    }
+}
+
+/// The card's width: [`WIDTH`], or on a phone what fits the band.
+fn card_width(window: Vec2) -> f32 {
+    let (_, _, band) = line_box(window);
+    if phone(window) {
+        (band - 16.0).clamp(160.0, WIDTH)
+    } else {
+        WIDTH
+    }
+}
+
+/// The card's height at most, with `lines` lines: on a phone one short band
+/// (the caption and title side by side, at most one line under them).
+#[cfg(test)]
+fn card_height(window: Vec2, lines: usize) -> f32 {
+    if phone(window) {
+        12.0 + 24.0 + 17.0 * lines.min(1) as f32 + 4.0
+    } else {
+        20.0 + 15.0 + 34.0 + 6.0 + 19.0 * lines as f32
     }
 }
 
@@ -129,6 +176,8 @@ struct Line;
 #[derive(Component)]
 struct CardBox;
 #[derive(Component)]
+struct CardHead;
+#[derive(Component)]
 struct CardCaption;
 #[derive(Component)]
 struct CardTitle;
@@ -150,15 +199,15 @@ struct XpDrop {
 }
 
 fn spawn(mut commands: Commands, fonts: Res<UiFonts>, window: Single<&Window>) {
-    let size = window.size();
+    let (left, top, width) = line_box(window.size());
     commands
         .spawn((
             Line,
             Node {
                 position_type: PositionType::Absolute,
-                top: px(line_top(size)),
-                left: px(0),
-                width: percent(100),
+                top: px(top),
+                left: px(left),
+                width: px(width),
                 flex_direction: FlexDirection::Column,
                 align_items: AlignItems::Center,
                 row_gap: px(8),
@@ -188,14 +237,26 @@ fn spawn(mut commands: Commands, fonts: Res<UiFonts>, window: Single<&Window>) {
                 UiTransform::default(),
             ))
             .with_children(|card| {
+                // The caption over the title (on a phone, beside it).
                 card.spawn((
-                    CardCaption,
-                    theme::bold(&fonts, "", theme::CAPTION, theme::AMBER),
-                ));
-                card.spawn((
-                    CardTitle,
-                    theme::bold(&fonts, "", theme::DISPLAY, theme::GOLD),
-                ));
+                    CardHead,
+                    Node {
+                        flex_direction: FlexDirection::Column,
+                        align_items: AlignItems::Center,
+                        column_gap: px(8),
+                        ..default()
+                    },
+                ))
+                .with_children(|head| {
+                    head.spawn((
+                        CardCaption,
+                        theme::bold(&fonts, "", theme::CAPTION, theme::AMBER),
+                    ));
+                    head.spawn((
+                        CardTitle,
+                        theme::bold(&fonts, "", theme::DISPLAY, theme::GOLD),
+                    ));
+                });
                 card.spawn((
                     CardShine,
                     Node {
@@ -264,9 +325,12 @@ fn spawn(mut commands: Commands, fonts: Res<UiFonts>, window: Single<&Window>) {
 
 /// Keep the line where it belongs as the window turns.
 fn place(window: Single<&Window>, mut line: Single<&mut Node, With<Line>>) {
-    let top = px(line_top(window.size()));
-    if line.top != top {
+    let (left, top, width) = line_box(window.size());
+    let (left, top, width) = (px(left), px(top), px(width));
+    if line.top != top || line.left != left || line.width != width {
         line.top = top;
+        line.left = left;
+        line.width = width;
     }
 }
 
@@ -388,7 +452,9 @@ fn queue_cards(
 fn show_card(
     mut commands: Commands,
     time: Res<Time<Real>>,
+    window: Single<&Window>,
     mut cards: ResMut<Cards>,
+    mut head: Single<&mut Node, (With<CardHead>, Without<CardBox>, Without<CardShine>)>,
     mut card: Single<
         (
             &mut Node,
@@ -398,8 +464,14 @@ fn show_card(
         ),
         (With<CardBox>, Without<CardShine>),
     >,
-    mut caption: Single<(&mut Text, &mut TextColor), (With<CardCaption>, Without<CardTitle>)>,
-    mut title: Single<(&mut Text, &mut TextColor), (With<CardTitle>, Without<CardCaption>)>,
+    mut caption: Single<
+        (&mut Text, &mut TextColor, &mut TextFont),
+        (With<CardCaption>, Without<CardTitle>),
+    >,
+    mut title: Single<
+        (&mut Text, &mut TextColor, &mut TextFont),
+        (With<CardTitle>, Without<CardCaption>),
+    >,
     mut shine: Single<(&mut Node, &mut BackgroundColor), (With<CardShine>, Without<CardBox>)>,
     lines: Single<Entity, With<CardLines>>,
     mut line_words: Query<
@@ -416,14 +488,32 @@ fn show_card(
             }
             return;
         };
+        // A phone gets the short band: caption beside the title, a smaller
+        // title, one line (the rest are in Skills), no shine.
+        let small = phone(window.size());
         caption.0.0 = next.caption.to_string();
         title.0.0.clone_from(&next.title);
+        title.2.font_size = FontSize::Px(if small { theme::TITLE } else { theme::DISPLAY });
+        head.flex_direction = if small {
+            FlexDirection::Row
+        } else {
+            FlexDirection::Column
+        };
+        card.0.width = px(card_width(window.size()));
+        card.0.padding = if small {
+            UiRect::axes(px(12), px(6))
+        } else {
+            UiRect::axes(px(16), px(10))
+        };
+        shine.0.display = if small { Display::None } else { Display::Flex };
+        let shown = if small { 1 } else { next.lines.len() };
+        let size = if small { theme::CAPTION } else { theme::BODY };
         commands
             .entity(*lines)
             .despawn_related::<Children>()
             .with_children(|l| {
-                for line in &next.lines {
-                    l.spawn(theme::words(line.clone(), theme::BODY, theme::TEXT));
+                for line in next.lines.iter().take(shown) {
+                    l.spawn(theme::words(line.clone(), size, theme::TEXT));
                 }
             });
         cards.up = Some((next, 0.0));
@@ -447,6 +537,12 @@ fn show_card(
     } else {
         1.10 - 0.10 * ((k - 0.55) / 0.45)
     };
+    // On a phone a gentler pop, so the band never swells into the play area.
+    let swell = if phone(window.size()) {
+        1.0 + (swell - 1.0) * 0.4
+    } else {
+        swell
+    };
     let gone = ((age - (life - FADE)) / FADE).clamp(0.0, 1.0);
     let alpha = (age / 0.12).min(1.0) * (1.0 - gone);
     card.1.scale = Vec2::splat(swell * (1.0 - 0.04 * gone));
@@ -468,6 +564,48 @@ fn show_card(
             }
         }
     }
+}
+
+/// For the browser tests: the card's box on the page while one is up
+/// (`data-card="left top width height"`, logical pixels), gone when not.
+#[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
+fn publish_card(
+    window: Single<&Window>,
+    card: Single<(&Node, &ComputedNode, &UiGlobalTransform), With<CardBox>>,
+    mut said: Local<String>,
+) {
+    let (node, computed, at) = *card;
+    let now = if node.display == Display::None || computed.size().x <= 0.0 {
+        String::new()
+    } else {
+        // The box (physical pixels, centred) back to the page's pixels.
+        let k = computed.inverse_scale_factor();
+        let size = computed.size() * k;
+        let centre = at.translation * k;
+        format!(
+            "{:.0} {:.0} {:.0} {:.0}",
+            centre.x - size.x / 2.0,
+            centre.y - size.y / 2.0,
+            size.x,
+            size.y
+        )
+    };
+    if *said == now {
+        return;
+    }
+    said.clone_from(&now);
+    #[cfg(target_arch = "wasm32")]
+    if let Some(canvas) = web_sys::window()
+        .and_then(|w| w.document())
+        .and_then(|d| d.get_element_by_id("crabscape"))
+    {
+        let _ = if now.is_empty() {
+            canvas.remove_attribute("data-card")
+        } else {
+            canvas.set_attribute("data-card", &now)
+        };
+    }
+    let _ = window;
 }
 
 /// What the tracker last saw: each skill's experience, what is gathered up
@@ -687,26 +825,52 @@ mod tests {
     }
 
     #[test]
-    fn the_reward_line_clears_the_corner_buttons_and_the_touch_buttons() {
+    fn the_reward_line_clears_the_corner_buttons_the_touch_buttons_and_the_crab() {
         for window in [
             Vec2::new(390.0, 844.0),
+            Vec2::new(430.0, 742.0),
             Vec2::new(375.0, 667.0),
             Vec2::new(844.0, 390.0),
+            Vec2::new(742.0, 430.0),
             Vec2::new(667.0, 375.0),
             Vec2::new(1280.0, 800.0),
         ] {
-            let top = line_top(window);
-            let left = (window.x - WIDTH) / 2.0;
-            let card = Rect::new(left, top, left + WIDTH, top + 110.0);
-            // The corner row.
+            let (band_left, top, band) = line_box(window);
+            let w = card_width(window);
+            let left = band_left + (band - w) / 2.0;
+            let card = Rect::new(left, top, left + w, top + card_height(window, 4));
+            let screen = Rect::from_corners(Vec2::ZERO, window);
+            assert!(
+                screen.contains(card.min) && screen.contains(card.max),
+                "{window}"
+            );
+            // The corner row and the vitals.
             for slot in crate::corner::Slot::ALL {
                 let r = crate::corner::rect(window, slot);
                 assert!(card.intersect(r).is_empty(), "{window}: {card:?} {r:?}");
             }
-            if crate::settings::narrow(window) {
+            // The vitals' bars, the cargo chip and the goal pill under it.
+            let e = theme::EDGE;
+            for (name, r) in [
+                ("bars", Rect::new(e, 0.0, e + theme::VITALS_W, 44.0)),
+                (
+                    "cargo",
+                    Rect::new(e, theme::CARGO_TOP, e + 118.0, theme::CARGO_TOP + 40.0),
+                ),
+                (
+                    "goal",
+                    Rect::new(e, theme::GOAL_TOP, e + 220.0, theme::GOAL_TOP + 28.0),
+                ),
+            ] {
+                assert!(card.intersect(r).is_empty(), "{window}: {name}");
+            }
+            if phone(window) {
                 for r in crate::input::touch_rects(window) {
                     assert!(card.intersect(r).is_empty(), "{window}: touch {r:?}");
                 }
+                // Never over the crab, drawn in the middle: a band at the top
+                // edge, its bottom in the top quarter-and-a-bit of the screen.
+                assert!(card.max.y < window.y * 0.3, "{window}: {card:?}");
             }
         }
     }
