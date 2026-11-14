@@ -105,12 +105,12 @@ jobs:
       - name: clippy (wasm32)
         run: cargo clippy --all-targets --locked --target wasm32-unknown-unknown -- -D warnings
       # Includes the simulation's property tests (crates/sim/tests/properties.rs). nextest runs every test binary at
-      # once (cargo test ran ~80 of them one after another), and the sim is optimised: its region walks and "boss is
-      # beatable" runs took 20 of cargo test's 24 minutes at the dev profile's opt-level 1. Doc tests separately
-      # (nextest skips them).
+      # once (cargo test ran ~150 of them one after another), with the sim optimised. The `fast` profile
+      # (.config/nextest.toml) leaves out the route walks that take minutes each: `slow-sim` runs those beside this.
+      # Doc tests separately (nextest skips them).
       - name: tests
         run: |
-          cargo nextest run --workspace --locked --config 'profile.dev.package.crabsim.opt-level=3' --no-fail-fast --final-status-level slow
+          cargo nextest run --workspace --locked --config 'profile.dev.package.crabsim.opt-level=3' --profile fast --no-fail-fast
           cargo test --workspace --locked --doc --config 'profile.dev.package.crabsim.opt-level=3'
       - name: cellular worker (fmt, clippy, tests)
         run: |
@@ -219,6 +219,29 @@ jobs:
           BRIDGE_RESULT: ${{ needs.bridge-check.result }}
         run: bash tools/check-component-gate.sh
 
+
+  slow-sim:
+    name: slow sim routes (not required on pull requests)
+    # The sim's route walks ("boss is beatable", every region reached, economy pacing): a few minutes each, so they
+    # run beside the required tests instead of in them (nextest profile `slow`, .config/nextest.toml). On a pull
+    # request it shows red without blocking the merge; on main a failure opens the "main is broken" issue.
+    needs: changes
+    if: ${{ !inputs.preview_only && !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Rust (the version, targets and components in rust-toolchain.toml)
+        run: rustup toolchain install && rustc --version
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          key: slow-sim
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: cargo-nextest@0.9.151
+      - name: The sim's route walks
+        run: cargo nextest run -p crabsim --locked --config 'profile.dev.package.crabsim.opt-level=3' --profile slow --no-fail-fast
 
   determinism:
     name: native and wasm sims agree
@@ -340,15 +363,14 @@ jobs:
           tar -xzf binaryen.tgz -C "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/binaryen-version_${BINARYEN_VERSION}/bin" >> "$GITHUB_PATH"
           rm binaryen.tgz binaryen.tgz.sha256
-      # Off main, a faster link: thin LTO and the game crate in 16 parts. The full size-tuned build (fat LTO, one
-      # part) spent ~6 of this job's 9 minutes optimising the game crate. Previews download a little more; main and
-      # the live site keep the small build. The dependencies' cached builds are the same for both.
+      # Off main, the game crate compiles in 16 parts (main ships one part, the smallest download). Only that crate's
+      # settings change, so the dependencies' cached builds are reused; thin LTO rebuilt all of them.
       - name: Build the web game
         run: |
           if [ "$GITHUB_REF" != refs/heads/main ]; then
             # Cargo reads profile package overrides from config files, not environment variables.
-            printf '[profile.release]\nlto = "thin"\n[profile.release.package.crabscape]\ncodegen-units = 16\n' >> "${CARGO_HOME:-$HOME/.cargo}/config.toml"
-            echo "Fast preview build: thin LTO, 16 codegen units for the game crate (main ships fat LTO, 1 unit)" >> "$GITHUB_STEP_SUMMARY"
+            printf '[profile.release.package.crabscape]\ncodegen-units = 16\n' >> "${CARGO_HOME:-$HOME/.cargo}/config.toml"
+            echo "Preview build: the game crate in 16 codegen units (main ships 1)" >> "$GITHUB_STEP_SUMMARY"
           fi
           tools/build-web.sh
       - name: No relaxed SIMD (iPhone/WebKit rejects it)
@@ -430,10 +452,10 @@ jobs:
     # Software-rendered phone runs can finish gameplay/save assertions near 15 minutes.
     timeout-minutes: 20
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: WebKitGTK, its WebDriver and a virtual display
         timeout-minutes: 5
         run: bash tools/install-webkit-deps.sh
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: crabscape-web-${{ github.sha }}
@@ -460,10 +482,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: WebKitGTK, its WebDriver and a virtual display
         timeout-minutes: 5
         run: bash tools/install-webkit-deps.sh
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: crabscape-web-${{ github.sha }}
@@ -725,10 +747,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: WebKitGTK, its WebDriver and a virtual display
         timeout-minutes: 5
         run: bash tools/install-webkit-deps.sh
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: crabscape-web-${{ github.sha }}
@@ -947,7 +969,7 @@ jobs:
     name: report main's health
     # On main only: a failure opens (or adds to) one "main is broken" issue for the next Claude; a green run closes it.
     if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [changes, check, determinism, determinism-wasm-tests, art, web, browser, webkit-landscape, coop, king, hud-scale, memory-budget-fresh, deploy, smoke]
+    needs: [changes, check, slow-sim, determinism, determinism-wasm-tests, art, web, browser, webkit-landscape, coop, king, hud-scale, memory-budget-fresh, deploy, smoke]
     runs-on: ubuntu-latest
     permissions:
       issues: write
