@@ -74,6 +74,6 @@ if grep -En 'azure.*archive|sudo sed|webkitgtk-webdriver|webkit2gtk-driver' "$ro
   echo 'WebKit workflow must use shared setup without source rewriting.' >&2
   exit 1
 fi
-[ "$(grep -c 'run: bash tools/install-webkit-deps.sh' "$root/.github/workflows/ci.yml")" -eq 3 ]
-[ "$(grep -A2 'name: WebKitGTK, its WebDriver and a virtual display' "$root/.github/workflows/ci.yml" | grep -c 'timeout-minutes: 5')" -eq 3 ]
+[ "$(grep -c 'run: bash tools/install-webkit-deps.sh' "$root/.github/workflows/ci.yml")" -eq 4 ]
+[ "$(grep -A2 'name: WebKitGTK, its WebDriver and a virtual display' "$root/.github/workflows/ci.yml" | grep -c 'timeout-minutes: 5')" -eq 4 ]
 echo 'WebKit package setup regression tests passed.'

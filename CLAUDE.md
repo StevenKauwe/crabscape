@@ -113,14 +113,20 @@ See [the performance workflow and measured examples](docs/engineering/rust-perfo
   screenshots in the PR description showing them in-game. Show each new asset in its intended context; include
   before/after screenshots when changing existing visuals. A playable preview link or source-art file does not
   replace these screenshots.
-- CI (`.github/workflows/ci.yml`, Rust pinned in `rust-toolchain.toml`): fmt, clippy (native + wasm32), tests,
-  cargo-deny, the tidy tool's checks (and on `main`, a coverage report: see "Testing and linting" below), the web build, relaxed-SIMD check, a size report, the browser tests (after the web
-  build, at once: `cargo webtest` portrait and landscape in WebKit, `cargo cooptest` in three parts, frame strips;
-  the tools are built once beside the web build), native = wasm determinism (`tools/determinism.sh`, the sim's tests in wasmtime too) and an art
-  check (re-exports the rigs and oil atlases; the committed crab and creature art must match; on a Mac, take the
-  oil atlases from its `art-as-ci-made-it` download). On `main` it deploys
-  `web/` to GitHub Pages (https://stevenkauwe.github.io/crabscape/), then checks the live site starts
-  (`cargo webtest --smoke`). Branch protection requires the check, determinism, art, web and browser jobs.
+- CI (`.github/workflows/ci.yml`, Rust pinned in `rust-toolchain.toml`) has two depths (owner's call: PR CI was "way
+  too slow, way bloated"). **A pull request** runs one fast check per area: fmt, clippy (native + wasm32), tests
+  (cargo-nextest, the sim optimised), cargo-deny, the tidy tool's checks, the web build (thin LTO off main), the
+  relaxed-SIMD check, a size report, native = wasm scripts (`tools/determinism.sh`), the art check when art changed
+  (on a Mac, take the oil atlases from its `art-as-ci-made-it` download), and after the web build, at once: WebKit
+  portrait (`cargo webtest`), a co-op smoke (`cooptest --only join,guest-reload,cells-session`), the large-save
+  phone memory budget and the ground-drawn check. Its playable preview publishes as soon as the web build is done.
+  **Main** (and `gh workflow run ci.yml --ref <branch>`) also runs the slow, rarely-failing rest, marked "(main)":
+  every co-op scenario in four parts and Dragon, WebKit landscape and the Web Locks proof, King, HUD scale, the
+  fresh-save memory budget, frame strips and the sim's tests as WebAssembly. Those feed the "main is broken" issue
+  but never hold up the deploy; on main the deploy waits only for the web build and the fast checks (fmt, clippy,
+  tests, determinism scripts, art, WebKit portrait, the ground drawn), not co-op or the memory budget. On `main` it deploys `web/` to GitHub Pages (https://stevenkauwe.github.io/crabscape/),
+  then checks the live site starts (`cargo webtest --smoke`). Branch protection requires the check, determinism,
+  art, web and browser jobs. Coverage is on main only (see "Testing and linting" below).
 - **CI runs what a PR's files can affect** (`tools/changes.sh`, the `changes` job): words only (`*.md`, `docs/`,
   `.claude/skills/`) skip every heavy job and pass in seconds; the art check runs only for the art pipeline
   (`crates/crabrig`, `crates/painter`, `tools/oil-atlas`, `tools/paint-oil.sh`, `art/`, `assets/`), Cargo files, the
@@ -201,11 +207,12 @@ What each automatic check is for (commands in the table above; all in CI):
 
 **CI hygiene** (owner's rule: "testing and CI/CD hygiene are really important, so that changes are buttery smooth and
 fast"):
-- **Time budgets:** a code change's required checks finish in about 8 minutes wall time (7 is the target); a
-  docs-only change in under a minute. A PR that makes CI slower says so and why.
+- **Time budgets:** a code change's required checks finish in about 7 minutes wall time, its preview soon after
+  the web build; a docs-only change in under a minute. A PR that makes CI slower says so and why. A new slow or
+  rarely-failing check goes on main (`github.event_name != 'pull_request'`), not on every pull request.
 - **Independent work runs in parallel**, on separate jobs; nothing waits that doesn't depend on something (the
   browser tests fan out after the web build, and the required `browser test (WebKit, iPhone size)` is a gate over
-  them).
+  the pull request's set).
 - **Tests are hermetic and idempotent:** their own ports, profiles, temp dirs and seeds; no shared state; the same
   seed gives the same result; safe to run side by side and to re-run.
 - **Flaky means broken:** no automatic retries. A flaky test is fixed, or quarantined with an issue, never ignored.
