@@ -2301,8 +2301,8 @@ dependencies = [
 
 [[package]]
 name = "brushwork"
-version = "0.4.1"
-source = "git+https://github.com/StevenKauwe/brushwork?tag=v0.4.1#6e8a7c19f9bf306e4fed9c49965d5e8f688556fc"
+version = "0.6.2"
+source = "git+https://github.com/StevenKauwe/brushwork?tag=v0.6.2#a789efb026cfa56e6738fbec6f03e3fe751f807b"
 dependencies = [
  "brushwork-kit",
  "brushwork-paint",
@@ -2315,13 +2315,13 @@ dependencies = [
 
 [[package]]
 name = "brushwork-kit"
-version = "0.4.1"
-source = "git+https://github.com/StevenKauwe/brushwork?tag=v0.4.1#6e8a7c19f9bf306e4fed9c49965d5e8f688556fc"
+version = "0.6.2"
+source = "git+https://github.com/StevenKauwe/brushwork?tag=v0.6.2#a789efb026cfa56e6738fbec6f03e3fe751f807b"
 
 [[package]]
 name = "brushwork-paint"
-version = "0.4.1"
-source = "git+https://github.com/StevenKauwe/brushwork?tag=v0.4.1#6e8a7c19f9bf306e4fed9c49965d5e8f688556fc"
+version = "0.6.2"
+source = "git+https://github.com/StevenKauwe/brushwork?tag=v0.6.2#a789efb026cfa56e6738fbec6f03e3fe751f807b"
 dependencies = [
  "brushwork-kit",
 ]
