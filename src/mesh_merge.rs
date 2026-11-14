@@ -5,7 +5,7 @@
 //! so a phone held about 18,000 buffers at once; Safari charges each to the page, and the page was killed as soon as
 //! the crab moved (and on a desktop, ten thousand draws a frame made it slow).
 //!
-//! So each still shape with a shared material is folded, the frame it appears, into one mesh per patch of the map,
+//! So each still shape with a shared material is folded, once it has stayed put for a second, into one mesh per patch of the map,
 //! material and depth: its vertices are moved to where it stands and its own mesh is dropped. A shape that later
 //! moves, changes, hides or goes gets its own mesh back and its patch is rebuilt without it; it is never folded
 //! again. A shape that must keep its own mesh (one whose mesh is rewritten in place) carries [`NoMerge`].
@@ -25,6 +25,18 @@ pub const PATCH: f32 = 1024.0;
 /// Keep this shape's own mesh (its mesh is changed in place, or it is drawn on its own).
 #[derive(Component, Default, Clone, Copy)]
 pub struct NoMerge;
+
+/// Frames a shape must stay as it appeared before it is folded: effects that come and go never are (folding
+/// them would rebuild their patch, a new GPU buffer, every frame).
+pub const SETTLE: u32 = 60;
+
+/// A shape waiting to settle, with a copy of its mesh taken the frame it appeared (some meshes keep their data
+/// only on the GPU after that frame).
+#[derive(Component)]
+pub struct Waiting {
+    since: u32,
+    own: Mesh,
+}
 
 /// A shape folded into a patch mesh.
 #[derive(Component)]
@@ -91,7 +103,13 @@ impl<M: Material2d> Plugin for MeshMergePlugin<M> {
     fn build(&self, app: &mut App) {
         app.init_resource::<Folds<M>>().add_systems(
             PostUpdate,
-            (share_meshes, unfold::<M>, fold::<M>, rebuild::<M>)
+            (
+                share_meshes,
+                unfold::<M>,
+                wait::<M>,
+                fold::<M>,
+                rebuild::<M>,
+            )
                 .chain()
                 .after(TransformSystems::Propagate)
                 .after(VisibilitySystems::VisibilityPropagate),
@@ -255,7 +273,22 @@ fn unfold<M: Material2d>(
         ),
     >,
     mut gone: RemovedComponents<Folded>,
+    restless: Query<
+        Entity,
+        (
+            With<Waiting>,
+            Or<(
+                Changed<GlobalTransform>,
+                Changed<MeshMaterial2d<M>>,
+                Changed<InheritedVisibility>,
+                Changed<Mesh2d>,
+            )>,
+        ),
+    >,
 ) {
+    for entity in &restless {
+        commands.entity(entity).remove::<Waiting>().insert(Restless);
+    }
     let folds = &mut *folds;
     for entity in gone.read() {
         if let Some(piece) = folds.pieces.remove(&entity)
@@ -286,46 +319,78 @@ fn unfold<M: Material2d>(
     }
 }
 
-/// Shapes that just appeared, still and shown: folded into their patch, their own mesh dropped.
+/// Shapes that just appeared, shown: a copy of their mesh kept while they settle.
 #[allow(clippy::type_complexity)]
-fn fold<M: Material2d>(
+fn wait<M: Material2d>(
     mut commands: Commands,
-    mut folds: ResMut<Folds<M>>,
+    frames: Res<bevy::diagnostic::FrameCount>,
     meshes: Res<Assets<Mesh>>,
     new: Query<
-        (
-            Entity,
-            &Mesh2d,
-            &MeshMaterial2d<M>,
-            &GlobalTransform,
-            &InheritedVisibility,
-        ),
+        (Entity, &Mesh2d, &InheritedVisibility),
         (
             Added<Mesh2d>,
+            With<MeshMaterial2d<M>>,
             Without<NoMerge>,
             Without<Restless>,
             Without<Folded>,
+            Without<Waiting>,
             Without<Patch>,
             Without<Sprite>,
         ),
     >,
 ) {
-    let folds = &mut *folds;
-    for (entity, mesh, material, at, shown) in &new {
+    for (entity, mesh, shown) in &new {
         if !shown.get() {
             continue;
         }
         let Some(own) = meshes.get(&mesh.0) else {
             continue;
         };
-        if own.try_attributes().is_err() {
+        if own.try_attributes().is_err()
+            || own.primitive_topology() != PrimitiveTopology::TriangleList
+        {
             continue;
         }
+        commands.entity(entity).insert(Waiting {
+            since: frames.0,
+            own: own.clone(),
+        });
+    }
+}
+
+/// Shapes that stayed as they appeared for [`SETTLE`] frames: folded into their patch, their own mesh dropped.
+#[allow(clippy::type_complexity)]
+fn fold<M: Material2d>(
+    mut commands: Commands,
+    frames: Res<bevy::diagnostic::FrameCount>,
+    mut folds: ResMut<Folds<M>>,
+    settled: Query<(
+        Entity,
+        &Waiting,
+        &MeshMaterial2d<M>,
+        &GlobalTransform,
+        &InheritedVisibility,
+    )>,
+) {
+    let folds = &mut *folds;
+    for (entity, waiting, material, at, shown) in &settled {
+        if frames.0.wrapping_sub(waiting.since) < SETTLE {
+            continue;
+        }
+        let mut e = commands.entity(entity);
+        e.remove::<Waiting>();
+        if !shown.get() {
+            e.insert(Restless);
+            continue;
+        }
+        let own = &waiting.own;
         let Some(layout) = layout_of(own) else {
+            e.insert(Restless);
             continue;
         };
         let z = at.translation().z;
         let Some(placed) = placed(own, at, z) else {
+            e.insert(Restless);
             continue;
         };
         let centre = at.translation();
@@ -336,12 +401,18 @@ fn fold<M: Material2d>(
             y: (centre.y / PATCH).floor() as i32,
             layout,
         };
-        let own = own.clone();
         let patch = folds.patches.entry(key).or_default();
         patch.pieces.insert(entity);
         patch.dirty = true;
-        folds.pieces.insert(entity, Piece { key, own, placed });
-        commands.entity(entity).remove::<Mesh2d>().insert(Folded);
+        folds.pieces.insert(
+            entity,
+            Piece {
+                key,
+                own: own.clone(),
+                placed,
+            },
+        );
+        e.remove::<Mesh2d>().insert(Folded);
     }
 }
 

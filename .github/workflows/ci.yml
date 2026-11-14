@@ -12,6 +12,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      preview_only:
+        description: "Only build the web game and publish its preview (no checks): for trying a branch on a phone fast"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -61,7 +66,7 @@ jobs:
   game-check:
     name: game fmt, clippy (native + wasm32), tests
     needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.introducer == 'true') }}
+    if: ${{ !inputs.preview_only && (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.introducer == 'true')) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -126,7 +131,7 @@ jobs:
   bridge-check:
     name: CrabBridge authentication, transport and browser tests
     needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.bridge == 'true') }}
+    if: ${{ !inputs.preview_only && (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.bridge == 'true')) }}
     runs-on: ubuntu-24.04 # Pinned Playwright 1.60 supports this image; latest moved to unsupported 26.04.
     timeout-minutes: 30
     steps:
@@ -184,7 +189,7 @@ jobs:
     # Preserve the branch-protected name and gate BOTH independent products.
     name: fmt, clippy (native + wasm32), tests
     needs: [changes, game-check, bridge-check]
-    if: always()
+    if: ${{ !inputs.preview_only && (always()) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -204,7 +209,7 @@ jobs:
     name: native and wasm sims agree
     # The game rules must play out bit for bit the same natively and as WebAssembly (co-op and replays rely on it).
     needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true') }}
+    if: ${{ !inputs.preview_only && (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true')) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -228,7 +233,7 @@ jobs:
     # The oil atlases come out a few bits different on a Mac, so these Linux runs are the reference: on a
     # difference, the files as CI made them are uploaded (`art-as-ci-made-it`) to download and commit.
     needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.art == 'true') }}
+    if: ${{ !inputs.preview_only && (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.art == 'true')) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -329,7 +334,7 @@ jobs:
     # webtest, cooptest and the introducer, built once while the web build runs, for the browser jobs below (which
     # then need no Rust at all). They find web/ and target/ at the same checkout path on every runner.
     needs: changes
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.introducer == 'true') }}
+    if: ${{ !inputs.preview_only && (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.introducer == 'true')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -365,7 +370,7 @@ jobs:
     name: WebKit (${{ matrix.phone }} phone)
     # Plays the web build in WebKitGTK (the iPhone's engine) through WebDriver: tools/webtest.
     needs: [web, browser-tools]
-    if: ${{ !cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success' }}
+    if: ${{ !inputs.preview_only && (!cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success') }}
     runs-on: ubuntu-latest
     # Software-rendered phone runs can finish gameplay/save assertions near
     # 15 minutes; allow the isolated reset/lock proof and artifact cleanup too.
@@ -423,7 +428,7 @@ jobs:
     # tools/cooptest; coop.yml goes deeper on main). `--shard` splits the scenarios into parts of about equal time
     # and puts every scenario, a new one too, in exactly one part. Another part is one more number below.
     needs: [web, browser-tools]
-    if: ${{ !cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success' }}
+    if: ${{ !inputs.preview_only && (!cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -466,7 +471,7 @@ jobs:
     # Budget the full multi-floor tour, distinct settling frames and two
     # committed autosaves on a software renderer, including reload and return.
     needs: [web, browser-tools]
-    if: ${{ !cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success' }}
+    if: ${{ !inputs.preview_only && (!cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -495,7 +500,7 @@ jobs:
     # A phone at each density (every recent iPhone is 3x), upright and turned: the game lays its HUD out in the
     # page's CSS pixels and a click on Settings lands on it (src/screen_fit.rs). On its own runner: no co-op timing.
     needs: [web, browser-tools]
-    if: ${{ !cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success' }}
+    if: ${{ !inputs.preview_only && (!cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -525,7 +530,7 @@ jobs:
     # compile). This loads the game at home at desktop and phone size, fails on any shader that does not compile,
     # and samples the bottom band under the crab: it must be painted ground, not water.
     needs: [web, browser-tools]
-    if: ${{ !cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success' }}
+    if: ${{ !inputs.preview_only && (!cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -557,7 +562,7 @@ jobs:
     # the first terrain window shift, and fails if the game's WebAssembly memory or its WebGL pictures and buffers
     # pass their budgets (tools/cooptest/src/bin/memory_budget.rs). Fresh and a large explored save, side by side.
     needs: [web, browser-tools]
-    if: ${{ !cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success' }}
+    if: ${{ !inputs.preview_only && (!cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -590,7 +595,7 @@ jobs:
     # A smash in a few feel presets, as frame strips in the `webtest-feel` download. Information only: never fails
     # the run, and the `browser` gate doesn't wait for it.
     needs: [web, browser-tools]
-    if: ${{ !cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success' }}
+    if: ${{ !inputs.preview_only && (!cancelled() && needs.web.result == 'success' && needs.browser-tools.result == 'success') }}
     continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -624,7 +629,7 @@ jobs:
     # jobs: it passes only when the web build, the tools, both WebKit phones, King and every co-op part passed, or were
     # skipped (a change that can't affect the game). A failed or cancelled one fails it.
     needs: [web, browser-tools, webkit, coop, king, hud-scale, terrain-drawn, memory-budget]
-    if: always()
+    if: ${{ !inputs.preview_only && (always()) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -642,7 +647,8 @@ jobs:
     # Publishes this run's web build (no second build) to its own folder on the Pages site: /pr-<n>/ for a pull
     # request, /branches/<name>/ for a run started by hand on another branch (gh workflow run ci.yml --ref <name>).
     # The link is commented on the PR. Removed when the PR closes (previews.yml). See tools/previews.sh.
-    if: ${{ !cancelled() && needs.check.result == 'success' && needs.browser.result == 'success' && (needs.web.result == 'success' || (vars.CRABBRIDGE_PUBLISH_ENABLED == 'true' && needs.bridge-check.result == 'success')) && (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')) && !github.event.repository.private }}
+    # A run started by hand with preview_only publishes the web build without waiting for any check.
+    if: ${{ !cancelled() && ((needs.check.result == 'success' && needs.browser.result == 'success' && (needs.web.result == 'success' || (vars.CRABBRIDGE_PUBLISH_ENABLED == 'true' && needs.bridge-check.result == 'success'))) || (inputs.preview_only && needs.web.result == 'success')) && (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')) && !github.event.repository.private }}
     needs: [check, browser, web, bridge-check]
     runs-on: ubuntu-latest
     # Lock the entire store update -> snapshot -> deploy transaction, across all three writers.
@@ -717,7 +723,7 @@ jobs:
     # Pages for private repositories needs a paid plan, so only deploy when public.
     # (The private flag is read from the event, so a run started while private skips;
     # rerun with workflow_dispatch on main.)
-    if: ${{ !cancelled() && needs.check.result == 'success' && needs.browser.result == 'success' && (needs.determinism.result == 'success' || needs.determinism.result == 'skipped') && (needs.art.result == 'success' || needs.art.result == 'skipped') && (needs.web.result == 'success' || (vars.CRABBRIDGE_PUBLISH_ENABLED == 'true' && needs.bridge-check.result == 'success')) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && !github.event.repository.private }}
+    if: ${{ !inputs.preview_only && (!cancelled() && needs.check.result == 'success' && needs.browser.result == 'success' && (needs.determinism.result == 'success' || needs.determinism.result == 'skipped') && (needs.art.result == 'success' || needs.art.result == 'skipped') && (needs.web.result == 'success' || (vars.CRABBRIDGE_PUBLISH_ENABLED == 'true' && needs.bridge-check.result == 'success')) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && !github.event.repository.private) }}
     needs: [check, determinism, art, web, browser, bridge-check]
     runs-on: ubuntu-latest
     permissions:
@@ -785,7 +791,7 @@ jobs:
     # Loads the deployed site in WebKit and checks the game starts with no errors (cargo webtest --smoke). A failure
     # here feeds the "main is broken" issue like any other.
     needs: [deploy, browser-tools]
-    if: needs.deploy.result == 'success' && needs.browser-tools.result == 'success'
+    if: ${{ !inputs.preview_only && (needs.deploy.result == 'success' && needs.browser-tools.result == 'success') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -810,7 +816,7 @@ jobs:
   main-health:
     name: report main's health
     # On main only: a failure opens (or adds to) one "main is broken" issue for the next Claude; a green run closes it.
-    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: ${{ !inputs.preview_only && (always() && github.event_name == 'push' && github.ref == 'refs/heads/main') }}
     needs: [changes, check, determinism, art, web, browser, deploy, smoke]
     runs-on: ubuntu-latest
     permissions:

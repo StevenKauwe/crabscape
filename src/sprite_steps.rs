@@ -20,10 +20,10 @@ use std::collections::HashMap;
 pub const COLOUR_STEPS: f32 = 32.0;
 /// A sprite that changed this recently (frames) is animated, and is stepped.
 const ANIMATED_WITHIN: u32 = 30;
-/// How long an unused material is kept (frames: about five seconds).
-const KEEP_FRAMES: u32 = 300;
+/// How long an unused material is kept (frames: about ten seconds).
+const KEEP_FRAMES: u32 = 600;
 /// At most this many kept materials (the oldest go first).
-const KEEP_MAX: usize = 512;
+const KEEP_MAX: usize = 4096;
 
 /// Runs after `Update`, before Bevy turns changed sprites into materials (`PostUpdate`).
 #[derive(ScheduleLabel, Clone, Debug, PartialEq, Eq, Hash)]
