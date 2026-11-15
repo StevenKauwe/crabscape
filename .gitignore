@@ -9,8 +9,9 @@ mutants.out.old/
 # and committing a new copy on every change would bloat the repository fast.
 # web/index.html IS committed: it is hand-written source.
 /web/pkg/
-# The speech-to-text listener's compiled files (web/listen/worker.js is hand-written and committed).
-/web/listen/listen*
+# The shared speech runtime and verified model weights, installed from the pinned speechworks revision.
+/web/listen/runtime/
+/web/listen/speechworks-version.txt
 # Rust checkpoint worker binaries and generated wasm-bindgen glue.
 /web/cellworker/cellworker*
 

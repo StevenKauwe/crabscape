@@ -1,13 +1,15 @@
-//! The speech-to-text worker (`crates/listen`, started from
+//! The shared speechworks speech-to-text worker (started from
 //! `web/listen/worker.js`), shared by the report form's Speak (`report.rs`)
 //! and voice chat written down on the host's computer (`scribe.rs`). One
 //! worker for both, so the model is downloaded and held in memory once. It writes down one piece of
 //! sound at a time; a spoken report goes ahead of voice chat's lines, since
 //! the player is waiting for it.
 //!
-//! Each piece goes as `{ samples, id, first }`; the worker answers `{ state:
-//! "heard", id, text }` or `{ state: "failed", id, error }`, and
-//! `{ state: "loading" }` while it fetches the model the first time.
+//! Each piece goes as `{ type: "transcribe", samples, id, priority }`; the
+//! worker answers `{ type: "result", id, text }` or `{ type: "error", id,
+//! message }`. Progress messages cover lazy loading of the manifest's final
+//! model. The runtime, weights and model selection are pinned by the build;
+//! the game does not download third-party code or weights at runtime.
 
 use std::cell::RefCell;
 
@@ -79,14 +81,7 @@ pub fn ask(job: Job, samples: Float32Array) -> bool {
         on_message.forget();
         // The worker itself broke (its files didn't load, or it crashed): every piece at it fails.
         let on_error = Closure::<dyn FnMut(web_sys::ErrorEvent)>::new(|e: web_sys::ErrorEvent| {
-            bevy::log::warn!("listener: the worker failed: {}", e.message());
-            for (id, ..) in with(|l| l.jobs.clone()) {
-                let failed = Object::new();
-                let _ = Reflect::set(&failed, &"state".into(), &"failed".into());
-                let _ = Reflect::set(&failed, &"id".into(), &f64::from(id).into());
-                let _ = Reflect::set(&failed, &"error".into(), &e.message().into());
-                answered(&failed);
-            }
+            failed(&e.message());
         });
         worker.set_onerror(Some(on_error.as_ref().unchecked_ref()));
         on_error.forget();
@@ -99,10 +94,11 @@ pub fn ask(job: Job, samples: Float32Array) -> bool {
         l.jobs.push((l.next, job, js_sys::Date::now(), secs));
         l.next
     });
+    let _ = Reflect::set(&msg, &"type".into(), &"transcribe".into());
     let _ = Reflect::set(&msg, &"samples".into(), &samples);
     let _ = Reflect::set(&msg, &"id".into(), &f64::from(id).into());
-    let first = matches!(job, Job::Report);
-    let _ = Reflect::set(&msg, &"first".into(), &first.into());
+    let priority = matches!(job, Job::Report);
+    let _ = Reflect::set(&msg, &"priority".into(), &priority.into());
     if with(|l| l.started) {
         post(&msg);
     } else {
@@ -112,8 +108,33 @@ pub fn ask(job: Job, samples: Float32Array) -> bool {
 }
 
 fn post(msg: &Object) {
-    if let Some(w) = with(|l| l.worker.clone()) {
-        let _ = w.post_message(msg);
+    if let Some(w) = with(|l| l.worker.clone())
+        && let Err(error) = w.post_message(msg)
+    {
+        failed(&format!("Could not send speech to the listener: {error:?}"));
+    }
+}
+
+/// An initialization error has no job id. Release every caller and discard
+/// the failed worker so the next explicit recording can try again.
+fn failed(message: &str) {
+    bevy::log::warn!("listener: the worker failed: {message}");
+    let (worker, jobs) = with(|l| {
+        l.started = false;
+        l.loaded = false;
+        l.waiting.clear();
+        (l.worker.take(), std::mem::take(&mut l.jobs))
+    });
+    if let Some(worker) = worker {
+        worker.set_onmessage(None);
+        worker.set_onerror(None);
+        worker.terminate();
+    }
+    for (_, job, ..) in jobs {
+        match job {
+            Job::Report => crate::report::listened(Reply::Failed(message.into())),
+            Job::Voice { at, voice } => crate::scribe::web::heard(voice, at, None),
+        }
     }
 }
 
@@ -128,8 +149,8 @@ fn answered(data: &JsValue) {
     let id = Reflect::get(data, &"id".into())
         .ok()
         .and_then(|v| v.as_f64())
-        .map_or(0, |v| v as u32);
-    let state = get("state");
+        .map(|v| v as u32);
+    let state = get("type");
     match state.as_str() {
         "ready" => {
             let waiting = with(|l| {
@@ -140,7 +161,7 @@ fn answered(data: &JsValue) {
                 post(msg);
             }
         }
-        "loading" => {
+        "progress" => {
             let report = with(|l| l.jobs.iter().any(|(_, j, ..)| matches!(j, Job::Report)));
             if report {
                 crate::report::listened(Reply::Loading);
@@ -148,7 +169,9 @@ fn answered(data: &JsValue) {
                 crate::scribe::web::loading();
             }
         }
-        "heard" | "failed" => {
+        "error" if id.is_none() => failed(&get("message")),
+        "result" | "error" => {
+            let Some(id) = id else { return };
             let job = with(|l| {
                 let i = l.jobs.iter().position(|(j, ..)| *j == id)?;
                 let (_, job, sent, secs) = l.jobs.remove(i);
@@ -159,16 +182,16 @@ fn answered(data: &JsValue) {
                 );
                 Some(job)
             });
-            let heard = state == "heard";
+            let heard = state == "result";
             if heard {
                 with(|l| l.loaded = true);
             }
             match job {
                 Some(Job::Report) if heard => crate::report::listened(Reply::Heard(get("text"))),
-                Some(Job::Report) => crate::report::listened(Reply::Failed(get("error"))),
+                Some(Job::Report) => crate::report::listened(Reply::Failed(get("message"))),
                 Some(Job::Voice { at, voice }) => {
                     if !heard {
-                        bevy::log::warn!("voice: writing down failed: {}", get("error"));
+                        bevy::log::warn!("voice: writing down failed: {}", get("message"));
                     }
                     crate::scribe::web::heard(voice, at, heard.then(|| get("text")));
                 }

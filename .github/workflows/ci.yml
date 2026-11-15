@@ -99,6 +99,8 @@ jobs:
       # unimplemented!, no unwrap() in crates/sim outside tests).
       - name: cargo fmt
         run: cargo fmt --all --check
+      - name: Speech runtime installation boundaries
+        run: bash tools/test-speechworks-install.sh
       - name: clippy (native, game + art tools)
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       # The game only: the art tools never run in a browser.
@@ -376,7 +378,8 @@ jobs:
       - name: No relaxed SIMD (iPhone/WebKit rejects it)
         run: |
           wasm-tools validate --features=-relaxed-simd web/pkg/crabscape_bg.wasm
-          wasm-tools validate --features=-relaxed-simd web/listen/listen_bg.wasm
+          version=$(cat web/listen/speechworks-version.txt)
+          wasm-tools validate --features=-relaxed-simd "web/listen/runtime/$version/speechworks_web_bg.wasm"
           wasm-tools validate --features=-relaxed-simd web/cellworker/cellworker_bg.wasm
           wasm-tools validate --features=-relaxed-simd web/dragon/pkg/dragon_peer_bg.wasm
           wasm-tools validate --features=-relaxed-simd web/kingworker/kingworker_bg.wasm

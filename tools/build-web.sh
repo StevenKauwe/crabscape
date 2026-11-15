@@ -46,12 +46,11 @@ rm -rf web/pkg
 wasm-bindgen --target web --no-typescript --out-dir web/pkg \
   "$build_target"/wasm32-unknown-unknown/release/crabscape.wasm
 
-# The speech-to-text listener for spoken reports and voice chat (crates/listen):
-# its own small module, loaded in a background worker only when used.
-RUSTFLAGS='' cargo build --release --target wasm32-unknown-unknown -p listen
-rm -f web/listen/listen*
-wasm-bindgen --target web --no-typescript --out-dir web/listen \
-  "$build_target"/wasm32-unknown-unknown/release/listen.wasm
+# Spoken reports and voice chat use the same speechworks engine as Agency Platform.
+# Install a pinned, independently built Rust/WASM runtime and its self-hosted weights.
+tools/install-speechworks.sh
+speechworks_version=$(cat web/listen/speechworks-version.txt)
+listen="web/listen/runtime/$speechworks_version/speechworks_web_bg.wasm"
 
 # Checkpoint compression is a small standalone Rust worker. Keep its
 # wasm-bindgen glue at the same version as the game's loader.
@@ -92,19 +91,19 @@ fi
 # 4. Refuse to ship a module that uses relaxed SIMD (WebKit rejects it).
 if command -v wasm-tools >/dev/null; then
   wasm-tools validate --features=-relaxed-simd "$wasm"
-  wasm-tools validate --features=-relaxed-simd web/listen/listen_bg.wasm
+  wasm-tools validate --features=-relaxed-simd "$listen"
   wasm-tools validate --features=-relaxed-simd web/cellworker/cellworker_bg.wasm
   echo "wasm-tools: modules are valid without relaxed SIMD"
 else
   echo "(wasm-tools not found: skipping the relaxed-SIMD check)"
 fi
 
-# 5. Stamp each module's glue and .wasm together: the page (and the listener's
-#    worker) fetches the stamp fresh and loads both with it in the address, so a
+# 5. Stamp each module's glue and .wasm together: the page fetches the stamp
+#    fresh and loads both with it in the address, so a
 #    browser never pairs a cached old glue with a new .wasm after an update.
+#    Speechworks has a source/model-manifest version directory and fresh stamp.
 stamp() { cat "$@" | cksum | awk '{print $1}'; }
 stamp web/pkg/crabscape.js "$wasm" > web/pkg/version.txt
-stamp web/listen/listen.js web/listen/listen_bg.wasm > web/listen/listen-version.txt
 stamp web/cellworker/cellworker.js web/cellworker/cellworker_bg.wasm > web/cellworker/cellworker-version.txt
 # The version this site serves, which a co-op game fetches fresh when it meets a
 # friend on another one: whichever game doesn't match it reloads (src/coop.rs).
@@ -121,7 +120,6 @@ cp -R assets/king-ddd web/assets/
 raw=$(wc -c < "$wasm")
 gz=$(gzip -9 -c "$wasm" | wc -c)
 echo "Built web/ — $wasm is $((raw / 1024)) KiB ($((gz / 1024)) KiB gzipped)"
-listen=web/listen/listen_bg.wasm
 echo "  and $listen (spoken reports and voice chat, loaded only when used) is $(($(wc -c < "$listen") / 1024)) KiB ($(($(gzip -9 -c "$listen" | wc -c) / 1024)) KiB gzipped)"
 worker=web/cellworker/cellworker_bg.wasm
 echo "  and $worker (checkpoint compression, loaded only when used) is $(($(wc -c < "$worker") / 1024)) KiB ($(($(gzip -9 -c "$worker" | wc -c) / 1024)) KiB gzipped)"
