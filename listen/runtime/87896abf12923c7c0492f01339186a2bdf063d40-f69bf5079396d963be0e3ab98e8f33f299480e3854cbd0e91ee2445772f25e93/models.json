@@ -1,0 +1,84 @@
+{
+  "defaults": {
+    "draft": "streaming-medium",
+    "final": "streaming-medium"
+  },
+  "models": {
+    "base": {
+      "architecture": "moonshine",
+      "bytes": 77476480,
+      "license": "MIT",
+      "parts": [
+        {
+          "bytes": 67108864,
+          "url": "7f0027dfd857d310b63a85ef57cadf183da712cc374f85a648f8bc18aaa2efc8.gguf.part-000"
+        },
+        {
+          "bytes": 10367616,
+          "url": "7f0027dfd857d310b63a85ef57cadf183da712cc374f85a648f8bc18aaa2efc8.gguf.part-001"
+        }
+      ],
+      "sha256": "7f0027dfd857d310b63a85ef57cadf183da712cc374f85a648f8bc18aaa2efc8",
+      "url": "models/7f0027dfd857d310b63a85ef57cadf183da712cc374f85a648f8bc18aaa2efc8.gguf"
+    },
+    "streaming-medium": {
+      "architecture": "moonshine_streaming",
+      "bytes": 295793568,
+      "license": "MIT",
+      "parts": [
+        {
+          "bytes": 67108864,
+          "url": "f7c9564249b508f6012927ec4f9e536087da53a7047f858ca9975bea5f75299e.gguf.part-000"
+        },
+        {
+          "bytes": 67108864,
+          "url": "f7c9564249b508f6012927ec4f9e536087da53a7047f858ca9975bea5f75299e.gguf.part-001"
+        },
+        {
+          "bytes": 67108864,
+          "url": "f7c9564249b508f6012927ec4f9e536087da53a7047f858ca9975bea5f75299e.gguf.part-002"
+        },
+        {
+          "bytes": 67108864,
+          "url": "f7c9564249b508f6012927ec4f9e536087da53a7047f858ca9975bea5f75299e.gguf.part-003"
+        },
+        {
+          "bytes": 27358112,
+          "url": "f7c9564249b508f6012927ec4f9e536087da53a7047f858ca9975bea5f75299e.gguf.part-004"
+        }
+      ],
+      "sha256": "f7c9564249b508f6012927ec4f9e536087da53a7047f858ca9975bea5f75299e",
+      "url": "models/f7c9564249b508f6012927ec4f9e536087da53a7047f858ca9975bea5f75299e.gguf"
+    },
+    "streaming-small": {
+      "architecture": "moonshine_streaming",
+      "bytes": 198506848,
+      "license": "MIT",
+      "parts": [
+        {
+          "bytes": 67108864,
+          "url": "d03670f69629b649085d0f44a63d97668b4119117cc9611a4e4ad94341713dfc.gguf.part-000"
+        },
+        {
+          "bytes": 67108864,
+          "url": "d03670f69629b649085d0f44a63d97668b4119117cc9611a4e4ad94341713dfc.gguf.part-001"
+        },
+        {
+          "bytes": 64289120,
+          "url": "d03670f69629b649085d0f44a63d97668b4119117cc9611a4e4ad94341713dfc.gguf.part-002"
+        }
+      ],
+      "sha256": "d03670f69629b649085d0f44a63d97668b4119117cc9611a4e4ad94341713dfc",
+      "url": "models/d03670f69629b649085d0f44a63d97668b4119117cc9611a4e4ad94341713dfc.gguf"
+    },
+    "tiny": {
+      "architecture": "moonshine",
+      "bytes": 35466912,
+      "license": "MIT",
+      "sha256": "2fd348d7b38f97d309cc3ec6848f3f57f537b80244950f07d2637e463f95a3a1",
+      "url": "models/2fd348d7b38f97d309cc3ec6848f3f57f537b80244950f07d2637e463f95a3a1.gguf"
+    }
+  },
+  "sampleRate": 16000,
+  "schema": 1
+}
