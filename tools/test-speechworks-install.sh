@@ -20,7 +20,8 @@ while (($#)); do
 done
 [[ "${INSTALL_FAIL:-}" != 1 ]] || exit 7
 for file in worker.js worker-entry.js speechworks.js capture-worklet.js \
-  transcript.js speechworks_web.js speechworks_web_bg.wasm models.json; do
+  transcript.js model-cache.js runtime-loader.js runtime-config.js pool-owner.js \
+  speechworks_web.js speechworks_web_bg.wasm models.json; do
   [[ "${INSTALL_PARTIAL:-}" != 1 || "$file" != worker.js ]] || continue
   printf 'installation fixture\n' > "$destination/$file"
 done

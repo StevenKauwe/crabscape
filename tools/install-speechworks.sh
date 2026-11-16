@@ -67,7 +67,8 @@ fi
 RUSTFLAGS='' CARGO_TARGET_DIR="$cache/build" bash "$source/tools/install-web.sh" \
   "${install_args[@]}"
 for file in worker.js worker-entry.js speechworks.js capture-worklet.js \
-  transcript.js speechworks_web.js speechworks_web_bg.wasm models.json; do
+  transcript.js model-cache.js runtime-loader.js runtime-config.js pool-owner.js \
+  speechworks_web.js speechworks_web_bg.wasm models.json; do
   [[ -s "$stage/$file" ]] || {
     echo "Speechworks installation is incomplete: missing $file." >&2
     exit 1

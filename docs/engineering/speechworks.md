@@ -26,6 +26,10 @@ the matching job. An initialization failure releases every waiting caller and
 discards the worker, allowing the next recording to try again.
 
 The manifest's final-model selection is used for complete report/chat clips.
+The pinned default is Moonshine Streaming Medium (295.8 MB); Streaming Small
+(198.5 MB) uses the same native Rust architecture and can be selected through a
+custom manifest. Browser downloads are cached in bounded pieces and verified on
+every load. See Speechworks' [measured streaming results](https://github.com/StevenKauwe/speechworks/blob/main/docs/moonshine-streaming.md).
 Model and backend policy belongs in that manifest and the worker options, not
 in `src/listener.rs`. The shared library also supports live dictation sessions;
 the game's existing transcript flow continues to submit complete utterances.
