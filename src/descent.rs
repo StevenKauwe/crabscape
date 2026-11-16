@@ -62,8 +62,9 @@ const SHELF_LIGHT: Color = Color::srgb(0.84, 0.97, 0.92);
 const WALL_DIM: Color = Color::srgba(0.01, 0.035, 0.05, 0.70);
 const SEAM: Color = Color::srgba(0.0, 0.02, 0.03, 0.30);
 /// The open plug's opening: lit water, the shelf's light coming through (seen live, a near-black fill read as a
-/// lid capping the light it pours, not as a way through).
-const HOLE: Color = Color::srgb(0.40, 0.56, 0.56);
+/// lid capping the light it pours, not as a way through; at 0.40/0.56/0.56 the remembered rock material lit it
+/// as a flat bright cyan block, so it sits only a little over the sea's own colour).
+const HOLE: Color = Color::srgb(0.17, 0.27, 0.29);
 
 pub struct DescentPlugin;
 
