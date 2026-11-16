@@ -57,7 +57,9 @@ models="${SPEECHWORKS_MODEL_DIR:-$cache/models}"
 mkdir -p "$models"
 models=$(cd "$models" && pwd)
 stage=$(mktemp -d "$root/web/listen/runtime/.install.XXXXXX")
-install_args=(--dest "$stage" --model-dir "$models")
+# The preview store is a Git branch: keep every model file below GitHub's
+# 100 MB limit while retaining same-origin downloads and the full pinned hash.
+install_args=(--dest "$stage" --model-dir "$models" --model-part-bytes 67108864)
 if [[ -n "${SPEECHWORKS_MANIFEST:-}" ]]; then
   manifest_dir=$(cd "$(dirname "$SPEECHWORKS_MANIFEST")" && pwd)
   install_args+=(--manifest "$manifest_dir/$(basename "$SPEECHWORKS_MANIFEST")")
@@ -67,7 +69,7 @@ fi
 RUSTFLAGS='' CARGO_TARGET_DIR="$cache/build" bash "$source/tools/install-web.sh" \
   "${install_args[@]}"
 for file in worker.js worker-entry.js speechworks.js capture-worklet.js \
-  transcript.js model-cache.js runtime-loader.js runtime-config.js pool-owner.js \
+  transcript.js model-cache.js model-source.js runtime-loader.js runtime-config.js pool-owner.js \
   speechworks_web.js speechworks_web_bg.wasm models.json; do
   [[ -s "$stage/$file" ]] || {
     echo "Speechworks installation is incomplete: missing $file." >&2

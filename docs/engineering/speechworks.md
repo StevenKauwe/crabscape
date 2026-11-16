@@ -15,6 +15,10 @@ site contains the runtime, model manifest and weights beneath
 `web/listen/runtime/<revision>-<manifest-sha256>/`. Runtime requests stay on the site's origin;
 speech never goes to a server. Generated files and model weights are not
 committed to the game repository.
+Models larger than 64 MiB are installed as ordered download pieces so the
+preview store stays below GitHub's 100 MB file limit. Speechworks reassembles
+them while downloading, then verifies the original complete model checksum.
+This does not change the weights or require an external download origin.
 
 `web/listen/worker.js` fetches the build's revision stamp without using a cached
 response, then imports the runtime at its immutable URL. Changing model policy

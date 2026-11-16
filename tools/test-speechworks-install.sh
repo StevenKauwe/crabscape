@@ -15,12 +15,14 @@ while (($#)); do
     --dest) destination=$2; shift 2 ;;
     --model-dir) shift 2 ;;
     --manifest) manifest=$2; shift 2 ;;
+    --model-part-bytes) part_bytes=$2; shift 2 ;;
     *) exit 2 ;;
   esac
 done
+[[ "${part_bytes:-}" == 67108864 ]] || { echo 'Model files would exceed the preview host limit.' >&2; exit 3; }
 [[ "${INSTALL_FAIL:-}" != 1 ]] || exit 7
 for file in worker.js worker-entry.js speechworks.js capture-worklet.js \
-  transcript.js model-cache.js runtime-loader.js runtime-config.js pool-owner.js \
+  transcript.js model-cache.js model-source.js runtime-loader.js runtime-config.js pool-owner.js \
   speechworks_web.js speechworks_web_bg.wasm models.json; do
   [[ "${INSTALL_PARTIAL:-}" != 1 || "$file" != worker.js ]] || continue
   printf 'installation fixture\n' > "$destination/$file"
