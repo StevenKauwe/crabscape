@@ -444,9 +444,12 @@ fn button(browser: &mut Chrome, name: &str) -> Result<()> {
             return Err(e);
         }
         if Instant::now() > until {
+            failure_evidence(browser);
             return Err(format!(
-                "Button {name} unavailable; mode={:?}; {text}",
-                browser.attr("data-king-ddd")
+                "Button {name} unavailable; mode={:?}; crab={:?}; progress={:?}; {text}",
+                browser.attr("data-king-ddd"),
+                browser.attr("data-crab"),
+                browser.attr("data-royal-progress")
             ));
         }
         sleep(Duration::from_millis(50));
