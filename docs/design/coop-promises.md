@@ -84,7 +84,7 @@ or a friend standing in for it) writes down everyone, its own player from its mi
 it arrives, and sends every line to everyone. With `--voice on`, every scenario also checks that each player in a
 guest world says "not writing (Guest)" and the one running the world (the host or a stand-in) doesn't, so a guest
 never listens for speech or starts the model. The rest are
-checked by fast tests (the browser runs can't, without downloading the 110 MB model):
+checked by fast tests (the co-op browser runs use a beeping microphone, without running speech inference):
 
 | Promise | Fast test |
 |---|---|

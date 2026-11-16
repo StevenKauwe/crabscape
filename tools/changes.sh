@@ -27,8 +27,8 @@ while IFS= read -r path; do
   code=true
   case "$path" in
     src/* | crates/dragon-peer/* | crates/king-ddd/* | tools/kingworker/* | tools/build-king.sh | assets/king-ddd/* | \
-      crates/sim/* | crates/listen/* | web/* | tools/webtest/* | tools/cooptest/* | tools/tidy/* | tools/cellworker/* | vendor/* | \
-      tools/build-web.sh | tools/build-dragon.sh | tools/determinism.sh | tools/mutants-pr.sh | \
+      crates/sim/* | web/* | tools/webtest/* | tools/cooptest/* | tools/tidy/* | tools/cellworker/* | vendor/* | \
+      tools/build-web.sh | tools/build-dragon.sh | tools/install-speechworks.sh | tools/test-speechworks-install.sh | tools/speechworks-revision.txt | tools/determinism.sh | tools/mutants-pr.sh | \
       .cargo/mutants.toml | .config/nextest.toml | .github/workflows/mutants-weekly.yml | .github/workflows/coop.yml | .github/workflows/coverage.yml) ;;
     crates/crabrig/* | crates/painter/* | tools/oil-atlas/* | tools/paint-oil.sh | art/* | assets/*) art=true ;;
     *) art=true; introducer=true; bridge=true ;;

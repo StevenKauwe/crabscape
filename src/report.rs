@@ -18,8 +18,8 @@
 //! read, change or cut before Send.
 //!
 //! Speak records a few sentences and turns them into text on the device
-//! itself (`crates/listen`, Moonshine tiny, in a background worker shared
-//! with voice chat, `listener.rs`): the sound never leaves it. The model (about 110 MB) downloads the first time
+//! itself (the pinned speechworks runtime, in a background worker shared
+//! with voice chat, `listener.rs`): the sound never leaves it. The selected model downloads the first time
 //! someone speaks a report, then stays in the browser's cache. Phones'
 //! keyboard dictation works in the box too.
 //!
@@ -854,7 +854,7 @@ mod web {
         listen(Float32Array::from(samples.as_slice()));
     }
 
-    /// The listener's sample rate (see `crates/listen`).
+    /// The shared speechworks listener's sample rate.
     fn listen_rate() -> u32 {
         16_000
     }
@@ -869,9 +869,7 @@ mod web {
     /// The listener's answer for a spoken report.
     pub(crate) fn listened(reply: Reply) {
         match reply {
-            Reply::Loading => {
-                note("Getting the listening model (about 110 MB, only the first time)...")
-            }
+            Reply::Loading => note("Getting the listening model for this device..."),
             Reply::Heard(text) if text.is_empty() => {
                 note("Didn't catch that: try again, a bit closer to the microphone.")
             }

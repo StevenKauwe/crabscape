@@ -11,7 +11,7 @@
 //! (an utterance: from the first loud moment until the voice stops for a
 //! moment, at most [`UTTERANCE_MAX`] seconds; clicks, coughs and a test
 //! microphone's beeps are left out), and each one goes to the speech-to-text
-//! worker the report form's Speak uses (`listener.rs`, `crates/listen`). The
+//! worker the report form's Speak uses (`listener.rs`, speechworks). The
 //! sound never leaves the host's device; the words do: each line (the
 //! speaker's crab name, when, the words) goes to every friend over the co-op
 //! connection the moment it's written down, and every device keeps
@@ -653,7 +653,7 @@ pub(crate) mod web {
     const KEY: &str = "-voice-transcript";
     /// How long a note shows (seconds).
     const NOTE_FOR: f64 = 9.0;
-    /// The listener's sample rate (`crates/listen`).
+    /// The shared speechworks listener's sample rate.
     const LISTEN_RATE: f32 = 16_000.0;
     /// Samples the sound hands over at once (about 85 ms at 48 kHz).
     const BLOCK: u32 = 4096;
@@ -1023,7 +1023,7 @@ pub(crate) mod web {
 
     /// The model is downloading for the first time.
     pub fn loading() {
-        note("Getting the voice-to-text model (about 110 MB, only the first time)...");
+        note("Getting the voice-to-text model for this device...");
     }
 
     /// The host's device sent a line.

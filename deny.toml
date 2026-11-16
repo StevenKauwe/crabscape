@@ -26,13 +26,13 @@ yanked = "deny"
 unused-ignored-advisory = "allow"
 # Each ignore says why it can't reach us. Drop it once the dependency moves past the fixed version.
 ignore = [
-    # zip 7 (under candle-core, in crates/listen): these are about ZipArchive::extract writing an archive to disk.
-    # candle only reads tensors out of .npz/.pth archives (never extract), and listen loads safetensors, no zip.
-    # Fixed in zip 9; candle-core 0.9 still needs zip 7.
-    { id = "RUSTSEC-2026-0367", reason = "zip extract(): candle never extracts archives" },
-    { id = "RUSTSEC-2026-0368", reason = "zip extract(): candle never extracts archives" },
-    { id = "RUSTSEC-2026-0369", reason = "zip extract(): candle never extracts archives" },
-    { id = "RUSTSEC-2026-0429", reason = "zip extract(): candle never extracts archives" },
+    # zip 3 (under gridcraft-xlsx): these concern extract() writing archives to disk.
+    # gridcraft reads individual XLSX parts from in-memory bytes, never extract().
+    # The old Candle/zip 7 dependency is gone with the local speech implementation.
+    { id = "RUSTSEC-2026-0367", reason = "zip extract(): gridcraft only reads XLSX parts in memory" },
+    { id = "RUSTSEC-2026-0368", reason = "zip extract(): gridcraft only reads XLSX parts in memory" },
+    { id = "RUSTSEC-2026-0369", reason = "zip extract(): gridcraft only reads XLSX parts in memory" },
+    { id = "RUSTSEC-2026-0429", reason = "zip extract(): gridcraft only reads XLSX parts in memory" },
 ]
 
 [licenses]
